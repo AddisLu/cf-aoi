@@ -1,0 +1,35 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CfAoiControl.ViewModels"
+             x:Class="CfAoiControl.Views.SystemSettingsView"
+             x:DataType="vm:SystemSettingsViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="10" MaxWidth="560" HorizontalAlignment="Left">
+      <TextBlock Text="系統設定" FontSize="18" FontWeight="Bold"/>
+      <TextBlock Text="（值來自 appsettings.json，無 hardcode）" Foreground="#888" FontSize="11"/>
+
+      <Grid ColumnDefinitions="140,*">
+        <Grid.RowDefinitions>
+          <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="IP Host" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding IpHost}"/>
+        <TextBlock Grid.Row="1" Text="IP Port" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding IpPort}"/>
+        <TextBlock Grid.Row="2" Text="上位機 Port" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding UpstreamPort}"/>
+        <TextBlock Grid.Row="3" Text="RecipeDir" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="3" Grid.Column="1" Text="{Binding RecipeDir}"/>
+        <TextBlock Grid.Row="4" Text="OutputDir" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="4" Grid.Column="1" Text="{Binding OutputDir}"/>
+        <TextBlock Grid.Row="5" Text="ImageDir" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="5" Grid.Column="1" Text="{Binding ImageDir}"/>
+      </Grid>
+
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <Button Content="測試 IP 連線" Command="{Binding TestConnectionCommand}"/>
+        <TextBlock Text="{Binding TestResult}" VerticalAlignment="Center"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,0 +1,30 @@
+# ===== Build outputs =====
+# C++ / CMake (IP)
+ip/build/
+**/build/
+*.o
+*.obj
+
+# .NET (Control)
+**/bin/
+**/obj/
+*.user
+.vs/
+
+# ===== Runtime-generated =====
+# 執行期/部署期產生（含測試用配方），不版控
+output/
+**/output/
+recipes/
+*.log
+
+# ===== Large reference material (1.4G) — 另外保存，不進 git =====
+Reference/
+
+# ===== OS / editor junk =====
+.DS_Store
+*~
+*.swp
+
+# ===== Misc =====
+/tmp/

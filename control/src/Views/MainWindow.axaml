@@ -1,0 +1,63 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:CfAoiControl.ViewModels"
+        xmlns:svc="using:CfAoiControl.Services"
+        x:Class="CfAoiControl.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Width="1280" Height="800"
+        Title="CF-AOI Control">
+
+  <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
+
+  <DockPanel>
+    <!-- 頂部：標題 + 連線狀態燈 -->
+    <Border DockPanel.Dock="Top" Background="#2d2d30" Padding="10,6">
+      <StackPanel Orientation="Horizontal" Spacing="14">
+        <TextBlock Text="CF-AOI" Foreground="White" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
+        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <Ellipse Width="11" Height="11" Fill="{Binding IsIpConnected, Converter={StaticResource BoolToGreenRed}}"/>
+          <TextBlock Text="IP" Foreground="White" VerticalAlignment="Center"/>
+          <Ellipse Width="11" Height="11" Margin="8,0,0,0" Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
+          <TextBlock Text="Grab" Foreground="White" VerticalAlignment="Center"/>
+          <Ellipse Width="11" Height="11" Margin="8,0,0,0" Fill="{Binding IsUpstreamConnected, Converter={StaticResource BoolToGreenRed}}"/>
+          <TextBlock Text="上位機" Foreground="White" VerticalAlignment="Center"/>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- 底部狀態列 -->
+    <Border DockPanel.Dock="Bottom" Background="#f3f4f6" Padding="10,4">
+      <TextBlock Text="{Binding StatusMessage}"/>
+    </Border>
+
+    <!-- 左側導覽 + Log -->
+    <Border DockPanel.Dock="Left" Width="190" Background="#fafafa" BorderBrush="#e0e0e0" BorderThickness="0,0,1,0">
+      <StackPanel Margin="8" Spacing="4">
+        <TextBlock Text="驗證步驟" FontWeight="Bold" Margin="0,6,0,4"/>
+        <Button HorizontalAlignment="Stretch" Command="{Binding SelectStepCommand}" CommandParameter="1" Content="Step 1：演算法驗證"/>
+        <Button HorizontalAlignment="Stretch" Command="{Binding SelectStepCommand}" CommandParameter="2" Content="Step 2-3：RDMA 驗證" IsEnabled="False"/>
+        <Button HorizontalAlignment="Stretch" Command="{Binding SelectStepCommand}" CommandParameter="4" Content="Step 4：存圖模式" IsEnabled="False"/>
+        <Button HorizontalAlignment="Stretch" Command="{Binding SelectStepCommand}" CommandParameter="5" Content="Step 5：完整生產" IsEnabled="False"/>
+        <Separator Margin="0,8"/>
+        <Button HorizontalAlignment="Stretch" Command="{Binding OpenRecipeEditorCommand}" Content="配方編輯"/>
+        <Button HorizontalAlignment="Stretch" Command="{Binding OpenSettingsCommand}" Content="系統設定"/>
+
+        <TextBlock Text="系統 Log" FontWeight="Bold" Margin="0,12,0,4"/>
+        <Border BorderBrush="#e0e0e0" BorderThickness="1" Background="#FFFFF8" Height="280">
+          <ListBox ItemsSource="{Binding Log.Entries}" Background="Transparent">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="svc:LogEntry">
+                <TextBlock Text="{Binding Display}" FontSize="11" TextWrapping="Wrap"
+                           Foreground="{Binding Level, Converter={StaticResource LogLevelToBrush}}"/>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <!-- 右側：依步驟切換 -->
+    <ContentControl Content="{Binding CurrentView}"/>
+  </DockPanel>
+</Window>

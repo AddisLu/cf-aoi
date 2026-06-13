@@ -1,0 +1,22 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CfAoiControl.App"
+             xmlns:local="using:CfAoiControl"
+             xmlns:conv="using:CfAoiControl.Converters"
+             RequestedThemeVariant="Default">
+
+    <Application.DataTemplates>
+        <local:ViewLocator/>
+    </Application.DataTemplates>
+
+    <Application.Resources>
+        <conv:BoolToGreenRedConverter x:Key="BoolToGreenRed"/>
+        <conv:LogLevelToBrushConverter x:Key="LogLevelToBrush"/>
+        <conv:DefectTypeToBrushConverter x:Key="DefectTypeToBrush"/>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+    </Application.Styles>
+</Application>

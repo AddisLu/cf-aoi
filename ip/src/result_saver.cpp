@@ -1,0 +1,261 @@
+#include "result_saver.h"
+
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+
+#include <opencv2/opencv.hpp>
+#include <nlohmann/json.hpp>
+
+namespace fs = std::filesystem;
+using json = nlohmann::json;
+
+namespace {
+
+// gpu DefectInfo（ROI-local）→ legacy DefectInfo 欄位集。
+// 全域座標 = ROI offset + local。GPU 無的欄位（CV_*/Sigma）填 0/-1，Filter 固定 NoFilter。
+struct LegacyDefect {
+    int RunIndex = 0;
+    int GlobalPosX = 0, GlobalPosY = 0;
+    int Size = 0, Width = 0, Height = 0;
+    std::string Type;     // PointBright / PointDark
+    std::string Filter = "NoFilter";
+    int X_Min = 0, X_Max = 0, Y_Min = 0, Y_Max = 0;
+    int GC_X = 0, GC_Y = 0;        // ROI-local 重心
+    float CV_Sigma = 0, CV_Mean = 0; int CV_Min = 0, CV_Max = 0;
+    float GL_Sigma = 0, GL_Mean = 0; int GL_Min = 0, GL_Max = 0;
+    int AiIndex = -1; std::string AiType; float AiScore = -1;
+    std::string RuleType;
+    float MeanValue = -1;
+    std::string DetectReason;
+    std::string ImagePath;
+};
+
+LegacyDefect to_legacy(const DefectInfo& d, int off_x, int off_y, int run_index) {
+    LegacyDefect L;
+    L.RunIndex = run_index;
+    L.GC_X = (int)d.center_x;
+    L.GC_Y = (int)d.center_y;
+    L.GlobalPosX = off_x + (int)d.center_x;
+    L.GlobalPosY = off_y + (int)d.center_y;
+    L.Size = d.size;
+    L.Width  = d.max_x - d.min_x + 1;
+    L.Height = d.max_y - d.min_y + 1;
+    L.X_Min = off_x + d.min_x; L.X_Max = off_x + d.max_x;
+    L.Y_Min = off_y + d.min_y; L.Y_Max = off_y + d.max_y;
+    L.Type = d.is_bright ? "PointBright" : "PointDark";
+    L.GL_Mean = d.avg_brightness;
+    return L;
+}
+
+void xml_escape(std::ostream& os, const std::string& s) {
+    for (char c : s) {
+        switch (c) {
+            case '&': os << "&amp;"; break;
+            case '<': os << "&lt;"; break;
+            case '>': os << "&gt;"; break;
+            case '"': os << "&quot;"; break;
+            default: os << c;
+        }
+    }
+}
+
+void write_defect_xml(std::ostream& os, const LegacyDefect& d) {
+    os << "        <DefectInfo>\n";
+    os << "          <RunIndex>" << d.RunIndex << "</RunIndex>\n";
+    os << "          <GlobalPosX>" << d.GlobalPosX << "</GlobalPosX>\n";
+    os << "          <GlobalPosY>" << d.GlobalPosY << "</GlobalPosY>\n";
+    os << "          <Size>" << d.Size << "</Size>\n";
+    os << "          <Width>" << d.Width << "</Width>\n";
+    os << "          <Height>" << d.Height << "</Height>\n";
+    os << "          <Type>"; xml_escape(os, d.Type); os << "</Type>\n";
+    os << "          <Filter>"; xml_escape(os, d.Filter); os << "</Filter>\n";
+    os << "          <Y_Min>" << d.Y_Min << "</Y_Min>\n";
+    os << "          <Y_Max>" << d.Y_Max << "</Y_Max>\n";
+    os << "          <X_Min>" << d.X_Min << "</X_Min>\n";
+    os << "          <X_Max>" << d.X_Max << "</X_Max>\n";
+    os << "          <GC_Y>" << d.GC_Y << "</GC_Y>\n";
+    os << "          <GC_X>" << d.GC_X << "</GC_X>\n";
+    os << "          <CV_Sigma>" << d.CV_Sigma << "</CV_Sigma>\n";
+    os << "          <CV_Mean>" << d.CV_Mean << "</CV_Mean>\n";
+    os << "          <CV_Min>" << d.CV_Min << "</CV_Min>\n";
+    os << "          <CV_Max>" << d.CV_Max << "</CV_Max>\n";
+    os << "          <GL_Sigma>" << d.GL_Sigma << "</GL_Sigma>\n";
+    os << "          <GL_Mean>" << d.GL_Mean << "</GL_Mean>\n";
+    os << "          <GL_Min>" << d.GL_Min << "</GL_Min>\n";
+    os << "          <GL_Max>" << d.GL_Max << "</GL_Max>\n";
+    os << "          <AiIndex>" << d.AiIndex << "</AiIndex>\n";
+    os << "          <AiType>"; xml_escape(os, d.AiType); os << "</AiType>\n";
+    os << "          <AiScore>" << d.AiScore << "</AiScore>\n";
+    os << "          <RuleType>"; xml_escape(os, d.RuleType); os << "</RuleType>\n";
+    os << "          <MeanValue>" << d.MeanValue << "</MeanValue>\n";
+    os << "          <DetectReason>"; xml_escape(os, d.DetectReason); os << "</DetectReason>\n";
+    os << "          <ImagePath>"; xml_escape(os, d.ImagePath); os << "</ImagePath>\n";
+    os << "        </DefectInfo>\n";
+}
+
+json defect_to_json(const LegacyDefect& d) {
+    return json{
+        {"RunIndex", d.RunIndex},
+        {"GlobalPosX", d.GlobalPosX}, {"GlobalPosY", d.GlobalPosY},
+        {"Size", d.Size}, {"Width", d.Width}, {"Height", d.Height},
+        {"Type", d.Type}, {"Filter", d.Filter},
+        {"X_Min", d.X_Min}, {"X_Max", d.X_Max}, {"Y_Min", d.Y_Min}, {"Y_Max", d.Y_Max},
+        {"GC_X", d.GC_X}, {"GC_Y", d.GC_Y},
+        {"CV_Sigma", d.CV_Sigma}, {"CV_Mean", d.CV_Mean}, {"CV_Min", d.CV_Min}, {"CV_Max", d.CV_Max},
+        {"GL_Sigma", d.GL_Sigma}, {"GL_Mean", d.GL_Mean}, {"GL_Min", d.GL_Min}, {"GL_Max", d.GL_Max},
+        {"AiIndex", d.AiIndex}, {"AiType", d.AiType}, {"AiScore", d.AiScore},
+        {"RuleType", d.RuleType}, {"MeanValue", d.MeanValue},
+        {"DetectReason", d.DetectReason}, {"ImagePath", d.ImagePath},
+    };
+}
+
+}  // namespace
+
+namespace ResultSaver {
+
+std::string to_json(const InspectionResult& r) {
+    json j;
+    j["panel_id"]     = r.panel_id;
+    j["recipe_name"]  = r.recipe_name;
+    j["DefectCnt"]    = r.total_defects();
+    j["AiOkCnt"]      = 0;
+    j["RuleOkCnt"]    = 0;
+    j["pass"]         = r.pass();
+    j["total_time_ms"]= r.total_time_ms;
+    j["image_width"]  = r.image_width;
+    j["image_height"] = r.image_height;
+
+    json roi_list = json::array();
+    for (const auto& z : r.zones) {
+        json defs = json::array();
+        int ri = 0;
+        for (const auto& d : z.result.defects)
+            defs.push_back(defect_to_json(to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++)));
+        roi_list.push_back({
+            {"RoiIndex", z.zone_index},
+            {"roi_offset_x", z.roi_offset_x},
+            {"roi_offset_y", z.roi_offset_y},
+            {"num_defects", z.result.num_defects},
+            {"process_time_ms", z.result.process_time_ms},
+            {"DefectInfoList", defs},
+        });
+    }
+    j["RoiInfoList"] = roi_list;
+    return j.dump(2);
+}
+
+int save(const InspectionResult& r,
+         const uint8_t* img, int w, int h,
+         const std::string& out_dir,
+         const std::string& basename,
+         int patch_size) {
+    fs::create_directories(out_dir);
+
+    // ---- 0. 多 ROI 邊界死區可見化 ----
+    // gpu_algo 8-Way kernel 會跳過距 ROI 邊緣 margin 內的像素（cuda_kernels.cu:135-145）：
+    //   margin_x = pitch_x*2 + fast_search_range, margin_y = pitch_y*2 + fast_search_range
+    // 這些邊界像素「未被檢測」。逐 ROI 印出有效檢測區與死區寬度，讓使用者知道未檢測範圍。
+    for (const auto& z : r.zones) {
+        const int roiW = z.result.image_width;
+        const int roiH = z.result.image_height;
+        const int mx = z.zone.pitch_x * 2 + z.zone.fast_search_range;
+        const int my = z.zone.pitch_y * 2 + z.zone.fast_search_range;
+        const int ox = z.roi_offset_x, oy = z.roi_offset_y;
+        if (roiW <= 2 * mx || roiH <= 2 * my) {
+            std::cout << "[DeathMargin] zone " << z.zone_index << " ⚠ ROI " << roiW << "x" << roiH
+                      << " 小於死區 2*(" << mx << "," << my << ") → 整個 ROI 幾乎/完全未檢測！\n";
+        } else {
+            std::cout << "[DeathMargin] zone " << z.zone_index
+                      << " ROI=(" << ox << "," << oy << ")+" << roiW << "x" << roiH
+                      << " death_margin=(x:" << mx << ", y:" << my << ")"
+                      << " → 有效檢測區(global)=[" << (ox + mx) << "," << (oy + my) << "]..["
+                      << (ox + roiW - mx) << "," << (oy + roiH - my) << "]"
+                      << "（四邊各 " << mx << "/" << my << " px 未檢測）\n";
+        }
+    }
+
+    // ---- 1. 新版 JSON（legacy 欄位名）----
+    {
+        std::ofstream f(out_dir + "/" + basename + "_ResultInfo.json");
+        f << to_json(r);
+    }
+
+    // ---- 2. legacy JudgeResult XML ----
+    {
+        std::ofstream os(out_dir + "/" + basename + "_ResultInfo.xml");
+        os << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+        os << "<JudgeResult>\n";
+        os << "  <DefectCnt>" << r.total_defects() << "</DefectCnt>\n";
+        os << "  <AiOkCnt>0</AiOkCnt>\n";
+        os << "  <RuleOkCnt>0</RuleOkCnt>\n";
+        os << "  <SaveDefectWidth>" << patch_size << "</SaveDefectWidth>\n";
+        os << "  <SaveDefectHeight>" << patch_size << "</SaveDefectHeight>\n";
+        os << "  <RoiInfoList>\n";
+        for (const auto& z : r.zones) {
+            os << "    <RoiInfo>\n";
+            os << "      <RoiIndex>" << z.zone_index << "</RoiIndex>\n";
+            os << "      <DefectInfoList>\n";
+            int ri = 0;
+            for (const auto& d : z.result.defects)
+                write_defect_xml(os, to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++));
+            os << "      </DefectInfoList>\n";
+            os << "    </RoiInfo>\n";
+        }
+        os << "  </RoiInfoList>\n";
+        os << "  <IoiInfoList />\n";
+        os << "</JudgeResult>\n";
+    }
+
+    // ---- 3. patches + 4. overlay（全域座標）----
+    cv::Mat gray(h, w, CV_8UC1, const_cast<uint8_t*>(img));
+    const std::string patch_dir = out_dir + "/patches";
+    fs::create_directories(patch_dir);
+    cv::Mat overlay;
+    cv::cvtColor(gray, overlay, cv::COLOR_GRAY2BGR);
+
+    int half = patch_size / 2;
+    int saved = 0, gid = 0;
+    for (const auto& z : r.zones) {
+        for (const auto& d : z.result.defects) {
+            int cx = z.roi_offset_x + (int)d.center_x;
+            int cy = z.roi_offset_y + (int)d.center_y;
+
+            // patch
+            int x1 = std::max(0, cx - half), y1 = std::max(0, cy - half);
+            int x2 = std::min(w, cx + half),  y2 = std::min(h, cy + half);
+            if (x2 > x1 && y2 > y1) {
+                cv::Mat patch = gray(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
+                if (patch.cols < patch_size || patch.rows < patch_size) {
+                    cv::Mat padded = cv::Mat::zeros(patch_size, patch_size, patch.type());
+                    int ox = (patch_size - patch.cols) / 2, oy = (patch_size - patch.rows) / 2;
+                    patch.copyTo(padded(cv::Rect(ox, oy, patch.cols, patch.rows)));
+                    patch = padded;
+                }
+                std::string type = d.is_bright ? "bright" : "dark";
+                std::string fn = patch_dir + "/" + basename + "_defect_" + std::to_string(gid) +
+                                 "_" + type + "_" + std::to_string(cx) + "_" + std::to_string(cy) + ".png";
+                cv::imwrite(fn, patch);
+                ++saved;
+            }
+
+            // overlay bbox（亮=紅 BGR(0,0,255)、暗=藍 BGR(255,0,0)）
+            cv::Scalar color = d.is_bright ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
+            int mx = std::max(0, z.roi_offset_x + d.min_x - 2);
+            int my = std::max(0, z.roi_offset_y + d.min_y - 2);
+            int Mx = std::min(w - 1, z.roi_offset_x + d.max_x + 2);
+            int My = std::min(h - 1, z.roi_offset_y + d.max_y + 2);
+            cv::rectangle(overlay, cv::Point(mx, my), cv::Point(Mx, My), color, 2);
+            ++gid;
+        }
+    }
+    cv::imwrite(out_dir + "/" + basename + "_result.bmp", overlay);
+
+    std::cout << "[ResultSaver] " << basename << ": " << r.total_defects()
+              << " 缺陷 (" << r.zones.size() << " zones), " << saved
+              << " patches → " << out_dir << "\n";
+    return saved;
+}
+
+}  // namespace ResultSaver

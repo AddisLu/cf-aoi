@@ -1,0 +1,12 @@
+# 跨平台（Mac / Linux / Windows）行尾正規化
+* text=auto eol=lf
+
+# 二進位（避免被當文字做 eol 轉換）
+*.tif binary
+*.tiff binary
+*.bmp binary
+*.png binary
+*.ico binary
+*.bin binary
+*.dcf binary
+*.mim binary

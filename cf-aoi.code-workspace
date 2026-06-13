@@ -1,0 +1,25 @@
+{
+  "folders": [
+    { "name": "📄 docs",                "path": "docs"      },
+    { "name": "🔬 ip  (RTX2080/Spark)", "path": "ip"        },
+    { "name": "📷 grab (Capture)",      "path": "grab"      },
+    { "name": "🖥️  control (Avalonia)",  "path": "control"   },
+    { "name": "📦 shared",              "path": "shared"    },
+    { "name": "📚 Reference (唯讀)",     "path": "Reference" }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "editor.rulers": [100],
+    "files.associations": { "*.cu": "cuda-cpp", "*.cuh": "cuda-cpp", "*.axaml": "xml" },
+    "files.readonlyInclude": { "**/Reference/**": true }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-vscode.cpptools", "ms-vscode.cmake-tools",
+      "nvidia.nsight-vscode-edition",
+      "ms-dotnettools.csharp", "ms-dotnettools.vscode-dotnet-runtime",
+      "ms-vscode-remote.remote-ssh", "anthropic.claude-code",
+      "bierner.markdown-mermaid"
+    ]
+  }
+}
