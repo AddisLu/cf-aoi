@@ -12,14 +12,17 @@ ip/build/
 .vs/
 
 # ===== Runtime-generated =====
-# 執行期/部署期產生（含測試用配方），不版控
+# 執行期/部署期產生，不版控 (不包含測試配方->Control要使用)
 output/
 **/output/
-recipes/
 *.log
 
 # ===== Large reference material (1.4G) — 另外保存，不進 git =====
 Reference/
+
+# ===== 測試影像（大檔，Mac 端不需要） =====
+test_images/*.tif
+test_images/*.bmp
 
 # ===== OS / editor junk =====
 .DS_Store
