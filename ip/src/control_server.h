@@ -50,6 +50,7 @@ public:
     void set_load_recipe_handler(LoadRecipeFn fn) { load_recipe_ = std::move(fn); }
     void set_status_provider(StatusFn fn) { status_ = std::move(fn); }
     void set_ai_enabled(bool v) { ai_enabled_ = v; }
+    void set_output_dir(const std::string& d) { output_dir_ = d; }   // 供 LIST/SORT_DEFECTS 掃描
 
     bool start();   // 開 listener thread
     void stop();    // 關閉並 join；同時 queue.close()
@@ -69,6 +70,7 @@ private:
     std::atomic<bool> running_{false};
     bool ai_enabled_ = false;
     uint16_t frame_seq_ = 0;
+    std::string output_dir_ = "output";
 
     LoadRecipeFn load_recipe_;
     StatusFn status_;

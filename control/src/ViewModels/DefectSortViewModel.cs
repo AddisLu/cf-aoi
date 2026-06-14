@@ -1,7 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using CfAoiControl.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -9,28 +9,30 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace CfAoiControl.ViewModels;
 
-/// <summary>DataGrid 一列：Sort(可勾) + FolderName(唯讀)。對應 legacy SortFolderName。</summary>
+/// <summary>DataGrid 一列：Sort(可勾) + FolderName(唯讀) + DefectCount。對應 legacy SortFolderName。</summary>
 public sealed partial class SortFolderItem : ObservableObject
 {
     [ObservableProperty] private bool sort;
     public string FolderName { get; init; } = "";
+    public string PanelId { get; init; } = "";
+    public int DefectCount { get; init; }
 }
 
 /// <summary>
-/// 1:1 對應 legacy frmSortDefect：選日期→Parse 列當日資料夾→勾選/全選→Sort 複製 Defect 檔到輸出夾
-/// （By ID 則依前綴建子夾）→ rtbLog 時間戳記進度。跨平台：路徑全走 Path.Combine。
+/// 遠端命令版（缺陷影像存在運算端 IP/Linux，非 Control 本地）：
+///   Parse → 送 LIST_DEFECT_FOLDERS 給 IP，列回當日缺陷資料夾清單填入 DataGrid。
+///   Sort  → 送 SORT_DEFECTS 給 IP，IP 就地把選中 panel 的缺陷檔歸類到 output/{子目錄}，回傳結果。
+/// 「輸出夾」是運算端 output 下的相對子目錄（非本地絕對路徑）。By ID / SortAll 保留。
+/// Step1View 的即時 OK/NG 手動分屬另一用途（少量即時缺陷，在 Control 端操作），不在此處。
 /// </summary>
 public partial class DefectSortViewModel : ViewModelBase
 {
     private readonly AppServices _svc;
-    private string _parseRoot = "";   // Parse 當下實際掃描的根目錄
 
     public DefectSortViewModel(AppServices svc)
     {
         _svc = svc;
-        // 來源 = IP 輸出目錄；輸出 = 其下 sorted 子夾（可改）
-        var outDir = RecipeService.ExpandPath(_svc.Config.Paths.OutputDir);
-        OutputFolder = Path.Combine(outDir, "sorted");
+        OutputFolder = "sorted";   // 運算端 output 下的相對子目錄
     }
 
     public ObservableCollection<SortFolderItem> Folders { get; } = new();
@@ -40,86 +42,86 @@ public partial class DefectSortViewModel : ViewModelBase
     [ObservableProperty] private string outputFolder = "";
     [ObservableProperty] private bool byIdFolder;
     [ObservableProperty] private bool sortAll;
-    [ObservableProperty] private bool canSort;       // Parse 後才 true（Sort 鈕 enabled + 變橘）
+    [ObservableProperty] private bool canSort;       // Parse 成功後才 true（Sort 鈕 enabled + 變橘）
     [ObservableProperty] private bool isSorting;
 
+    private string DateStr => (SelectedDate ?? DateTimeOffset.Now).ToString("yyyy-MM-dd");
+
     [RelayCommand]
-    private void Parse()
+    private async Task Parse()
     {
         Folders.Clear();
-        var srcRoot = RecipeService.ExpandPath(_svc.Config.Paths.OutputDir);
-        // 優先掃 {Output}/{yyyyMMdd}，沒有則掃 {Output} 本身
-        var dateStr = (SelectedDate ?? DateTimeOffset.Now).ToString("yyyyMMdd");
-        var dated = Path.Combine(srcRoot, dateStr);
-        _parseRoot = Directory.Exists(dated) ? dated : srcRoot;
+        CanSort = false;
+        var ip = _svc.Connection.Ip;
+        if (!ip.IsConnected) { Log("❌ IP 未連線，無法列出缺陷資料夾"); return; }
 
-        Log($"---- Parse ---- 來源={_parseRoot}");
-        if (!Directory.Exists(_parseRoot)) { Log("來源目錄不存在"); CanSort = false; return; }
-
-        var dirs = Directory.GetDirectories(_parseRoot).OrderBy(d => d).ToArray();
-        foreach (var d in dirs) Folders.Add(new SortFolderItem { FolderName = Path.GetFileName(d) });
-        CanSort = Folders.Count > 0;
-        Log($"找到 {Folders.Count} 個資料夾");
-        if (Folders.Count == 0) Log("（此目錄下無子資料夾；Sort 仍可用 SortAll 直接整理本層 *.png）");
-        CanSort = true;   // 允許直接整理本層
+        Log($"---- Parse ---- 向 IP 查詢 {DateStr} 的缺陷資料夾");
+        try
+        {
+            var resp = await ip.ListDefectFoldersAsync(DateStr);
+            if (resp?["status"]?.GetValue<string>() != "OK")
+            {
+                Log($"❌ IP 回應失敗：{resp?["error"]?.GetValue<string>() ?? "(無回應)"}");
+                return;
+            }
+            var arr = resp["folders"] as JsonArray;
+            if (arr != null)
+                foreach (var f in arr)
+                {
+                    if (f is null) continue;
+                    Folders.Add(new SortFolderItem
+                    {
+                        FolderName = f["folder_name"]?.GetValue<string>() ?? "",
+                        PanelId = f["panel_id"]?.GetValue<string>() ?? "",
+                        DefectCount = (int?)f["defect_count"] ?? 0,
+                    });
+                }
+            CanSort = true;   // Parse 成功（即使 0 筆，仍允許嘗試 Sort）
+            Log($"找到 {Folders.Count} 個缺陷資料夾");
+            if (Folders.Count == 0) Log("（IP output 中該日期無缺陷結果）");
+        }
+        catch (Exception ex) { Log($"❌ Parse 失敗：{ex.Message}"); }
     }
 
     [RelayCommand]
     private async Task Sort()
     {
         if (IsSorting) return;
-        IsSorting = true;
-        var dst = OutputFolder;
-        var root = _parseRoot;
-        var byId = ByIdFolder;
-        var all = SortAll;
-        var picked = Folders.Where(f => all || f.Sort).Select(f => f.FolderName).ToArray();
+        var ip = _svc.Connection.Ip;
+        if (!ip.IsConnected) { Log("❌ IP 未連線，無法歸檔"); return; }
 
-        Log("---- Start Sort Defect ----");
+        var subdir = string.IsNullOrWhiteSpace(OutputFolder) ? "sorted" : OutputFolder.Trim();
+        var byId = ByIdFolder;
+        var picked = (SortAll ? Folders : Folders.Where(f => f.Sort))
+            .Select(f => f.FolderName).ToArray();
+        if (picked.Length == 0) { Log("⚠ 未選任何資料夾（勾選或勾 SortAll）"); return; }
+
+        IsSorting = true;
+        Log($"---- Start Sort Defect ---- 命令 IP 歸檔 {picked.Length} 個 panel → output/{subdir}"
+            + (byId ? "（By ID 分組）" : ""));
         try
         {
-            await Task.Run(() =>
+            var resp = await ip.SortDefectsAsync(DateStr, subdir, byId, picked);
+            if (resp?["status"]?.GetValue<string>() != "OK")
             {
-                Directory.CreateDirectory(dst);
-                int total = 0;
-                // 若有子資料夾被選 → 逐資料夾複製；否則整理本層 *.png
-                var sources = picked.Length > 0
-                    ? picked.Select(n => Path.Combine(root, n))
-                    : new[] { root };
-
-                foreach (var srcDir in sources)
+                Log($"❌ IP 回應失敗：{resp?["error"]?.GetValue<string>() ?? "(無回應)"}");
+                return;
+            }
+            if (resp["results"] is JsonArray results)
+                foreach (var r in results)
                 {
-                    if (!Directory.Exists(srcDir)) continue;
-                    int n = 0;
-                    foreach (var file in EnumDefectFiles(srcDir))
-                    {
-                        var dstDir = byId ? Path.Combine(dst, IdPrefix(Path.GetFileName(file))) : dst;
-                        Directory.CreateDirectory(dstDir);
-                        File.Copy(file, Path.Combine(dstDir, Path.GetFileName(file)), overwrite: true);
-                        n++;
-                    }
-                    total += n;
-                    Log($"  {Path.GetFileName(srcDir)} → 複製 {n} 檔");
+                    if (r is null) continue;
+                    var folder = r["folder"]?.GetValue<string>() ?? "?";
+                    var copied = (int?)r["copied"] ?? 0;
+                    var msg = r["message"]?.GetValue<string>();
+                    Log($"  {folder} → 複製 {copied} 檔" + (string.IsNullOrEmpty(msg) ? "" : $"（{msg}）"));
                 }
-                Log($"---- End Sort Defect ---- 共 {total} 檔 → {dst}");
-            });
+            var total = (int?)resp["total"] ?? 0;
+            var dir = resp["output_dir"]?.GetValue<string>() ?? subdir;
+            Log($"---- End Sort Defect ---- 共 {total} 檔 → {dir}");
         }
         catch (Exception ex) { Log($"❌ Sort 失敗：{ex.Message}"); }
         finally { IsSorting = false; }
-    }
-
-    // 缺陷影像檔（patches/*.png、Defect*.* 等），遞迴抓
-    private static System.Collections.Generic.IEnumerable<string> EnumDefectFiles(string dir)
-        => Directory.EnumerateFiles(dir, "*.png", SearchOption.AllDirectories)
-            .Concat(Directory.EnumerateFiles(dir, "Defect*.*", SearchOption.AllDirectories))
-            .Distinct();
-
-    // 依檔名前綴分組（取第一個 '_' 前），對應 legacy By ID Folder
-    private static string IdPrefix(string fileName)
-    {
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        var i = stem.IndexOf('_');
-        return i > 0 ? stem[..i] : stem;
     }
 
     private void Log(string msg)

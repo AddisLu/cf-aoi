@@ -50,37 +50,74 @@ public static class SelfTest
     }
 
     // ---- 缺陷整理 Parse + Sort 複製 ----
+    // 遠端 DefectSort：用 in-process 假 IP server 模擬 LIST_DEFECT_FOLDERS / SORT_DEFECTS，
+    // 驗證 Control 端送命令 + 解析回應 + 填 DataGrid + log（不需 GPU/真 IP）。
     private static async Task<int> SortTest()
     {
-        var svc = AppServices.Build();
-        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cfaoi_sorttest");
-        if (System.IO.Directory.Exists(tmp)) System.IO.Directory.Delete(tmp, true);
-        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(tmp, "panelA"));
-        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(tmp, "panelB"));
-        System.IO.File.WriteAllBytes(System.IO.Path.Combine(tmp, "panelA", "IP01_1_2_bright.png"), new byte[] { 1, 2, 3 });
-        System.IO.File.WriteAllBytes(System.IO.Path.Combine(tmp, "panelB", "IP01_4_5_dark.png"), new byte[] { 4, 5, 6 });
+        // ---- 假 IP server：回 newline-delimited JSON ----
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        string? lastSort = null;
+        var serverTask = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var cmd = req["cmd"]!.GetValue<string>();
+                var seq = (int?)req["seq"] ?? 0;
+                string resp;
+                if (cmd == "LIST_DEFECT_FOLDERS")
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"folders\":[" +
+                           "{\"folder_name\":\"IP01_panelA\",\"panel_id\":\"IP01_panelA\",\"defect_count\":3}," +
+                           "{\"folder_name\":\"IP01_panelB\",\"panel_id\":\"IP01_panelB\",\"defect_count\":5}]}";
+                else if (cmd == "SORT_DEFECTS")
+                {
+                    lastSort = line;
+                    var sel = req["params"]!["selected_folders"]!.AsArray();
+                    var byId = (bool?)req["params"]!["by_id_folder"] ?? false;
+                    var sub = req["params"]!["output_subdir"]!.GetValue<string>();
+                    var items = string.Join(",", sel.Select(s => $"{{\"folder\":\"{s!.GetValue<string>()}\",\"copied\":2}}"));
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"results\":[{items}],\"total\":{sel.Count * 2}," +
+                           $"\"output_dir\":\"output/{sub}{(byId ? "/IP01" : "")}\"}}";
+                }
+                else resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                var bytes = System.Text.Encoding.UTF8.GetBytes(resp + "\n");
+                await ns.WriteAsync(bytes);
+                await ns.FlushAsync();
+            }
+        });
 
-        svc.Config.Paths.OutputDir = tmp;
-        var vm = new ViewModels.DefectSortViewModel(svc) { OutputFolder = System.IO.Path.Combine(tmp, "sorted") };
-        vm.ParseCommand.Execute(null);
-        Console.WriteLine($"  Parse → {vm.Folders.Count} 資料夾: {string.Join(", ", vm.Folders.Select(f => f.FolderName))}");
+        var svc = AppServices.Build();
+        await svc.Connection.Ip.ConnectAsync("127.0.0.1", port);
+
+        var vm = new ViewModels.DefectSortViewModel(svc) { OutputFolder = "sorted" };
+        await vm.ParseCommand.ExecuteAsync(null);
+        Console.WriteLine($"  Parse → {vm.Folders.Count} 資料夾: " +
+            string.Join(", ", vm.Folders.Select(f => $"{f.FolderName}({f.DefectCount})")));
 
         vm.SortAll = true;
         await vm.SortCommand.ExecuteAsync(null);
-        int copied = System.IO.Directory.Exists(vm.OutputFolder)
-            ? System.IO.Directory.GetFiles(vm.OutputFolder, "*.png", System.IO.SearchOption.AllDirectories).Length : 0;
-        Console.WriteLine($"  Sort(全選) → 複製 {copied} 檔 → {vm.OutputFolder}");
+        bool sentList = vm.Folders.Count == 2 && vm.Folders[0].DefectCount == 3;
+        bool sentSort = lastSort != null && lastSort.Contains("\"IP01_panelA\"") && lastSort.Contains("\"IP01_panelB\"");
+        bool loggedTotal = vm.LogLines.Any(l => l.Contains("共 4 檔"));
+        Console.WriteLine($"  Sort(全選) → IP 收到 selected_folders={sentSort}, log 共4檔={loggedTotal}");
 
-        // By ID：依前綴 IP01 建子夾
-        var byIdOut = System.IO.Path.Combine(tmp, "sorted_byid");
-        var vm2 = new ViewModels.DefectSortViewModel(svc) { OutputFolder = byIdOut, ByIdFolder = true, SortAll = true };
-        vm2.ParseCommand.Execute(null);
+        // By ID：命令帶 by_id_folder=true
+        var vm2 = new ViewModels.DefectSortViewModel(svc) { OutputFolder = "sorted", ByIdFolder = true, SortAll = true };
+        await vm2.ParseCommand.ExecuteAsync(null);
         await vm2.SortCommand.ExecuteAsync(null);
-        bool byIdOk = System.IO.Directory.Exists(System.IO.Path.Combine(byIdOut, "IP01"));
-        Console.WriteLine($"  By ID → 子夾 IP01 存在={byIdOk}");
+        bool byIdOk = lastSort != null && lastSort.Contains("\"by_id_folder\":true");
+        Console.WriteLine($"  By ID → 命令帶 by_id_folder=true: {byIdOk}");
 
-        bool ok = vm.Folders.Count == 2 && copied == 2 && byIdOk;
-        Console.WriteLine(ok ? "✓ Parse 列資料夾 + Sort 複製 + By ID 分組 正確" : "✗ 不符");
+        svc.Connection.Ip.Disconnect();
+        listener.Stop();
+
+        bool ok = sentList && sentSort && loggedTotal && byIdOk;
+        Console.WriteLine(ok ? "✓ 遠端 LIST/SORT 命令送出 + 回應解析 + log 正確" : "✗ 不符");
         return ok ? 0 : 1;
     }
 

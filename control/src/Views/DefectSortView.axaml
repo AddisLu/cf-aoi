@@ -21,10 +21,10 @@
       <!-- 輸出資料夾 + By ID -->
       <StackPanel DockPanel.Dock="Top" Spacing="3" Margin="0,0,0,6">
         <StackPanel Orientation="Horizontal" Spacing="8">
-          <TextBlock Text="Output Folder" VerticalAlignment="Center"/>
+          <TextBlock Text="輸出子目錄（運算端 output 下）" VerticalAlignment="Center"/>
           <CheckBox Content="By ID Folder" IsChecked="{Binding ByIdFolder}"/>
         </StackPanel>
-        <TextBox Text="{Binding OutputFolder}"/>
+        <TextBox Text="{Binding OutputFolder}" Watermark="sorted"/>
       </StackPanel>
       <!-- Sort 按鈕（初始灰、Parse 後橘）-->
       <Button DockPanel.Dock="Top" Content="Sort" Height="50" Margin="0,0,0,6"
@@ -50,8 +50,9 @@
                 GridLinesVisibility="All" HeadersVisibility="Column" CanUserSortColumns="True"
                 BorderBrush="#A0A0A0" BorderThickness="1">
         <DataGrid.Columns>
-          <DataGridCheckBoxColumn Header="Sort" Binding="{Binding Sort}" Width="70"/>
+          <DataGridCheckBoxColumn Header="Sort" Binding="{Binding Sort}" Width="60"/>
           <DataGridTextColumn Header="FolderName" Binding="{Binding FolderName}" IsReadOnly="True" Width="*"/>
+          <DataGridTextColumn Header="Defects" Binding="{Binding DefectCount}" IsReadOnly="True" Width="80"/>
         </DataGrid.Columns>
       </DataGrid>
     </DockPanel>

@@ -95,6 +95,21 @@ GetResult\r\n                  →  OK|{json}\r\n
 {"cmd":"CHECK_HEALTH","seq":3,"params":{}}
 ```
 
+#### 缺陷遠端歸檔（DefectSort）— 缺陷影像存在運算端 IP/Linux/Spark，不在 Control 本地
+Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統；Control 端不假設能看到 IP 的硬碟）：
+```json
+// 列出 IP --output 下（指定日期 mtime 的）缺陷結果。date="" = 全部。每筆對應一塊 panel。
+{"cmd":"LIST_DEFECT_FOLDERS","seq":4,"params":{"date":"2026-06-14"}}
+  → {"status":"OK","folders":[{"folder_name":"IP01_panelA","panel_id":"IP01_panelA","defect_count":3}, ...]}
+// IP 就地把選中 panel 的 patches/{panel}_defect_*.png 複製到 output/{output_subdir}
+//（by_id_folder=true → 依檔名前綴 '_' 前建子夾，對應 legacy "By ID Folder"）。
+{"cmd":"SORT_DEFECTS","seq":5,"params":{"date":"","output_subdir":"sorted","by_id_folder":true,
+                                        "selected_folders":["IP01_panelA","IP01_panelB"]}}
+  → {"status":"OK","total":8,"output_dir":"/.../output/sorted",
+     "results":[{"folder":"IP01_panelA","copied":3},{"folder":"IP01_panelB","copied":5}]}
+```
+> Step1View 的 OK/NG 即時手動分（少量即時缺陷在 Control 端操作）是另一用途，不走此遠端命令。
+
 ### 配方（RecipeInfo.xml）與結果（ResultInfo.xml）格式 — 考古確認（取代舊「ZoneSetting/ThB/ThD」敘述）
 > 來源已逐檔驗證：`Reference/legacy_win/ClibCf/Recipe.cs`、`JudgeResult.cs`、`CudaCore/CUDA_Func.h`。
 

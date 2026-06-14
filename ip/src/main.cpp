@@ -220,6 +220,7 @@ int main(int argc, char** argv) {
         FrameQueue queue;
         ControlServer server(args.control_port, queue);
         server.set_ai_enabled(pipe.ai_enabled());
+        server.set_output_dir(args.output);   // 供 LIST_DEFECT_FOLDERS / SORT_DEFECTS 掃描
 
         std::mutex zones_mtx;  // LOAD_RECIPE 可在串流中更新 zones
         server.set_load_recipe_handler(

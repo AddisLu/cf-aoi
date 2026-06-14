@@ -63,6 +63,27 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
     public Task<JsonNode?> SendImageStreamBeginAsync(string panelId, CancellationToken ct = default)
         => SendCommandAsync("SEND_IMAGE_STREAM_BEGIN", new JsonObject { ["panel_id"] = panelId }, ct);
 
+    /// <summary>列出 IP output 目錄中（指定日期的）缺陷結果資料夾。date 為 "yyyy-MM-dd"（空=全部）。</summary>
+    public Task<JsonNode?> ListDefectFoldersAsync(string date, CancellationToken ct = default)
+        => SendCommandAsync("LIST_DEFECT_FOLDERS", new JsonObject { ["date"] = date }, ct);
+
+    /// <summary>命令 IP 就地把選中 panel 的缺陷檔歸類到 output/{outputSubdir}（by_id → 依前綴建子夾）。</summary>
+    public Task<JsonNode?> SortDefectsAsync(string date, string outputSubdir, bool byId,
+                                            System.Collections.Generic.IEnumerable<string> folders,
+                                            CancellationToken ct = default)
+    {
+        var arr = new JsonArray();
+        foreach (var f in folders) arr.Add(f);
+        return SendCommandAsync("SORT_DEFECTS",
+            new JsonObject
+            {
+                ["date"] = date,
+                ["output_subdir"] = outputSubdir,
+                ["by_id_folder"] = byId,
+                ["selected_folders"] = arr,
+            }, ct);
+    }
+
     /// <summary>送一張 Mono8 影像（命令行 + 緊接 raw payload）。</summary>
     public async Task<JsonNode?> SendImageForReviewAsync(
         string panelId, int camId, int width, int height, int frameSeq,
