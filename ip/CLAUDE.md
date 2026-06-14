@@ -311,3 +311,7 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     `IP02_Origin000001` → `Defect_IP02_...`），與資料夾一致；不要用固定 `--ip-name` 硬寫死（那是 fallback）。
 13. **AI 預設停用**（訓練資料不足）：模型仍載入（保留架構）但 `set_ai_active(false)`，不推論、不過濾，
     缺陷 `AiType="待人工複核"`；`--use-ai` 重啟。缺陷分類靠 DefectSort 人工標 TrueDefect/Particle。
+14. **Pitch 正確性至關重要（爆量陷阱）**：`PitchX`/`PitchY` 必須精確匹配面板實際網格週期，
+    **偏差 1~4 px 就會讓比例式演算法把正常網格當缺陷而爆量**（實測 `PitchX 26→30` → 缺陷 `561→10000`(觸頂 MAX_DEFECTS)）。
+    新面板務必先用 **FFT 估算**（`scripts/estimate_pitch.py` 或 Control Step1 的「FFT 估算」鈕）確認 Pitch，
+    **不可沿用舊面板值或用猜的**。缺陷數異常暴增（接近 10000 觸頂）時，第一個要懷疑的就是 Pitch 設錯。

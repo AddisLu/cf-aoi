@@ -348,8 +348,10 @@ dotnet publish -r linux-x64 --self-contained \
 
 ## 9. 不變式
 
-1. **上位機協議 = `CF_` 前綴 / port 8787 / `|` 分隔 / 9 參數回應**（`UpstreamServer.cs` 已實作）。
+1. **上位機協議 = `CF_` 前綴 / port 8787 / `|` 分隔 / 9 參數回應**（`UpstreamServer.cs` 已**寫好程式碼**）。
    舊文件的 `LoadRecipe|RECIPE|PANEL`（port 8000 簡化介面）**已作廢**。
+   ⚠️ **狀態：實作完成、待驗證** — 目前程式中**未 `.Start()` 啟動、`On*` 回呼未接線、從未接過真實上位機**
+   （Step 1 為 offline）。接真機前須：接線啟動 + 綁回呼 + 實機/模擬器驗證格式。**寫好 ≠ 驗證過**。
 2. **RecipeInfo.xml 格式凍結**，不可改 Schema（= legacy `Recipe`，閾值欄位 `BrightThreshold`/`DarkThreshold`，
    非 ThB/ThD；只允許 `AlgorithmCompare="DIV"`，IP 拒絕 SUB）。
 3. 連線失敗不阻塞啟動（UpstreamServer, IpClient, GrabClient 都靜默重試）。

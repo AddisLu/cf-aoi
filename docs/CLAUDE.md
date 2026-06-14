@@ -79,9 +79,13 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 > `CF_GRAB_START|{timeoutMs}`（範例 40000）、`CF_SET_ALIGN|{result}|{shiftX}|{shiftY}`；
 > 回應一律 9 參數 `OK|p1|…|p8|{p9=errMsg}` 或 `ERR|…`。Control 監聽 port 由 appsettings `UpstreamServer.ListenPort`（**= 8787**）。
 >
-> ✅ **已實作**：`control/src/Controllers/UpstreamServer.cs` 即以 **CF_ 前綴 / `|` 分隔 / 9 參數** 實作，
-> 不再有「port 8000 簡化介面」這回事（舊文件的 `LoadRecipe|RECIPE|PANEL` 假設已作廢）。
-> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON；`UpstreamServer` 收 CF_ 命令後轉呼叫 `IpClient`。
+> ⚠️ **已寫程式碼、但尚未接線啟動、未與真實上位機驗證**：`control/src/Controllers/UpstreamServer.cs`
+> 已照考古以 **CF_ 前綴 / `|` 分隔 / 9 參數** 寫好解析與回應邏輯（TcpListener@8787、`Split('|')`、CF_ switch），
+> 舊的「port 8000 簡化介面 / `LoadRecipe|RECIPE|PANEL`」假設作廢。
+> **但目前**：① 程式中**沒有任何地方 `.Start()` 啟動它**，`On*` 回呼也尚未接到 IpClient 流程；
+> ② Step 1 是 offline，**從未接過真實上位機**。→ 屬「實作完成、待驗證」。接真實上位機時必須：
+> 接線啟動 + 綁定 On* 回呼 + 用實機/模擬器驗證 9 參數格式與 `CF_GET_RESULT` 回傳內容。
+> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON。
 
 ### Control ↔ Grab/IP（JSON，8100/8200）
 ```json
