@@ -53,8 +53,14 @@ public partial class Step1ViewModel : ViewModelBase
     [ObservableProperty] private int maxDrawDefectCnt = 200;   // 對應 nudMaxDrawDefectCnt（封頂避免過多縮圖）
 
     // 狀態
-    [ObservableProperty] private bool isAnalyzing;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
+    private bool isAnalyzing;
     [ObservableProperty] private bool showAutoGenWarning;
+    // 影像是否已載入記憶體（Test 的 CanExecute 依此；改變時通知重新評估）
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
+    private bool imageLoaded;
 
     // 影像顯示 + overlay
     [ObservableProperty] private Bitmap? sourceBitmap;
@@ -84,15 +90,58 @@ public partial class Step1ViewModel : ViewModelBase
             : $"| Selected : {value.Label} ({value.Defect.GlobalPosX},{value.Defect.GlobalPosY})";
     }
 
+    // 對應 btnLoadImage：選檔後立即讀入記憶體、顯示、更新 ImageSize、enable Test
     [RelayCommand]
     private async Task BrowseImage()
     {
         if (FilePicker is null) return;
         var p = await FilePicker();
-        if (!string.IsNullOrEmpty(p)) SelectedImagePath = p!;
+        if (string.IsNullOrEmpty(p)) return;
+        SelectedImagePath = p!;
+        LoadImageForDisplay(p!);
     }
 
-    private bool CanRun() => !IsAnalyzing && File.Exists(SelectedImagePath);
+    /// <summary>讀入影像並顯示在黑底區（ImageSharp，純 managed；跨平台）。</summary>
+    private void LoadImageForDisplay(string path)
+    {
+        try
+        {
+            using var src = Image.Load<L8>(path);
+            BuildDisplayBitmap(src);
+            DrawDefects.Clear();
+            Thumbs.Clear();
+            SelectedThumb = null;
+            RegionText = "| Region : 全幅";
+            DefectCntText = "| DefectCnt : 0";
+            ImageLoaded = true;                 // → RunAnalysisCommand 重新評估 CanExecute
+            _svc.Log.Info($"已載入影像 {Path.GetFileName(path)} ({ImageWidth}x{ImageHeight})");
+        }
+        catch (Exception ex)
+        {
+            ImageLoaded = false;
+            _svc.Log.Error($"載入影像失敗：{ex.Message}");
+        }
+    }
+
+    /// <summary>建立顯示用縮圖（等比縮到 DisplayMaxW）並安全替換 SourceBitmap。</summary>
+    private void BuildDisplayBitmap(Image<L8> src)
+    {
+        ImageWidth = src.Width;
+        ImageHeight = src.Height;
+        ImageSizeText = $"ImageSize : {src.Width}x{src.Height}";
+        using var disp = src.Clone(c => c.Resize(new ResizeOptions
+        {
+            Mode = ResizeMode.Max, Size = new Size(DisplayMaxW, DisplayMaxW * 10)
+        }));
+        using var ms = new MemoryStream();
+        disp.SaveAsPng(ms); ms.Position = 0;
+        var old = SourceBitmap;
+        SourceBitmap = new Bitmap(ms);          // 先換新（UI 重綁）再釋放舊，避免存取已釋放點陣圖
+        old?.Dispose();
+    }
+
+    // Test 可按條件：有影像（已載入）+ 非分析中（配方恆有預設）
+    private bool CanRun() => !IsAnalyzing && ImageLoaded;
 
     // 對應 btnTest：送 IP 分析（offline-tcp, network-clean）
     [RelayCommand(CanExecute = nameof(CanRun))]
@@ -124,25 +173,11 @@ public partial class Step1ViewModel : ViewModelBase
     {
         Thumbs.Clear();
         DrawDefects.Clear();
-        SourceBitmap?.Dispose();
-        SourceBitmap = null;
+        SelectedThumb = null;
 
         using var src = Image.Load<L8>(imagePath);
-        ImageWidth = src.Width;
-        ImageHeight = src.Height;
-        ImageSizeText = $"ImageSize : {src.Width}x{src.Height}";
+        BuildDisplayBitmap(src);
         RegionText = "| Region : 全幅";
-
-        // 顯示用縮圖（等比縮到 DisplayMaxW）
-        using (var disp = src.Clone(c => c.Resize(new ResizeOptions
-        {
-            Mode = ResizeMode.Max, Size = new Size(DisplayMaxW, DisplayMaxW * 10)
-        })))
-        using (var ms = new MemoryStream())
-        {
-            disp.SaveAsPng(ms); ms.Position = 0;
-            SourceBitmap = new Bitmap(ms);
-        }
 
         // overlay + 縮圖（封頂 MaxDrawDefectCnt）
         int half = ThumbSize / 2;
