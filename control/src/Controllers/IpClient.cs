@@ -180,7 +180,8 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
     public void Dispose() { CloseInternal(); _lock.Dispose(); }
 }
 
-/// <summary>逐 byte 安全讀「一行（\n 結尾）」，不吃掉後續 binary（本連線伺服器只回 JSON 行）。</summary>
+/// <summary>逐 byte 安全讀「一行（\n 結尾）」，不吃掉後續 binary（本連線伺服器只回 JSON 行）。
+/// 累積 raw bytes 到換行後「整行以 UTF-8 解碼」——不可逐 byte 轉 char，否則中文等多位元組 UTF-8 會亂碼。</summary>
 internal sealed class StreamReaderLite
 {
     private readonly NetworkStream _s;
@@ -188,15 +189,18 @@ internal sealed class StreamReaderLite
 
     public async Task<string?> ReadLineAsync(CancellationToken ct)
     {
-        var sb = new StringBuilder();
+        var buf = new System.Collections.Generic.List<byte>(256);
         var one = new byte[1];
         while (true)
         {
             int n = await _s.ReadAsync(one, 0, 1, ct);
-            if (n <= 0) return sb.Length == 0 ? null : sb.ToString();
-            char c = (char)one[0];
-            if (c == '\n') return sb.ToString();
-            if (c != '\r') sb.Append(c);
+            if (n <= 0) return buf.Count == 0 ? null : Decode(buf);
+            byte b = one[0];
+            if (b == (byte)'\n') return Decode(buf);
+            if (b != (byte)'\r') buf.Add(b);
         }
     }
+
+    private static string Decode(System.Collections.Generic.List<byte> buf)
+        => Encoding.UTF8.GetString(buf.ToArray());   // 整行 UTF-8 解碼（支援中文多位元組）
 }

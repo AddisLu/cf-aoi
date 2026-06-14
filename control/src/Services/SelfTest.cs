@@ -175,12 +175,14 @@ public static class SelfTest
 
         // 預設 filter「只顯示未分類」：_all=3、其中 1 張(patch2)已是 TrueDefect → 可見只 2 張未分類。
         await vm.OpenFolderAsync("IP02_panelA_DEFAULT");
+        // current_class 含中文「未分類」→ 驗證 TCP 讀取 UTF-8 解碼正確（非逐 byte Latin-1 亂碼）
+        bool utf8Ok = vm.Patches.Count == 2 && vm.Patches[0].CurrentClass == "未分類";
         bool listed = vm.InPatchView && vm.TotalCount == 3 && vm.ClassifiedCount == 1
                       && vm.Patches.Count == 2
                       && vm.Patches[0].GcX == 10 && vm.Patches[0].Type == "Bright"
                       && vm.Patches[1].Size == 7;
         Console.WriteLine($"  OpenFolder（預設只顯示未分類）→ 全集 {vm.TotalCount}、可見 {vm.Patches.Count}、" +
-            $"已分類 {vm.ClassifiedCount}, metadata 正確={listed}");
+            $"已分類 {vm.ClassifiedCount}, metadata 正確={listed}, 中文UTF-8正常={utf8Ok}（CurrentClass=\"{vm.Patches[0].CurrentClass}\"）");
 
         // 標選中第 0 張為 TrueDefect → 即時存 + 從未分類視圖消失（剩 1 張）
         vm.SelectedPatch = vm.Patches[0];
@@ -209,9 +211,9 @@ public static class SelfTest
         svc.Connection.Ip.Disconnect();
         listener.Stop();
 
-        bool ok = listed && hiddenAfterClassify && persistedImmediately && showAll && onlyTrue
+        bool ok = listed && utf8Ok && hiddenAfterClassify && persistedImmediately && showAll && onlyTrue
                   && vm.ClassifiedCount == 3 && vm.TrueDefectCount == 2 && vm.ParticleCount == 1;
-        Console.WriteLine(ok ? "✓ filter（隱藏已分類）+ 即時持久化 + 統計 + 切換檢視 正確" : "✗ 不符");
+        Console.WriteLine(ok ? "✓ filter + 即時持久化 + 統計 + 切換檢視 + 中文 UTF-8 正確" : "✗ 不符");
         return ok ? 0 : 1;
     }
 

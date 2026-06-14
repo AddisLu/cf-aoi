@@ -205,9 +205,10 @@ int save(const InspectionResult& r,
     if (out_panel_dir) *out_panel_dir = panel_dir;
     const std::string& dst = panel_dir;   // 缺陷圖 / ResultInfo 都落在 panel 夾
 
-    // ---- 清舊檔：避免跨次 Test（換 IpName/換參數 → 不同檔名）累積成重複小圖 ----
-    // 要重存 patch 時先清掉本層舊 Defect_*；overlay 重存時清舊 _result.bmp（已改用 _result.png）。
-    // 不動 TrueDefect/Particle 子夾與 classification.json（人工分類需保留）。
+    // ---- 清舊檔（無條件）：每次 save = 一次新偵測，本層舊 Defect_*/舊 .bmp 一律先清掉 ----
+    // 否則跨次 Test 換 IpName(IP01→IP02)/換參數 → 不同檔名堆疊，DefectSort 會數到 N 倍（曾見 1122=561×2）。
+    // 只清本層 Defect_* 與 .bmp；不動 TrueDefect/Particle 子夾與 classification.json（人工分類需保留）。
+    int cleaned = 0;
     {
         std::error_code ec;
         for (const auto& e : fs::directory_iterator(dst, ec)) {
@@ -216,8 +217,9 @@ int save(const InspectionResult& r,
             std::string fn = e.path().filename().string();
             bool is_patch = fn.rfind("Defect", 0) == 0;
             bool is_old_bmp = fn.size() > 4 && fn.substr(fn.size() - 4) == ".bmp";
-            if ((opt.save_patches && is_patch) || (opt.save_overlay && is_old_bmp)) {
-                std::error_code rec; fs::remove(e.path(), rec);
+            if (is_patch || is_old_bmp) {
+                std::error_code rec;
+                if (fs::remove(e.path(), rec)) ++cleaned;
             }
         }
     }
@@ -366,6 +368,15 @@ int save(const InspectionResult& r,
 
     double gpu_ms = 0.0;
     for (const auto& z : r.zones) gpu_ms += z.result.process_time_ms;
+
+    // 診斷：DetectionResult 缺陷數 / JSON DefectInfo 筆數 / 寫出 patch 數 應一致（單次乾淨偵測）。
+    // patches 為「擬寫」數（受 max_patches 限制）；無限制時 = saved = total_defects。
+    std::cout << "[Diag] zones=" << r.zones.size() << " 各zone缺陷=[";
+    for (size_t i = 0; i < r.zones.size(); ++i)
+        std::cout << (i ? "," : "") << r.zones[i].result.num_defects;
+    std::cout << "] 總缺陷(DetectionResult)=" << total_defects
+              << " = JSON_DefectInfo筆數 = 寫出patch " << saved.load()
+              << "（清掉舊檔 " << cleaned << "）\n";
 
     const char* ai_note = r.ai_used ? "" : "(待人工複核)";
     std::cout << "[ResultSaver] " << basename << ": " << total_defects << " 缺陷" << ai_note
