@@ -28,6 +28,15 @@ public sealed class LogLevelToBrushConverter : IValueConverter
     public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
 }
 
+/// <summary>Sort 可執行 → Orange #FFA500，否則 DarkGray #A9A9A9（對應 legacy btnRun 狀態色）。</summary>
+public sealed class CanSortToBrushConverter : IValueConverter
+{
+    public static readonly CanSortToBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c)
+        => new SolidColorBrush(Color.Parse(v is true ? "#FFA500" : "#A9A9A9"));
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
 /// <summary>達檢測上限 → 紅字，否則黑字（DefectCnt 警示）。</summary>
 public sealed class AtCapToBrushConverter : IValueConverter
 {

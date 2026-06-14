@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CfAoiControl.Views.DefectSortView"
+             x:CompileBindings="False" FontFamily="Arial">
+
+  <UserControl.Styles>
+    <Style Selector="DataGridColumnHeader">
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+  </UserControl.Styles>
+
+  <Grid ColumnDefinitions="*,484" Margin="8">
+    <!-- ===== 左：控制 + log ===== -->
+    <DockPanel Grid.Column="0" Margin="0,0,8,0">
+      <!-- 日期 + Parse -->
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+        <DatePicker SelectedDate="{Binding SelectedDate}"/>
+        <Button Content="Parse" Width="120" Height="46" Command="{Binding ParseCommand}"/>
+      </StackPanel>
+      <!-- 輸出資料夾 + By ID -->
+      <StackPanel DockPanel.Dock="Top" Spacing="3" Margin="0,0,0,6">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="Output Folder" VerticalAlignment="Center"/>
+          <CheckBox Content="By ID Folder" IsChecked="{Binding ByIdFolder}"/>
+        </StackPanel>
+        <TextBox Text="{Binding OutputFolder}"/>
+      </StackPanel>
+      <!-- Sort 按鈕（初始灰、Parse 後橘）-->
+      <Button DockPanel.Dock="Top" Content="Sort" Height="50" Margin="0,0,0,6"
+              HorizontalAlignment="Stretch" Foreground="White" FontWeight="Bold"
+              IsEnabled="{Binding CanSort}"
+              Background="{Binding CanSort, Converter={StaticResource CanSortToBrush}}"
+              Command="{Binding SortCommand}"/>
+      <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" IsVisible="{Binding IsSorting}" Height="4" Margin="0,0,0,4"/>
+      <!-- rtbLog（淡黃底）-->
+      <Border BorderBrush="#A0A0A0" BorderThickness="1" Background="{StaticResource ColInfoBg}">
+        <ListBox ItemsSource="{Binding LogLines}" Background="Transparent" FontSize="11">
+          <ListBox.ItemTemplate>
+            <DataTemplate><TextBlock Text="{Binding}"/></DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Border>
+    </DockPanel>
+
+    <!-- ===== 右：SortAll + DataGrid ===== -->
+    <DockPanel Grid.Column="1">
+      <CheckBox DockPanel.Dock="Top" Content="SortAll（全選）" IsChecked="{Binding SortAll}" Margin="0,0,0,6"/>
+      <DataGrid ItemsSource="{Binding Folders}" AutoGenerateColumns="False"
+                GridLinesVisibility="All" HeadersVisibility="Column" CanUserSortColumns="True"
+                BorderBrush="#A0A0A0" BorderThickness="1">
+        <DataGrid.Columns>
+          <DataGridCheckBoxColumn Header="Sort" Binding="{Binding Sort}" Width="70"/>
+          <DataGridTextColumn Header="FolderName" Binding="{Binding FolderName}" IsReadOnly="True" Width="*"/>
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+  </Grid>
+</UserControl>

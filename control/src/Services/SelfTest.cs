@@ -36,6 +36,7 @@ public static class SelfTest
                 case "fft":    return FftTest(rest);
                 case "store":  return await StoreTest(rest);
                 case "heartbeat": return await HeartbeatTest(rest);
+                case "sort":   return await SortTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -46,6 +47,41 @@ public static class SelfTest
             Console.WriteLine($"✗ SelfTest 例外: {ex.Message}");
             return 1;
         }
+    }
+
+    // ---- 缺陷整理 Parse + Sort 複製 ----
+    private static async Task<int> SortTest()
+    {
+        var svc = AppServices.Build();
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cfaoi_sorttest");
+        if (System.IO.Directory.Exists(tmp)) System.IO.Directory.Delete(tmp, true);
+        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(tmp, "panelA"));
+        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(tmp, "panelB"));
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(tmp, "panelA", "IP01_1_2_bright.png"), new byte[] { 1, 2, 3 });
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(tmp, "panelB", "IP01_4_5_dark.png"), new byte[] { 4, 5, 6 });
+
+        svc.Config.Paths.OutputDir = tmp;
+        var vm = new ViewModels.DefectSortViewModel(svc) { OutputFolder = System.IO.Path.Combine(tmp, "sorted") };
+        vm.ParseCommand.Execute(null);
+        Console.WriteLine($"  Parse → {vm.Folders.Count} 資料夾: {string.Join(", ", vm.Folders.Select(f => f.FolderName))}");
+
+        vm.SortAll = true;
+        await vm.SortCommand.ExecuteAsync(null);
+        int copied = System.IO.Directory.Exists(vm.OutputFolder)
+            ? System.IO.Directory.GetFiles(vm.OutputFolder, "*.png", System.IO.SearchOption.AllDirectories).Length : 0;
+        Console.WriteLine($"  Sort(全選) → 複製 {copied} 檔 → {vm.OutputFolder}");
+
+        // By ID：依前綴 IP01 建子夾
+        var byIdOut = System.IO.Path.Combine(tmp, "sorted_byid");
+        var vm2 = new ViewModels.DefectSortViewModel(svc) { OutputFolder = byIdOut, ByIdFolder = true, SortAll = true };
+        vm2.ParseCommand.Execute(null);
+        await vm2.SortCommand.ExecuteAsync(null);
+        bool byIdOk = System.IO.Directory.Exists(System.IO.Path.Combine(byIdOut, "IP01"));
+        Console.WriteLine($"  By ID → 子夾 IP01 存在={byIdOk}");
+
+        bool ok = vm.Folders.Count == 2 && copied == 2 && byIdOk;
+        Console.WriteLine(ok ? "✓ Parse 列資料夾 + Sort 複製 + By ID 分組 正確" : "✗ 不符");
+        return ok ? 0 : 1;
     }
 
     // ---- 連線心跳偵測（綠↔紅 + 自動重連）----

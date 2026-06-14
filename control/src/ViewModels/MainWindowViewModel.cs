@@ -23,6 +23,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public AppServices Services => _svc;
     public Step1ViewModel Step1 { get; }
     public ZoneParamEditorViewModel ZoneEditor { get; }
+    public DefectSortViewModel DefectSort { get; }
     public SystemConfigModel Config => _svc.Config;
     public RecipeStore Store => _svc.RecipeStore;   // 配方共用來源（主視窗 Recipe 區預覽）
 
@@ -55,6 +56,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _log = svc.Log;
         Step1 = new Step1ViewModel(svc);
         ZoneEditor = new ZoneParamEditorViewModel(svc);
+        DefectSort = new DefectSortViewModel(svc);
 
         OfflineFolder = svc.Config.Paths.ImageDir;
         Store.RecipeReloaded += () => CurRecipe = Store.SelectedRecipe;

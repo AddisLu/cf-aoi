@@ -23,6 +23,25 @@ public partial class MainWindow : Window
         if (btn != null) btn.Click += OpenAlgoTest;
         var btn2 = this.FindControl<Button>("BtnOpenParamEditor");
         if (btn2 != null) btn2.Click += OpenParamEditor;
+        var btn3 = this.FindControl<Button>("BtnOpenSortDefect");
+        if (btn3 != null) btn3.Click += OpenSortDefect;
+    }
+
+    private Window? _sortWin;
+    // 開「缺陷整理」(對應 legacy frmSortDefect)，獨立視窗 1103×542
+    private void OpenSortDefect(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        if (_sortWin is { IsVisible: true } w) { w.Activate(); return; }
+        _sortWin = new Window
+        {
+            Title = "Sort Defect",
+            Width = 1103, Height = 542,
+            FontFamily = new Avalonia.Media.FontFamily("Arial"),
+            Content = new DefectSortView { DataContext = vm.DefectSort },
+        };
+        _sortWin.Closed += (_, _) => _sortWin = null;
+        _sortWin.Show(this);
     }
 
     private Window? _paramWin;

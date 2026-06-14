@@ -75,6 +75,7 @@
               <Button Name="BtnOpenAlgoTest" Content="離線分析工具 (Algorithm Test)"
                       Background="{StaticResource ColLightGreen}" Padding="12,8"/>
               <Button Name="BtnOpenParamEditor" Content="配方編輯 (IP Param Editor)" Padding="12,8"/>
+              <Button Name="BtnOpenSortDefect" Content="缺陷整理 (Sort Defect)" Padding="12,8"/>
               <Button Command="{Binding ToggleAdvancedCommand}" Content="顯示/隱藏進階 (Ctrl+F)" Padding="12,8"/>
             </StackPanel>
           </Grid>

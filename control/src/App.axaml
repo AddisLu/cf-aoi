@@ -14,6 +14,7 @@
         <conv:LogLevelToBrushConverter x:Key="LogLevelToBrush"/>
         <conv:DefectTypeToBrushConverter x:Key="DefectTypeToBrush"/>
         <conv:AtCapToBrushConverter x:Key="AtCapToBrush"/>
+        <conv:CanSortToBrushConverter x:Key="CanSortToBrush"/>
 
         <!-- 舊版 WinForms 顏色慣例（規格書實際 RGB），集中於此供 1:1 重建 -->
         <SolidColorBrush x:Key="ColErrorRed"   Color="#FF0000"/>  <!-- 錯誤字 -->
