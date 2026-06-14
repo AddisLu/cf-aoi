@@ -3,17 +3,27 @@
 
 /**
  * ============================================================================
- * CF-AOI 分散式架構 — RDMA / TCP Wire Format
+ * CF-AOI 分散式架構 — Capture→Computing RDMA / TCP 線格式（256 bytes）
  * ============================================================================
  *
- * 256-byte fixed-size header prepended to every transmitted frame.
- * Shared by both ends (Grab 端送出 / IP 端接收) — 兩端版本必須一致。
+ * ★ 此版＝ Phase-1 已實機驗證的線格式（Reference/phase1_tests/FrameHeader.h），
+ *   2026-06-11 於 damac↔spark-c16f 用 t21/t40 RDMA→GPU 全幀 CRC 驗證通過。
+ *   magic = 0xA01CF00D、frameSeq u64、panelId u32、含 sliceIndex/machineCoordX/Y。
+ *   兩端（Grab 送出 / IP 接收）必須完全一致，否則解析錯位。
+ *
+ * ⚠️ 取代舊 repo 版（magic 0xCFA0A001 + panel_id_hash/system_id/flags），該版從未經
+ *   RDMA 收發。對齊決策見 docs/HANDOVER_spark_20260615.md / STATUS.md。
  *
  * 不變式：
- *   - sizeof(FrameHeader) == 256（static_assert 驗證）
- *   - magic 使用合法 hex 0xCFA0A001（注意：O 和 I 不是 hex，故不可用 0xCFAOI001）
- *   - padding 自動算出讓 sizeof == 256
+ *   - sizeof(FrameHeader) == 256（static_assert）
+ *   - magic = 0xA01CF00D（合法 hex）
  *   - #pragma pack(1)：兩端 ABI 一致，無 compiler 補洞
+ *
+ * 相容備註：本檔在 phase1 結構上「附加」便利建構器 make_frame_header() 與 frame_panel_hash()，
+ *   供 IP（result/queue）沿用既有呼叫；不改動 wire 結構本身。
+ *   phase1 格式「無 system_id / flags(last_frame)」欄位 → make_frame_header 仍接受這些參數但
+ *   不寫入 wire（IP 目前未讀）；日後 online 若需 Reflection/Transmission 或 last_frame，
+ *   應使用 reserved[] 擴充（勿改既有欄位順序，否則破壞已驗證線格式）。
  * ============================================================================
  */
 
@@ -21,103 +31,89 @@
 #include <cstddef>
 #include <string>
 
-#pragma pack(push, 1)
-struct FrameHeader {
-    uint32_t magic;          // FRAME_MAGIC = 0xCFA0A001
-    uint32_t version;        // FRAME_VERSION
-    uint64_t timestamp_ns;   // PTP 時間戳（奈秒）
-    uint32_t panel_id_hash;  // panel_id 的 32-bit hash（FNV-1a）
-    uint16_t cam_id;         // 來源 CCD 編號（0~33）
-    uint16_t frame_seq;      // 幀序號
-    uint32_t width;          // 影像寬度（例：8192）
-    uint32_t height;         // 影像高度（例：5000）
-    uint8_t  pixel_format;   // 0 = Mono8
-    uint8_t  system_id;      // 0 = Reflection（反射）, 1 = Transmission（穿透）
-    uint16_t flags;          // bit0 = last_frame
-    uint32_t payload_bytes;  // 影像資料位元組數（= width*height for Mono8）
-    uint32_t crc32;          // payload 的 CRC32（IEEE）
-
-    // 補齊到 256 bytes：固定欄位合計 44 bytes → padding 212 bytes
-    uint8_t  padding[256 - (4 + 4 + 8 + 4 + 2 + 2 + 4 + 4 + 1 + 1 + 2 + 4 + 4)];
+#pragma pack(push, 1)               // 緊密排列：欄位之間不插入 padding
+struct FrameHeader {                // 總長 256 bytes（固定欄位 64 + reserved 192）
+    uint32_t magic;                 // 魔術數 0xA01CF00D，接收端確認有效標頭
+    uint16_t version;               // 線格式版本 = 2
+    uint16_t headerBytes;           // 標頭長度 = 256
+    uint64_t frameSeq;              // 全域遞增幀序號（也塞進 RDMA imm）
+    uint32_t panelId;               // 面板/玻璃基板編號（IP 端 make_frame_header 暫填 panel 字串 FNV hash）
+    uint16_t camId;                 // 相機編號 0..36
+    uint16_t sliceIndex;            // 線掃分段索引
+    uint16_t totalSlice;            // 總分段數
+    uint16_t scanStep;              // 掃描步進
+    uint32_t width;                 // 影像寬
+    uint32_t height;                // 影像高
+    uint16_t bitDepth;              // 位元深度 8/10/12/16
+    uint16_t pixelFormat;           // 0=Mono8,1=Mono16,2=BayerRG8,...
+    uint64_t ptpTimestampNs;        // PTP 時間戳（奈秒），多相機同步用
+    int32_t  machineCoordX;         // 機台座標 X（換算缺陷全域位置用）
+    int32_t  machineCoordY;         // 機台座標 Y
+    uint32_t payloadBytes;          // 後面影像 payload 位元組數
+    uint32_t crc32;                 // payload 的 CRC32（IEEE，驗資料完整性）
+    uint8_t  reserved[256 - 64];    // 前面固定欄位共 64 bytes，補滿到 256
 };
 #pragma pack(pop)
 
-static_assert(sizeof(FrameHeader) == 256, "FrameHeader must be exactly 256 bytes");
+static_assert(sizeof(FrameHeader) == 256, "FrameHeader 必須為 256 bytes");
 
-// ============================================================================
-// 常數
-// ============================================================================
+constexpr uint32_t FRAME_MAGIC   = 0xA01CF00Du;   // 與 magic 欄位比對用
+constexpr uint16_t FRAME_VERSION = 2;
 
-constexpr uint32_t FRAME_MAGIC   = 0xCFA0A001u;  // 合法 hex（非 0xCFAOI001）
-constexpr uint32_t FRAME_VERSION = 1u;
-
-// pixel_format 列舉
-enum FramePixelFormat : uint8_t {
-    PIXFMT_MONO8 = 0,
-};
-
-// system_id 列舉
-enum FrameSystemId : uint8_t {
-    SYS_REFLECTION   = 0,
-    SYS_TRANSMISSION = 1,
-};
-
-// flags bit 定義
-enum FrameFlags : uint16_t {
-    FLAG_LAST_FRAME = 0x0001,
-};
-
-// ============================================================================
-// CRC32（IEEE 802.3，table-less，與多數工具相容）
-// ============================================================================
-
-inline uint32_t frame_crc32(const uint8_t* data, size_t len) {
-    uint32_t crc = 0xFFFFFFFFu;
-    for (size_t i = 0; i < len; ++i) {
-        crc ^= data[i];
-        for (int b = 0; b < 8; ++b) {
-            uint32_t mask = -(crc & 1u);
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
+// -----------------------------------------------------------------------------
+// crc32_ieee — 標準 IEEE 802.3 CRC32（多項式 0xEDB88320，與 zlib 相同）。
+//   驗證：crc32_ieee("123456789",9) == 0xCBF43926（標準測試向量）。
+// -----------------------------------------------------------------------------
+inline uint32_t crc32_ieee(const void* data, uint64_t len, uint32_t crc = 0xFFFFFFFFu) {
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+    for (uint64_t i = 0; i < len; ++i) {
+        crc ^= p[i];
+        for (int k = 0; k < 8; ++k)
+            crc = (crc >> 1) ^ (0xEDB88320u & (~((crc & 1u) - 1u)));
     }
-    return ~crc;
+    return crc ^ 0xFFFFFFFFu;
 }
 
 // ============================================================================
-// panel_id → 32-bit hash（FNV-1a）
+// 相容層（附加；不屬 wire 結構）——供 IP 既有呼叫沿用
 // ============================================================================
 
+// panel_id 字串 → 32-bit FNV-1a hash（暫填入 panelId 欄位；正式上線可改填真實面板編號）
 inline uint32_t frame_panel_hash(const std::string& panel_id) {
-    uint32_t h = 0x811C9DC5u;  // FNV offset basis
-    for (unsigned char c : panel_id) {
-        h ^= c;
-        h *= 0x01000193u;      // FNV prime
-    }
+    uint32_t h = 0x811C9DC5u;       // FNV offset basis
+    for (unsigned char c : panel_id) { h ^= c; h *= 0x01000193u; }  // FNV prime
     return h;
 }
 
-// 便利建構器：填好固定欄位 + CRC，回傳 header。
+// 便利建構器：填好固定欄位 + CRC。system_id / last_frame 於 phase1 線格式無對應欄位 →
+// 接受但不寫入 wire（IP 目前未讀；見檔頭相容備註）。
 inline FrameHeader make_frame_header(const std::string& panel_id,
                                      uint16_t cam_id, uint16_t frame_seq,
                                      uint32_t width, uint32_t height,
                                      const uint8_t* payload, uint32_t payload_bytes,
-                                     uint8_t system_id = SYS_REFLECTION,
+                                     uint8_t system_id = 0,
                                      uint64_t timestamp_ns = 0,
                                      bool last_frame = false) {
+    (void)system_id; (void)last_frame;   // phase1 無對應欄位（日後用 reserved[] 擴充）
     FrameHeader h{};
-    h.magic         = FRAME_MAGIC;
-    h.version       = FRAME_VERSION;
-    h.timestamp_ns  = timestamp_ns;
-    h.panel_id_hash = frame_panel_hash(panel_id);
-    h.cam_id        = cam_id;
-    h.frame_seq     = frame_seq;
-    h.width         = width;
-    h.height        = height;
-    h.pixel_format  = PIXFMT_MONO8;
-    h.system_id     = system_id;
-    h.flags         = last_frame ? FLAG_LAST_FRAME : 0;
-    h.payload_bytes = payload_bytes;
-    h.crc32         = (payload && payload_bytes) ? frame_crc32(payload, payload_bytes) : 0;
+    h.magic          = FRAME_MAGIC;
+    h.version        = FRAME_VERSION;
+    h.headerBytes    = 256;
+    h.frameSeq       = frame_seq;
+    h.panelId        = frame_panel_hash(panel_id);
+    h.camId          = cam_id;
+    h.sliceIndex     = 0;
+    h.totalSlice     = 1;
+    h.scanStep       = 0;
+    h.width          = width;
+    h.height         = height;
+    h.bitDepth       = 8;
+    h.pixelFormat    = 0;             // Mono8
+    h.ptpTimestampNs = timestamp_ns;
+    h.machineCoordX  = 0;
+    h.machineCoordY  = 0;
+    h.payloadBytes   = payload_bytes;
+    h.crc32          = (payload && payload_bytes) ? crc32_ieee(payload, payload_bytes) : 0;
     return h;
 }
 

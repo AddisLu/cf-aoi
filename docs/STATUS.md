@@ -107,7 +107,7 @@
 | 配方 round-trip（Mac 改→IP 套用） | **L2** | IP offline-tcp `LOAD_RECIPE` 吃 `recipe_xml` 內容並套用，已於 Linux 驗。**(原草稿 L3→L2：完整「Mac 改值→IP 套用→結果反映」由使用者調參時跑過，但本盤點無乾淨可復現的單一佐證，保守標 L2)** |
 | 上位機協議（CF_/8787/gg4mida/timeout 40000） | **L1** | ⚠️ Control 端寫好（含 .Start/CF_ switch），**從未接真實上位機、且未被任何啟動處呼叫**（見 UpstreamServer 列）。 |
 | Grab↔IP RDMA 線格式 — **phase1 版** `Reference/phase1_tests/FrameHeader.h`（magic `0xA01CF00D`） | **L4** | 此版**實機收發驗證過**（t21/t40 全幀 CRC 正確）。定為正式線格式。 |
-| Grab↔IP RDMA 線格式 — **repo 版** `shared/FrameHeader.h`（magic `0xCFA0A001`） | **L1（且與實測版衝突）** | ⚠️ 與 phase1 版**欄位完全不同、從未經 RDMA**。目前僅 IP offline 路徑用到 `width/height/cam_id/frame_seq`+`make_frame_header`。**待對齊 phase1**（對齊方案已備、待確認後執行；屆時改標「已對齊 phase1」）。 |
+| Grab↔IP RDMA 線格式 — `shared/FrameHeader.h` | **已對齊 phase1（L2 編譯驗證，wire 仍待 L4 真機收發）** | ✅ 2026-06-14 已把 `shared/FrameHeader.h` 對齊 phase1 版（magic `0xA01CF00D` + frameSeq u64/panelId/sliceIndex/machineCoordXY）；IP 編譯通過、offline 偵測 2606 bit-exact 不受影響（只 rename camId/frameSeq 2 處 + make_frame_header 相容層）。舊 `0xCFA0A001` 版作廢。**wire 真機收發**仍待 RDMA 主程式（明天起）。 |
 | RDMA 收發實作（RdmaSender/Receiver 主程式） | **L0** | 正式 Grab/IP 主程式尚無收發碼（phase1 的 `t40`/`RcConn` 為可升級樣板）。 |
 
 ---

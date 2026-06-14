@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
             cv::Mat gray(hdr.height, hdr.width, CV_8UC1, payload.data());
             std::string panel = src.current_panel_id();
             std::string name = panel.empty()
-                ? ("cam" + std::to_string(hdr.cam_id) + "_seq" + std::to_string(hdr.frame_seq))
+                ? ("cam" + std::to_string(hdr.camId) + "_seq" + std::to_string(hdr.frameSeq))
                 : panel;
             std::vector<ZoneConfig> z_snapshot;
             { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }

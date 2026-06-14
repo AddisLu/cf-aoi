@@ -175,27 +175,31 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 - **多 ROI**：gpu_algo kernel 一次只吃單一參數組（無 zone 邊界），故 IP 對 `DetectRoiList` 每個
   `DetectRoi` 各裁切子影像跑一次，再合併（一個 zone = 一個 `RoiInfo`）。
 
-### shared/FrameHeader.h（256 bytes）
+### shared/FrameHeader.h（256 bytes）— = Phase-1 實機驗證版（magic 0xA01CF00D）
+> 2026-06-11 於 damac↔spark-c16f 用 t21/t40 RDMA→GPU 全幀 CRC 驗證通過；`shared/FrameHeader.h` 已對齊此版。
+> ⚠️ 舊 repo 版（magic 0xCFA0A001 + panel_id_hash/system_id/flags）**作廢**（從未經 RDMA）。
 ```cpp
 #pragma pack(push,1)
-struct FrameHeader {
-    uint32_t magic;        // FRAME_MAGIC = 0xCFA0A001（合法 hex）
-    uint32_t version;
-    uint64_t timestamp_ns;
-    uint32_t panel_id_hash;
-    uint16_t cam_id;
-    uint16_t frame_seq;
-    uint32_t width;        // 8192
-    uint32_t height;       // 5000
-    uint8_t  pixel_format; // 0=Mono8
-    uint8_t  system_id;    // 0=Reflection 1=Transmission
-    uint16_t flags;        // bit0=last_frame
-    uint32_t payload_bytes;
-    uint32_t crc32;
-    uint8_t  padding[/*補齊到256*/];
+struct FrameHeader {        // 固定欄位 64 + reserved 192 = 256
+    uint32_t magic;         // FRAME_MAGIC = 0xA01CF00D
+    uint16_t version;       // = 2
+    uint16_t headerBytes;   // = 256
+    uint64_t frameSeq;      // 也塞進 RDMA imm
+    uint32_t panelId;       // 面板編號（IP make_frame_header 暫填 panel 字串 FNV hash）
+    uint16_t camId; uint16_t sliceIndex; uint16_t totalSlice; uint16_t scanStep;
+    uint32_t width;         // 8192
+    uint32_t height;        // 5000
+    uint16_t bitDepth;      // 8
+    uint16_t pixelFormat;   // 0=Mono8
+    uint64_t ptpTimestampNs;
+    int32_t  machineCoordX; int32_t machineCoordY;   // 缺陷全域座標用
+    uint32_t payloadBytes;
+    uint32_t crc32;         // payload CRC32（IEEE 0xEDB88320）
+    uint8_t  reserved[256 - 64];
 };
 #pragma pack(pop)
 static_assert(sizeof(FrameHeader)==256,"");
+// 相容層（附加，非 wire）：make_frame_header() / frame_panel_hash()；phase1 無 system_id/flags，日後用 reserved 擴充
 ```
 
 ---
@@ -213,7 +217,7 @@ static_assert(sizeof(FrameHeader)==256,"");
 
 1. `cuda_kernels.cu` / `ai_kernels.cu` 禁止修改任何 `__global__` kernel 邏輯（host wrapper 編排可改，見 ip/CLAUDE.md 不變式 7）
 2. `shared/FrameHeader.h` 兩端版本一致，`sizeof==256`
-3. magic 用合法 hex `0xCFA0A001`（不是 0xCFAOI001）
+3. FrameHeader = Phase-1 實機驗證版，magic `0xA01CF00D`（舊 `0xCFA0A001` 版作廢，從未經 RDMA）；`shared/FrameHeader.h` 已對齊
 4. 上位機命令名稱固定為 **`CF_` 前綴**（`CF_LOAD_RECIPE`/`CF_GRAB_START`/`CF_GET_RESULT` 等，port 8787，9 參數）不可改；
    舊文件的 `LoadRecipe/GrabStart/GetResult|RECIPE|PANEL` 假設已作廢
 5. RecipeInfo.xml 格式與舊系統相容（= legacy `Recipe`；閾值 `BrightThreshold`/`DarkThreshold`，非 ThB/ThD；只收 DIV）
