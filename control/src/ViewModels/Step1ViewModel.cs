@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using CfAoiControl.Models;
@@ -66,6 +67,8 @@ public partial class Step1ViewModel : ViewModelBase
     [ObservableProperty] private Bitmap? sourceBitmap;
     [ObservableProperty] private int imageWidth = 1;
     [ObservableProperty] private int imageHeight = 1;
+    // 原始灰階 bytes（L8，row-major）供像素值讀出；不序列化、由 code-behind 讀。
+    public byte[]? PixelData { get; private set; }
     public ObservableCollection<DefectModel> DrawDefects { get; } = new();   // overlay 用（封頂）
     public ObservableCollection<DefectThumb> Thumbs { get; } = new();        // 縮圖牆
     [ObservableProperty] private DefectThumb? selectedThumb;
@@ -123,21 +126,43 @@ public partial class Step1ViewModel : ViewModelBase
         }
     }
 
-    /// <summary>建立顯示用縮圖（等比縮到 DisplayMaxW）並安全替換 SourceBitmap。</summary>
+    /// <summary>
+    /// 建立全解析度顯示點陣圖（BGRA WriteableBitmap，nearest-neighbor）供放大看網格量 Pitch，
+    /// 並保存原始灰階 bytes 供像素值讀出。載入新圖時 Dispose 舊 WriteableBitmap、釋放舊 PixelData。
+    /// </summary>
     private void BuildDisplayBitmap(Image<L8> src)
     {
-        ImageWidth = src.Width;
-        ImageHeight = src.Height;
-        ImageSizeText = $"ImageSize : {src.Width}x{src.Height}";
-        using var disp = src.Clone(c => c.Resize(new ResizeOptions
+        int w = src.Width, h = src.Height;
+        ImageWidth = w; ImageHeight = h;
+        ImageSizeText = $"ImageSize : {w}x{h}";
+
+        // 原始灰階 bytes（供 Axis/Value 讀出）— 換新陣列，舊的交給 GC
+        PixelData = null;
+        var px = new byte[w * h];
+        src.CopyPixelDataTo(px);
+        PixelData = px;
+
+        // 全解析度 BGRA（L8→灰階 BGRA），逐列寫入避免 163MB 連續配置
+        var wb = new WriteableBitmap(new Avalonia.PixelSize(w, h), new Avalonia.Vector(96, 96),
+                                     Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
+        using (var fb = wb.Lock())
         {
-            Mode = ResizeMode.Max, Size = new Size(DisplayMaxW, DisplayMaxW * 10)
-        }));
-        using var ms = new MemoryStream();
-        disp.SaveAsPng(ms); ms.Position = 0;
+            var row = new byte[w * 4];
+            for (int y = 0; y < h; y++)
+            {
+                int so = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    byte g = px[so + x];
+                    int o = x * 4;
+                    row[o] = g; row[o + 1] = g; row[o + 2] = g; row[o + 3] = 255;
+                }
+                Marshal.Copy(row, 0, IntPtr.Add(fb.Address, y * fb.RowBytes), w * 4);
+            }
+        }
         var old = SourceBitmap;
-        SourceBitmap = new Bitmap(ms);          // 先換新（UI 重綁）再釋放舊，避免存取已釋放點陣圖
-        old?.Dispose();
+        SourceBitmap = wb;                      // 先換新（UI 重綁）再釋放舊，避免存取已釋放點陣圖
+        old?.Dispose();                         // 釋放上一張 163MB WriteableBitmap
     }
 
     // Test 可按條件：有影像（已載入）+ 非分析中（配方恆有預設）

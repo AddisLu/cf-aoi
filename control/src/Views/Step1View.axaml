@@ -23,29 +23,44 @@
     <Grid ColumnDefinitions="65*,35*">
       <!-- ===== 左欄：影像區 + 缺陷縮圖牆 ===== -->
       <Grid Grid.Column="0" RowDefinitions="70*,30*" Margin="3">
-        <!-- 黑底影像 + 缺陷框 overlay -->
-        <Border Grid.Row="0" Background="{StaticResource ColBlack}" Margin="1">
-          <Viewbox Stretch="Uniform">
-            <Grid Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" x:CompileBindings="False">
-              <Image Source="{Binding SourceBitmap}" Stretch="Fill"/>
-              <ItemsControl ItemsSource="{Binding DrawDefects}">
-                <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                <ItemsControl.Styles>
-                  <Style Selector="ItemsControl > ContentPresenter">
-                    <Setter Property="Canvas.Left" Value="{Binding XMin}"/>
-                    <Setter Property="Canvas.Top" Value="{Binding YMin}"/>
-                  </Style>
-                </ItemsControl.Styles>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Rectangle Width="{Binding BoxW}" Height="{Binding BoxH}"
-                               StrokeThickness="12"
-                               Stroke="{Binding Type, Converter={StaticResource DefectTypeToBrush}}"/>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </Grid>
-          </Viewbox>
+        <!-- 黑底影像區：可縮放/平移/量測 + 缺陷框 overlay -->
+        <Border Grid.Row="0" Margin="1">
+          <Grid RowDefinitions="*,Auto">
+            <Border Grid.Row="0" Name="Viewport" Background="{StaticResource ColBlack}"
+                    ClipToBounds="True" Focusable="True">
+              <Panel>
+                <!-- 影像 + 缺陷 overlay（content 座標 = 原始像素；MatrixTransform 統一縮放/平移）-->
+                <Canvas Name="ContentRoot" RenderTransformOrigin="0,0" x:CompileBindings="False">
+                  <Image Name="ImgDisplay" Source="{Binding SourceBitmap}"
+                         Width="{Binding ImageWidth}" Height="{Binding ImageHeight}"
+                         RenderOptions.BitmapInterpolationMode="None"/>
+                  <ItemsControl ItemsSource="{Binding DrawDefects}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.Styles>
+                      <Style Selector="ItemsControl > ContentPresenter">
+                        <Setter Property="Canvas.Left" Value="{Binding XMin}"/>
+                        <Setter Property="Canvas.Top" Value="{Binding YMin}"/>
+                      </Style>
+                    </ItemsControl.Styles>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Rectangle Width="{Binding BoxW}" Height="{Binding BoxH}" StrokeThickness="12"
+                                   Stroke="{Binding Type, Converter={StaticResource DefectTypeToBrush}}"/>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Canvas>
+                <!-- 量測標記層（螢幕座標，不隨 content 變換縮放）-->
+                <Canvas Name="MeasureOverlay" IsHitTestVisible="False"/>
+              </Panel>
+            </Border>
+            <!-- 工具列：Fit + 操作提示 -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="2">
+              <Button Name="BtnFit" Content="Fit"/>
+              <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#666"
+                         Text="滾輪縮放 · 中鍵/空白+拖曳平移 · 按住 M 點兩格量 Pitch"/>
+            </StackPanel>
+          </Grid>
         </Border>
 
         <!-- 缺陷縮圖牆（listView1 LargeIcon）-->

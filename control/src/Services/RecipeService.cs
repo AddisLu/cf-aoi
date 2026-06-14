@@ -20,10 +20,22 @@ public sealed class RecipeService
 
     public RecipeService(SystemConfigModel cfg, LogService log) { _cfg = cfg; _log = log; }
 
-    public static string ExpandPath(string p) =>
-        p.StartsWith("~/") || p == "~"
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), p.Length > 1 ? p[2..] : "")
-            : p;
+    // 跨平台路徑展開：~（家目錄，Windows 亦適用 UserProfile）、~/a/b（拆段 Path.Combine）、
+    // 絕對路徑（含 Windows C:\…）原樣回傳。確保 Mac/Linux/Windows 共用同一份設定。
+    public static string ExpandPath(string p)
+    {
+        if (string.IsNullOrEmpty(p)) return p;
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (p == "~") return home;
+        if (p.StartsWith("~/") || p.StartsWith("~\\"))
+        {
+            var combined = home;
+            foreach (var seg in p[2..].Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries))
+                combined = Path.Combine(combined, seg);
+            return combined;
+        }
+        return p;   // 絕對路徑原樣（Windows C:\… / *nix /…）
+    }
 
     public string RecipeXmlPath(string recipeName, string ipName = "IP0") =>
         Path.Combine(ExpandPath(_cfg.Paths.RecipeDir), recipeName, ipName, "RecipeInfo.xml");
