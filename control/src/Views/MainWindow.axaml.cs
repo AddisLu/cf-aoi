@@ -21,6 +21,25 @@ public partial class MainWindow : Window
         };
         var btn = this.FindControl<Button>("BtnOpenAlgoTest");
         if (btn != null) btn.Click += OpenAlgoTest;
+        var btn2 = this.FindControl<Button>("BtnOpenParamEditor");
+        if (btn2 != null) btn2.Click += OpenParamEditor;
+    }
+
+    private Window? _paramWin;
+    // 開「配方編輯」(對應 legacy frmIpParamEditor)，獨立視窗 1280×797
+    private void OpenParamEditor(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        if (_paramWin is { IsVisible: true } w) { w.Activate(); return; }
+        _paramWin = new Window
+        {
+            Title = "Ip Params Editor",
+            Width = 1280, Height = 797,
+            FontFamily = new Avalonia.Media.FontFamily("Arial"),
+            Content = new ZoneParamEditorView { DataContext = vm.ZoneEditor },
+        };
+        _paramWin.Closed += (_, _) => _paramWin = null;
+        _paramWin.Show(this);
     }
 
     // 開「離線分析工具」(對應 legacy frmAlgorithmTestTools)，獨立視窗 1064×681

@@ -22,6 +22,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public AppServices Services => _svc;
     public Step1ViewModel Step1 { get; }
+    public ZoneParamEditorViewModel ZoneEditor { get; }
     public SystemConfigModel Config => _svc.Config;
 
     // ===== Status 群（每秒更新；對應 lblCurXxx）=====
@@ -54,6 +55,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _conn = svc.Connection;
         _log = svc.Log;
         Step1 = new Step1ViewModel(svc);
+        ZoneEditor = new ZoneParamEditorViewModel(svc);
 
         OfflineFolder = svc.Config.Paths.ImageDir;
         RefreshRecipeNames();

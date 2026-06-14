@@ -71,4 +71,11 @@ public partial class ZoneSettingModel : ObservableObject
 
     /// <summary>深拷貝（批次套用到多個 ROI 時用）。</summary>
     public ZoneSettingModel Clone() => (ZoneSettingModel)MemberwiseClone();
+
+    /// <summary>把 o 的所有可寫屬性複製進此物件（編輯緩衝 ↔ ROI 互拷，不換實例）。</summary>
+    public void CopyFrom(ZoneSettingModel o)
+    {
+        foreach (var p in typeof(ZoneSettingModel).GetProperties())
+            if (p.CanRead && p.CanWrite) p.SetValue(this, p.GetValue(o));
+    }
 }
