@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -20,6 +21,7 @@ public sealed class DefectThumb
 {
     public Bitmap? Image { get; init; }
     public string Label { get; init; } = "";       // dg{roi}_i{idx}
+    public int Index { get; init; }                 // 在完整缺陷清單中的索引（導航用）
     public DefectModel Defect { get; init; } = new();
 }
 
@@ -32,7 +34,7 @@ public partial class Step1ViewModel : ViewModelBase
     private readonly AppServices _svc;
     private const int PatchSize = 100;
     private const int ThumbSize = 64;
-    private const int DisplayMaxW = 1632;   // 顯示用縮圖最大寬（8160/5）
+    private const int ThumbCap = 200;       // 縮圖牆封頂（解碼效能；大圖框/導航不受限）
 
     public Step1ViewModel(AppServices svc)
     {
@@ -58,9 +60,10 @@ public partial class Step1ViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
     private bool isAnalyzing;
     [ObservableProperty] private bool showAutoGenWarning;
-    // 影像是否已載入記憶體（Test 的 CanExecute 依此；改變時通知重新評估）
+    // 影像是否已載入記憶體（Test/FFT 的 CanExecute 依此；改變時通知重新評估）
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EstimateFftCommand))]
     private bool imageLoaded;
 
     // 影像顯示 + overlay
@@ -69,10 +72,26 @@ public partial class Step1ViewModel : ViewModelBase
     [ObservableProperty] private int imageHeight = 1;
     // 原始灰階 bytes（L8，row-major）供像素值讀出；不序列化、由 code-behind 讀。
     public byte[]? PixelData { get; private set; }
-    public ObservableCollection<DefectModel> DrawDefects { get; } = new();   // overlay 用（封頂）
     public ObservableCollection<DefectThumb> Thumbs { get; } = new();        // 縮圖牆
     [ObservableProperty] private DefectThumb? selectedThumb;
     [ObservableProperty] private DefectModel? selectedDefect;
+
+    // 缺陷導航（code-behind 讀此清單給 overlay 控制項 + 跳轉）
+    public List<DefectModel> NavDefects { get; } = new();
+    [ObservableProperty] private int selectedDefectIndex = -1;
+    [ObservableProperty] private int resultVersion;   // 每次分析 +1，通知 code-behind 重綁 overlay
+
+    // 檢測上限 / 警告 / 密度（功能 B）
+    public const int DetectionCap = 10000;            // IP 端固定（cuda_kernels MAX_DEFECTS）
+    [ObservableProperty] private bool defectCntAtCap;
+
+    // FFT 估算 Pitch（功能 A）
+    [ObservableProperty] private bool hasFftResult;
+    [ObservableProperty] private string fftResultText = "";
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(EstimateFftCommand))]
+    private bool isEstimatingFft;
+    private int _fftPitchX = 26, _fftPitchY = 19;
 
     // 8 格狀態列
     [ObservableProperty] private string imageSizeText = "ImageSize : -";
@@ -88,9 +107,48 @@ public partial class Step1ViewModel : ViewModelBase
 
     partial void OnSelectedThumbChanged(DefectThumb? value)
     {
-        SelectedDefect = value?.Defect;
-        SelectedText = value is null ? "| Selected : -"
-            : $"| Selected : {value.Label} ({value.Defect.GlobalPosX},{value.Defect.GlobalPosY})";
+        // 點縮圖 → 設定導航索引（code-behind 監看 → 跳轉大圖）
+        if (value != null) SelectedDefectIndex = value.Index;
+    }
+
+    partial void OnSelectedDefectIndexChanged(int value)
+    {
+        if (value >= 0 && value < NavDefects.Count)
+        {
+            SelectedDefect = NavDefects[value];
+            SelectedText = $"| Selected : 第 {value + 1}/{NavDefects.Count}";
+        }
+        else { SelectedDefect = null; SelectedText = "| Selected : -"; }
+    }
+
+    // ===== 功能 A：FFT 估算 Pitch =====
+    private bool CanEstimateFft() => ImageLoaded && !IsEstimatingFft;
+
+    [RelayCommand(CanExecute = nameof(CanEstimateFft))]
+    private async Task EstimateFft()
+    {
+        var px = PixelData; int w = ImageWidth, h = ImageHeight;
+        if (px is null) return;
+        IsEstimatingFft = true;
+        try
+        {
+            var r = await Task.Run(() => PitchEstimator.Estimate(px, w, h));
+            _fftPitchX = r.PitchX; _fftPitchY = r.PitchY;
+            HasFftResult = true;
+            FftResultText = $"FFT 估算：PitchX≈{r.PitchX}（{r.ConfX}）, PitchY≈{r.PitchY}（{r.ConfY}）";
+            _svc.Log.Info($"FFT 估算 PitchX={r.PitchX}(SNR{r.SnrX:F1}) PitchY={r.PitchY}(SNR{r.SnrY:F1})");
+        }
+        catch (Exception ex) { _svc.Log.Error($"FFT 估算失敗：{ex.Message}"); }
+        finally { IsEstimatingFft = false; }
+    }
+
+    // 不自動覆蓋：使用者看到估算值後按「套用」才填入（方便對照手動 vs 估算）
+    [RelayCommand]
+    private void ApplyFft()
+    {
+        if (!HasFftResult) return;
+        PitchX = _fftPitchX; PitchY = _fftPitchY;
+        _svc.Log.Info($"已套用 FFT 估算：PitchX={PitchX}, PitchY={PitchY}");
     }
 
     // 對應 btnLoadImage：選檔後立即讀入記憶體、顯示、更新 ImageSize、enable Test
@@ -111,12 +169,15 @@ public partial class Step1ViewModel : ViewModelBase
         {
             using var src = Image.Load<L8>(path);
             BuildDisplayBitmap(src);
-            DrawDefects.Clear();
             Thumbs.Clear();
+            NavDefects.Clear();
             SelectedThumb = null;
+            SelectedDefectIndex = -1;
+            DefectCntAtCap = false;
             RegionText = "| Region : 全幅";
             DefectCntText = "| DefectCnt : 0";
-            ImageLoaded = true;                 // → RunAnalysisCommand 重新評估 CanExecute
+            ResultVersion++;                    // 清空 overlay
+            ImageLoaded = true;                 // → Run/FFT Command 重新評估 CanExecute
             _svc.Log.Info($"已載入影像 {Path.GetFileName(path)} ({ImageWidth}x{ImageHeight})");
         }
         catch (Exception ex)
@@ -184,11 +245,9 @@ public partial class Step1ViewModel : ViewModelBase
             ShowAutoGenWarning = outcome.RecipeAutoGenerated;
             var result = outcome.Result;
 
-            // 載入原圖一次：建顯示縮圖 + 缺陷縮圖牆 + overlay
+            // 載入原圖一次：建顯示圖 + 縮圖牆 + 導航清單 + 上限/密度
             BuildVisuals(SelectedImagePath, result);
-
             RecipeText = $"| Recipe : {SelectedRecipe}";
-            DefectCntText = $"| DefectCnt : {result.DefectCnt}";
         }
         catch (Exception ex) { _svc.Log.Error($"分析失敗：{ex.Message}"); }
         finally { IsAnalyzing = false; }
@@ -197,21 +256,21 @@ public partial class Step1ViewModel : ViewModelBase
     private void BuildVisuals(string imagePath, DefectResultModel result)
     {
         Thumbs.Clear();
-        DrawDefects.Clear();
+        NavDefects.Clear();
         SelectedThumb = null;
+        SelectedDefectIndex = -1;
 
         using var src = Image.Load<L8>(imagePath);
         BuildDisplayBitmap(src);
         RegionText = "| Region : 全幅";
 
-        // overlay + 縮圖（封頂 MaxDrawDefectCnt）
-        int half = ThumbSize / 2;
-        int idx = 0;
-        foreach (var d in result.AllDefects)
-        {
-            if (idx >= MaxDrawDefectCnt) break;
-            DrawDefects.Add(d);
+        NavDefects.AddRange(result.AllDefects);   // 完整清單（大圖框 + 導航涵蓋全部）
 
+        // 縮圖牆（封頂 ThumbCap；Index = 完整清單索引）
+        int half = ThumbSize / 2;
+        for (int idx = 0; idx < NavDefects.Count && idx < ThumbCap; idx++)
+        {
+            var d = NavDefects[idx];
             int x = Math.Clamp(d.GlobalPosX - half, 0, Math.Max(0, src.Width - ThumbSize));
             int y = Math.Clamp(d.GlobalPosY - half, 0, Math.Max(0, src.Height - ThumbSize));
             int w = Math.Min(ThumbSize, src.Width - x), h = Math.Min(ThumbSize, src.Height - y);
@@ -224,11 +283,22 @@ public partial class Step1ViewModel : ViewModelBase
                 thumb = new Bitmap(ms);
             }
             catch { }
-            Thumbs.Add(new DefectThumb { Image = thumb, Label = $"dg0_i{idx}", Defect = d });
-            idx++;
+            Thumbs.Add(new DefectThumb { Image = thumb, Label = $"dg0_i{idx}", Index = idx, Defect = d });
         }
-        if (result.DefectCnt > MaxDrawDefectCnt)
-            _svc.Log.Warn($"缺陷 {result.DefectCnt} 超過顯示上限 {MaxDrawDefectCnt}，僅顯示前 {MaxDrawDefectCnt} 個");
+        if (NavDefects.Count > ThumbCap)
+            _svc.Log.Warn($"縮圖僅顯示前 {ThumbCap}/{NavDefects.Count}（大圖框與 ←/→ 導航涵蓋全部）");
+
+        // 功能 B：檢測上限 + 缺陷密度
+        DefectCntAtCap = result.DefectCnt >= DetectionCap;
+        double mpx = (double)ImageWidth * ImageHeight / 1_000_000.0;
+        double density = mpx > 0 ? result.DefectCnt / mpx : 0;
+        DefectCntText = $"| DefectCnt : {result.DefectCnt}（{density:F1}/Mpx）";
+        if (DefectCntAtCap)
+            _svc.Log.Warn($"⚠ 缺陷數達上限 {DetectionCap}，實際更多，表示參數過嚴或 Pitch 不符，請調整（這通常不是真實缺陷數）");
+        else if (density > 50)
+            _svc.Log.Warn($"⚠ 缺陷密度偏高（{density:F0}/Mpx），可能整片誤報（把網格當缺陷），請確認 Pitch/閾值");
+
+        ResultVersion++;   // 通知 code-behind 用 NavDefects 重綁 overlay
     }
 
     [RelayCommand] private async Task SaveRecipe()

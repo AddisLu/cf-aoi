@@ -28,6 +28,15 @@ public sealed class LogLevelToBrushConverter : IValueConverter
     public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
 }
 
+/// <summary>達檢測上限 → 紅字，否則黑字（DefectCnt 警示）。</summary>
+public sealed class AtCapToBrushConverter : IValueConverter
+{
+    public static readonly AtCapToBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c)
+        => new SolidColorBrush(v is true ? Colors.Red : Colors.Black);
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
 /// <summary>缺陷 Type → 顏色（亮=紅、暗=藍）。</summary>
 public sealed class DefectTypeToBrushConverter : IValueConverter
 {

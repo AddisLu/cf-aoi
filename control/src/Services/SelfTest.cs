@@ -33,8 +33,9 @@ public static class SelfTest
                 case "parse":  return ParseTest(rest);
                 case "recipe": return await RecipeTest(rest, cfg, log);
                 case "send":   return await SendTest(rest, cfg, log);
+                case "fft":    return FftTest(rest);
                 default:
-                    Console.WriteLine("用法: --selftest parse|recipe|send ...");
+                    Console.WriteLine("用法: --selftest parse|recipe|send|fft ...");
                     return 2;
             }
         }
@@ -43,6 +44,23 @@ public static class SelfTest
             Console.WriteLine($"✗ SelfTest 例外: {ex.Message}");
             return 1;
         }
+    }
+
+    // ---- FFT Pitch 估算（驗證純 managed FFT 邏輯）----
+    private static int FftTest(string[] a)
+    {
+        if (a.Length < 1) { Console.WriteLine("fft 需要 <image>"); return 2; }
+        using var img = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.L8>(a[0]);
+        int w = img.Width, h = img.Height;
+        var px = new byte[w * h];
+        img.CopyPixelDataTo(px);
+        var r = PitchEstimator.Estimate(px, w, h);
+        Console.WriteLine($"  影像 {w}x{h}");
+        Console.WriteLine($"  PitchX≈{r.PitchX}（{r.ConfX}, SNR={r.SnrX:F1}, ok={r.OkX}）");
+        Console.WriteLine($"  PitchY≈{r.PitchY}（{r.ConfY}, SNR={r.SnrY:F1}, ok={r.OkY}）");
+        bool sane = r.PitchX is > 4 and < 150 && r.PitchY is > 4 and < 150;
+        Console.WriteLine(sane ? "✓ FFT 估算落在合理範圍" : "✗ FFT 估算超出合理範圍");
+        return sane ? 0 : 1;
     }
 
     // ---- step 3：IP JSON 與 XML 都能解析且值一致 ----

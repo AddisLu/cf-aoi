@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:CfAoiControl.ViewModels"
              xmlns:m="using:CfAoiControl.Models"
+             xmlns:ctrl="using:CfAoiControl.Controls"
              x:Class="CfAoiControl.Views.Step1View"
              x:DataType="vm:Step1ViewModel" FontFamily="Arial">
 
@@ -16,7 +17,8 @@
         <TextBlock Text="{Binding SelectedText}"/>
         <TextBlock Text="{Binding RecipeText}"/>
         <TextBlock Text="{Binding RegionText}"/>
-        <TextBlock Text="{Binding DefectCntText}"/>
+        <TextBlock Text="{Binding DefectCntText}" FontWeight="Bold"
+                   Foreground="{Binding DefectCntAtCap, Converter={StaticResource AtCapToBrush}}"/>
       </StackPanel>
     </Border>
 
@@ -34,21 +36,9 @@
                   <Image Name="ImgDisplay" Source="{Binding SourceBitmap}"
                          Width="{Binding ImageWidth}" Height="{Binding ImageHeight}"
                          RenderOptions.BitmapInterpolationMode="None"/>
-                  <ItemsControl ItemsSource="{Binding DrawDefects}">
-                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                    <ItemsControl.Styles>
-                      <Style Selector="ItemsControl > ContentPresenter">
-                        <Setter Property="Canvas.Left" Value="{Binding XMin}"/>
-                        <Setter Property="Canvas.Top" Value="{Binding YMin}"/>
-                      </Style>
-                    </ItemsControl.Styles>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate>
-                        <Rectangle Width="{Binding BoxW}" Height="{Binding BoxH}" StrokeThickness="12"
-                                   Stroke="{Binding Type, Converter={StaticResource DefectTypeToBrush}}"/>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
+                  <!-- 缺陷框（亮紅/暗藍/選中綠），單一控制項畫全部，隨 MatrixTransform -->
+                  <ctrl:DefectOverlayControl Name="DefectOverlay" IsHitTestVisible="False"
+                                             Width="{Binding ImageWidth}" Height="{Binding ImageHeight}"/>
                 </Canvas>
                 <!-- 量測標記層（螢幕座標，不隨 content 變換縮放）-->
                 <Canvas Name="MeasureOverlay" IsHitTestVisible="False"/>
@@ -65,7 +55,7 @@
 
         <!-- 缺陷縮圖牆（listView1 LargeIcon）-->
         <Border Grid.Row="1" BorderBrush="#A0A0A0" BorderThickness="1" Background="White" Margin="1">
-          <ListBox ItemsSource="{Binding Thumbs}" SelectedItem="{Binding SelectedThumb}" Background="Transparent">
+          <ListBox Name="ThumbList" ItemsSource="{Binding Thumbs}" SelectedItem="{Binding SelectedThumb}" Background="Transparent">
             <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:DefectThumb">
@@ -127,6 +117,20 @@
               <TextBlock Grid.Row="4" Grid.Column="0" Text="PitchY" VerticalAlignment="Center" Margin="0,0,8,4"/>
               <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding PitchY}" Increment="1" Minimum="1"/>
             </Grid>
+
+            <!-- 功能 A：FFT 估算 Pitch（不自動覆蓋，看了再套用以對照手動值）-->
+            <StackPanel Spacing="4">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button Content="FFT 估算 Pitch" Command="{Binding EstimateFftCommand}"/>
+                <Button Content="套用" Command="{Binding ApplyFftCommand}" IsVisible="{Binding HasFftResult}"/>
+                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsEstimatingFft}" Width="60" Height="4" VerticalAlignment="Center"/>
+              </StackPanel>
+              <TextBlock FontSize="12" Foreground="#0a6" TextWrapping="Wrap"
+                         IsVisible="{Binding HasFftResult}" Text="{Binding FftResultText}"/>
+            </StackPanel>
+
+            <!-- 功能 B：檢測上限（唯讀）-->
+            <TextBlock FontSize="11" Foreground="#888" Text="檢測上限：10000（IP 端固定，不可改）"/>
             <TextBlock FontSize="11" Foreground="#666" TextWrapping="Wrap"
                        Text="（完整 32 參數編輯在第二批 ZoneParamEditor；此處為快速調參）"/>
           </StackPanel>

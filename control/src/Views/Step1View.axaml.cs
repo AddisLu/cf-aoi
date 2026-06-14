@@ -10,6 +10,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using CfAoiControl.Controls;
 using CfAoiControl.ViewModels;
 
 namespace CfAoiControl.Views;
@@ -19,6 +20,9 @@ public partial class Step1View : UserControl
     private Border? _viewport;
     private Canvas? _content;
     private Canvas? _measureOverlay;
+    private DefectOverlayControl? _defectOverlay;
+    private ListBox? _thumbList;
+    private bool _navigating;   // 防止 thumb↔index 互設造成迴圈
 
     // 變換狀態：screen = scale*content + offset
     private double _scale = 1, _fitScale = 1, _offX, _offY;
@@ -34,6 +38,9 @@ public partial class Step1View : UserControl
         _viewport = this.FindControl<Border>("Viewport");
         _content = this.FindControl<Canvas>("ContentRoot");
         _measureOverlay = this.FindControl<Canvas>("MeasureOverlay");
+        _defectOverlay = this.FindControl<DefectOverlayControl>("DefectOverlay");
+        _thumbList = this.FindControl<ListBox>("ThumbList");
+        if (_thumbList != null) _thumbList.SelectionChanged += OnThumbSelectionChanged;
         var fit = this.FindControl<Button>("BtnFit");
         if (fit != null) fit.Click += (_, _) => Fit();
 
@@ -64,11 +71,17 @@ public partial class Step1View : UserControl
         }
     }
 
-    // 載入新圖 → 重新 Fit、清量測
+    // 載入新圖 → 重新 Fit、清量測；分析完成（ResultVersion）→ 重綁 overlay 的缺陷清單
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(Step1ViewModel.SourceBitmap) && Vm?.SourceBitmap != null)
             Dispatcher.UIThread.Post(() => { _measurePts.Clear(); Fit(); });
+        else if (e.PropertyName == nameof(Step1ViewModel.ResultVersion))
+            Dispatcher.UIThread.Post(() =>
+            {
+                _defectOverlay?.SetDefects(Vm?.NavDefects);
+                if (_defectOverlay != null) { _defectOverlay.SelectedIndex = -1; _defectOverlay.StrokeScale = _scale; }
+            });
     }
 
     // ===== 變換核心（用 Matrix 反矩陣換算座標，縮放/平移後皆精確）=====
@@ -79,6 +92,7 @@ public partial class Step1View : UserControl
     private void ApplyTransform()
     {
         if (_content != null) _content.RenderTransform = new MatrixTransform(CurrentMatrix());
+        if (_defectOverlay != null) _defectOverlay.StrokeScale = _scale;   // 框線維持約略固定螢幕粗細
         if (Vm != null) Vm.ZoomText = $"| Zoom : {_scale:F2}x";
         RedrawMeasure();
     }
@@ -135,7 +149,26 @@ public partial class Step1View : UserControl
             _panning = true; _panLast = s;
             e.Pointer.Capture(_viewport);
             e.Handled = true;
+            return;
         }
+        // 點大圖缺陷框 → 選取（不平移大圖，捲動縮圖牆 + 高亮）
+        if (pt.Properties.IsLeftButtonPressed)
+        {
+            int hit = HitTestDefect(ScreenToContent(s));
+            if (hit >= 0) NavTo(hit, center: false);
+        }
+    }
+
+    // 找出含此 content 點的缺陷索引（線性掃描，點擊頻率低可接受）
+    private int HitTestDefect(Point c)
+    {
+        if (Vm is not { } vm) return -1;
+        for (int i = 0; i < vm.NavDefects.Count; i++)
+        {
+            var d = vm.NavDefects[i];
+            if (c.X >= d.XMin && c.X <= d.XMax && c.Y >= d.YMin && c.Y <= d.YMax) return i;
+        }
+        return -1;
     }
 
     private void OnMoved(object? sender, PointerEventArgs e)
@@ -161,12 +194,58 @@ public partial class Step1View : UserControl
         if (e.Key == Key.Space) _space = true;
         else if (e.Key == Key.M) _measureKey = true;
         else if (e.Key == Key.F) Fit();
+        else if (e.Key == Key.Right && Vm is { NavDefects.Count: > 0 } vmr)
+        { NavTo(Math.Min((vmr.SelectedDefectIndex < 0 ? -1 : vmr.SelectedDefectIndex) + 1, vmr.NavDefects.Count - 1), center: true); e.Handled = true; }
+        else if (e.Key == Key.Left && Vm is { NavDefects.Count: > 0 } vml)
+        { NavTo(Math.Max((vml.SelectedDefectIndex < 0 ? 1 : vml.SelectedDefectIndex) - 1, 0), center: true); e.Handled = true; }
     }
 
     private void OnKeyUp(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Space) _space = false;
         else if (e.Key == Key.M) _measureKey = false;
+    }
+
+    // ===== 缺陷導航 =====
+    private void OnThumbSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_navigating) return;
+        if (_thumbList?.SelectedItem is DefectThumb t) NavTo(t.Index, center: true);
+    }
+
+    // 設定當前缺陷：高亮 overlay + 更新索引/狀態；center=true 則大圖跳轉置中(~5x)，並捲動縮圖
+    private void NavTo(int idx, bool center)
+    {
+        if (Vm is not { } vm || idx < 0 || idx >= vm.NavDefects.Count) return;
+        vm.SelectedDefectIndex = idx;
+        if (_defectOverlay != null) _defectOverlay.SelectedIndex = idx;
+
+        if (center) CenterOnDefect(vm.NavDefects[idx]);
+        ScrollThumbTo(idx);
+    }
+
+    private void CenterOnDefect(Models.DefectModel d)
+    {
+        if (_viewport is null) return;
+        double vw = _viewport.Bounds.Width, vh = _viewport.Bounds.Height;
+        if (vw < 2 || vh < 2) return;
+        _scale = Math.Clamp(5.0, Math.Min(0.1, _fitScale), 10.0);
+        double cx = d.GlobalPosX, cy = d.GlobalPosY;
+        _offX = vw / 2 - cx * _scale;
+        _offY = vh / 2 - cy * _scale;
+        ApplyTransform();
+    }
+
+    private void ScrollThumbTo(int idx)
+    {
+        if (_thumbList is null || Vm is not { } vm) return;
+        if (idx < vm.Thumbs.Count)
+        {
+            _navigating = true;
+            _thumbList.SelectedItem = vm.Thumbs[idx];
+            _thumbList.ScrollIntoView(vm.Thumbs[idx]);
+            _navigating = false;
+        }
     }
 
     // ===== StatusBar：Axis（原始像素座標）+ Value（灰階值）=====
