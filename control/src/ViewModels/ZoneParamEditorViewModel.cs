@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -11,7 +12,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace CfAoiControl.ViewModels;
 
-/// <summary>右側 ROI 勾選項（Roi_0/1/2…）。</summary>
+/// <summary>右側 ROI 勾選項（Roi_0/1/2…）。Zone 為共用配方裡的實際 DetectRoi。</summary>
 public sealed partial class RoiCheckItem : ObservableObject
 {
     public int Index { get; init; }
@@ -20,27 +21,30 @@ public sealed partial class RoiCheckItem : ObservableObject
     [ObservableProperty] private bool isChecked = true;
 }
 
+/// <summary>目標 ROI 參照（可切換），ParamRow 透過它讀寫「當前選取 ROI」。</summary>
+public sealed class ZoneRef { public ZoneSettingModel? Zone; }
+
 /// <summary>
 /// 中間參數列：CheckBox(批次勾選) + Label + 輸入(text/bool/combo) + Update。
-/// 值透過反射代理到共用編輯緩衝 ZoneSettingModel（避免換實例導致綁定失聯）。
+/// 值直接讀寫「當前選取 ROI」(ZoneRef.Zone)，編輯即時生效（單一資料來源）。
 /// </summary>
 public sealed partial class ParamRow : ObservableObject
 {
-    private readonly ZoneSettingModel _buf;
+    private readonly ZoneRef _ref;
     private readonly PropertyInfo _pi;
 
     public string Display { get; }
-    public bool IpConsumed { get; }                 // false → 標「IP 待接」
-    public string Kind { get; }                     // text/bool/enumPre/enumWay/compare
+    public bool IpConsumed { get; }
+    public string Kind { get; }
     public IEnumerable? Options { get; }
     public string PropName => _pi.Name;
     public string IpTag => IpConsumed ? "" : "IP待接";
 
     [ObservableProperty] private bool isChecked;
 
-    public ParamRow(ZoneSettingModel buf, string prop, string display, bool ip, string kind, IEnumerable? options = null)
+    public ParamRow(ZoneRef target, string prop, string display, bool ip, string kind, IEnumerable? options = null)
     {
-        _buf = buf; _pi = typeof(ZoneSettingModel).GetProperty(prop)!;
+        _ref = target; _pi = typeof(ZoneSettingModel).GetProperty(prop)!;
         Display = display; IpConsumed = ip; Kind = kind; Options = options;
     }
 
@@ -50,23 +54,23 @@ public sealed partial class ParamRow : ObservableObject
 
     public string TextValue
     {
-        get => _pi.GetValue(_buf)?.ToString() ?? "";
-        set { try { _pi.SetValue(_buf, Convert(value)); } catch { } OnPropertyChanged(); }
+        get => _ref.Zone is null ? "" : _pi.GetValue(_ref.Zone)?.ToString() ?? "";
+        set { if (_ref.Zone != null) { try { _pi.SetValue(_ref.Zone, Convert(value)); } catch { } } OnPropertyChanged(); }
     }
     public bool BoolValue
     {
-        get => _pi.GetValue(_buf) is true;
-        set { _pi.SetValue(_buf, value); OnPropertyChanged(); }
+        get => _ref.Zone != null && _pi.GetValue(_ref.Zone) is true;
+        set { if (_ref.Zone != null) _pi.SetValue(_ref.Zone, value); OnPropertyChanged(); }
     }
     public object? EnumValue
     {
-        get => _pi.GetValue(_buf);
+        get => _ref.Zone is null ? null : _pi.GetValue(_ref.Zone);
         set
         {
-            if (value is null) return;
+            if (_ref.Zone is null || value is null) return;
             try
             {
-                _pi.SetValue(_buf, value is string s && _pi.PropertyType != typeof(string)
+                _pi.SetValue(_ref.Zone, value is string s && _pi.PropertyType != typeof(string)
                     ? Enum.Parse(_pi.PropertyType, s) : value);
             }
             catch { }
@@ -84,8 +88,9 @@ public sealed partial class ParamRow : ObservableObject
         return v;
     }
 
-    public void ApplyTo(ZoneSettingModel target) => _pi.SetValue(target, _pi.GetValue(_buf));
-    public string ValueString => _pi.GetValue(_buf)?.ToString() ?? "";
+    public void ApplyTo(ZoneSettingModel target)
+    { if (_ref.Zone != null) _pi.SetValue(target, _pi.GetValue(_ref.Zone)); }
+    public string ValueString => _ref.Zone is null ? "" : _pi.GetValue(_ref.Zone)?.ToString() ?? "";
     public void RaiseChanged()
     {
         OnPropertyChanged(nameof(TextValue));
@@ -95,43 +100,45 @@ public sealed partial class ParamRow : ObservableObject
 }
 
 /// <summary>
-/// 1:1 對應 legacy frmIpParamEditor：左 Region 位移、中 27 列參數、右多 ROI 勾選。
-/// 用既有 ZoneSettingModel(32 欄)；AlgorithmCompare 鎖 DIV；編輯→存 RecipeInfo.xml→IP 讀。
+/// 1:1 對應 legacy frmIpParamEditor。配方資料來自共用 RecipeStore（single source of truth）：
+/// 切換配方/載入時重建 ROI 清單；編輯選取 ROI 即時改到共用配方，Step1/主視窗同步。
 /// </summary>
 public partial class ZoneParamEditorViewModel : ViewModelBase
 {
     private readonly AppServices _svc;
-    private RecipeModel _recipe = new();
+    private readonly ZoneRef _target = new();
+    private ZoneSettingModel? _subscribed;
     private Action? _pendingApply;
 
-    public ZoneParamEditorViewModel(AppServices svc)
-    {
-        _svc = svc;
-        BuildParamRows();
-        RefreshRecipeNames();
-        _ = LoadRecipeAsync(SelectedRecipe);
-    }
-
-    public ObservableCollection<string> RecipeNames { get; } = new();
+    public RecipeStore Store => _svc.RecipeStore;
     public ObservableCollection<RoiCheckItem> Rois { get; } = new();
     public ObservableCollection<ParamRow> ParamRows { get; } = new();
-    public ZoneSettingModel Buffer { get; } = new();   // Region + 參數輸入綁此
 
-    [ObservableProperty] private string selectedRecipe = "DEFAULT";
+    [ObservableProperty] private RoiCheckItem? selectedRoi;
     [ObservableProperty] private bool updateWithAsk = true;
     [ObservableProperty] private int shiftStep = 10;
     [ObservableProperty] private string statusMessage = "";
     [ObservableProperty] private bool awaitingConfirm;
     [ObservableProperty] private string confirmText = "";
 
+    public ZoneSettingModel? EditZone => SelectedRoi?.Zone;   // Region 綁此（選取 ROI 的實際 Zone）
+
     public static ImagePreproc[] ImagePreprocValues => Enum.GetValues<ImagePreproc>();
     public static AlgorithmWayCompare[] AlgorithmWayCompareValues => Enum.GetValues<AlgorithmWayCompare>();
-    public static string[] AlgorithmCompareOptions { get; } = { "DIV" };   // 鎖 DIV
+    public static string[] AlgorithmCompareOptions { get; } = { "DIV" };
+
+    public ZoneParamEditorViewModel(AppServices svc)
+    {
+        _svc = svc;
+        BuildParamRows();
+        Store.RecipeReloaded += OnRecipeReloaded;
+        OnRecipeReloaded();   // 以目前共用配方初始化
+    }
 
     private void BuildParamRows()
     {
         void Add(string prop, string disp, bool ip, string kind, IEnumerable? opt = null)
-            => ParamRows.Add(new ParamRow(Buffer, prop, disp, ip, kind, opt));
+            => ParamRows.Add(new ParamRow(_target, prop, disp, ip, kind, opt));
 
         Add("ImagePreproc", "ImagePreProc", false, "enumPre", ImagePreprocValues);
         Add("SmoothTimes", "SmoothTimes", false, "text");
@@ -162,29 +169,31 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
         Add("BlobAllMergeDistance", "BlobAllMergeDistance", false, "text");
     }
 
-    partial void OnSelectedRecipeChanged(string value) => _ = LoadRecipeAsync(value);
-
-    private async Task LoadRecipeAsync(string name)
+    // 共用配方切換/重載 → 重建 ROI 清單、選第一個
+    private void OnRecipeReloaded()
     {
-        var ensure = await _svc.Recipes.EnsureRecipeExistsAsync(name);
-        _recipe = ensure.Recipe;
         Rois.Clear();
         int i = 0;
-        foreach (var z in _recipe.DetectRoiList) Rois.Add(new RoiCheckItem { Index = i++, Zone = z });
-        if (Rois.Count > 0) LoadRoiToBuffer(Rois[0]);
-        StatusMessage = $"載入 {name}：{Rois.Count} 個 ROI";
+        foreach (var z in Store.Recipe.DetectRoiList) Rois.Add(new RoiCheckItem { Index = i++, Zone = z });
+        SelectedRoi = Rois.FirstOrDefault();
+        StatusMessage = $"載入 {Store.SelectedRecipe}：{Rois.Count} 個 ROI";
     }
 
-    // 點 ROI → 把其參數載入編輯緩衝（中間輸入隨之更新）
-    [RelayCommand]
-    private void LoadRoiToBuffer(RoiCheckItem? roi)
+    partial void OnSelectedRoiChanged(RoiCheckItem? value)
     {
-        if (roi is null) return;
-        Buffer.CopyFrom(roi.Zone);
+        // 退訂舊 zone、訂新 zone（外部如 Step1 改值時，中間欄位即時刷新）
+        if (_subscribed != null) _subscribed.PropertyChanged -= OnZoneChanged;
+        _target.Zone = value?.Zone;
+        _subscribed = value?.Zone;
+        if (_subscribed != null) _subscribed.PropertyChanged += OnZoneChanged;
         foreach (var r in ParamRows) r.RaiseChanged();
-        OnPropertyChanged(nameof(Buffer));
-        StatusMessage = $"已載入 {roi.Label} 參數到編輯區";
+        OnPropertyChanged(nameof(EditZone));
     }
+
+    private void OnZoneChanged(object? s, PropertyChangedEventArgs e)
+    { foreach (var r in ParamRows) r.RaiseChanged(); }
+
+    [RelayCommand] private void SelectRoi(RoiCheckItem? roi) { if (roi != null) SelectedRoi = roi; }
 
     private RoiCheckItem[] Checked() => Rois.Where(r => r.IsChecked).ToArray();
 
@@ -208,25 +217,23 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
             z.StartX = Math.Clamp(z.StartX, 0, 8160); z.EndX = Math.Clamp(z.EndX, 0, 8160);
             z.StartY = Math.Max(0, z.StartY); z.EndY = Math.Max(0, z.EndY);
         }
-        if (rois.Length > 0) LoadRoiToBuffer(rois[0]);
         StatusMessage = $"ROI 位移 {dir} {s}px（{rois.Length} 個）";
     }
 
-    // 把編輯區的 ROI 範圍(Start/End) 套到勾選 ROI
     [RelayCommand]
     private void ApplyRoiRange()
     {
+        if (EditZone is not { } src) return;
         var rois = Checked();
         if (rois.Length == 0) { StatusMessage = "未勾選任何 ROI"; return; }
-        RequestApply($"套用 ROI 範圍 ({Buffer.StartX},{Buffer.StartY})-({Buffer.EndX},{Buffer.EndY}) 到 {rois.Length} 個 ROI", () =>
+        RequestApply($"套用 ROI 範圍 ({src.StartX},{src.StartY})-({src.EndX},{src.EndY}) 到 {rois.Length} 個 ROI", () =>
         {
             foreach (var r in rois)
-            { r.Zone.StartX = Buffer.StartX; r.Zone.StartY = Buffer.StartY; r.Zone.EndX = Buffer.EndX; r.Zone.EndY = Buffer.EndY; }
+            { r.Zone.StartX = src.StartX; r.Zone.StartY = src.StartY; r.Zone.EndX = src.EndX; r.Zone.EndY = src.EndY; }
             StatusMessage = "已套用 ROI 範圍";
         });
     }
 
-    // ===== 單一參數 Update =====
     [RelayCommand]
     private void UpdateParam(ParamRow? row)
     {
@@ -240,7 +247,6 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
         });
     }
 
-    // ===== 批次：所有勾選的參數 → 勾選 ROI =====
     [RelayCommand]
     private void UpdateCheckedParams()
     {
@@ -259,15 +265,8 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
     [RelayCommand] private void ClearAllChk() { foreach (var r in ParamRows) r.IsChecked = false; }
     [RelayCommand] private void SelectAllChk() { foreach (var r in ParamRows) r.IsChecked = true; }
 
-    [RelayCommand]
-    private async Task Save()
-    {
-        await _svc.Recipes.SaveAsync(SelectedRecipe, _recipe);
-        StatusMessage = $"已存配方 {SelectedRecipe}（IP 可載入）";
-        _svc.Log.Info($"配方 {SelectedRecipe} 已儲存（ZoneParamEditor）");
-    }
+    [RelayCommand] private async Task Save() => await Store.SaveAsync();
 
-    // ===== 確認流程（chkUpdateWithAsk）=====
     private void RequestApply(string summary, Action apply)
     {
         if (UpdateWithAsk) { ConfirmText = summary; _pendingApply = apply; AwaitingConfirm = true; }
@@ -275,17 +274,4 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
     }
     [RelayCommand] private void ConfirmApply() { _pendingApply?.Invoke(); _pendingApply = null; AwaitingConfirm = false; }
     [RelayCommand] private void CancelApply() { _pendingApply = null; AwaitingConfirm = false; StatusMessage = "已取消"; }
-
-    private void RefreshRecipeNames()
-    {
-        RecipeNames.Clear();
-        RecipeNames.Add("DEFAULT");
-        var root = RecipeService.ExpandPath(_svc.Config.Paths.RecipeDir);
-        if (System.IO.Directory.Exists(root))
-            foreach (var d in System.IO.Directory.GetDirectories(root))
-            {
-                var n = System.IO.Path.GetFileName(d);
-                if (!RecipeNames.Contains(n)) RecipeNames.Add(n);
-            }
-    }
 }

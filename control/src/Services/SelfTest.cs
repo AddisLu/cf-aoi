@@ -34,8 +34,9 @@ public static class SelfTest
                 case "recipe": return await RecipeTest(rest, cfg, log);
                 case "send":   return await SendTest(rest, cfg, log);
                 case "fft":    return FftTest(rest);
+                case "store":  return await StoreTest(rest);
                 default:
-                    Console.WriteLine("用法: --selftest parse|recipe|send|fft ...");
+                    Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
             }
         }
@@ -44,6 +45,34 @@ public static class SelfTest
             Console.WriteLine($"✗ SelfTest 例外: {ex.Message}");
             return 1;
         }
+    }
+
+    // ---- 配方單一資料來源（共用實例 + 存檔）----
+    private static async Task<int> StoreTest(string[] a)
+    {
+        var name = a.Length > 0 ? a[0] : "SYNC_TEST";
+        var svc = AppServices.Build();
+        await svc.RecipeStore.SelectAsync(name);
+
+        var step1 = new ViewModels.Step1ViewModel(svc);
+        var zone = new ViewModels.ZoneParamEditorViewModel(svc);
+        var z = svc.RecipeStore.PrimaryZone!;
+        z.PitchX = 33; z.PitchY = 17; z.BrightThreshold = 1.55; z.DarkThreshold = 0.55;
+
+        bool shared = ReferenceEquals(step1.Store.PrimaryZone, z)
+                      && ReferenceEquals(zone.Store.PrimaryZone, z)
+                      && zone.Rois.Count > 0 && ReferenceEquals(zone.Rois[0].Zone, z);
+        Console.WriteLine($"  改 Store.PrimaryZone.PitchX=33 → step1={step1.Store.PrimaryZone?.PitchX}, zoneRoi0={zone.Rois.FirstOrDefault()?.Zone.PitchX}");
+
+        await svc.RecipeStore.SaveAsync();
+        var path = svc.Recipes.RecipeXmlPath(name);
+        var xml = System.IO.File.ReadAllText(path);
+        bool xmlOk = xml.Contains("<PitchX>33</PitchX>") && xml.Contains("<PitchY>17</PitchY>")
+                     && xml.Contains("<BrightThreshold>1.55</BrightThreshold>");
+        Console.WriteLine($"  XML: {path}");
+        Console.WriteLine(shared ? "✓ 三處共用同一 ZoneSettingModel 實例" : "✗ 非同一實例");
+        Console.WriteLine(xmlOk ? "✓ 存檔 XML 含 PitchX=33/PitchY=17/BrightThreshold=1.55" : "✗ XML 值不符");
+        return shared && xmlOk ? 0 : 1;
     }
 
     // ---- FFT Pitch 估算（驗證純 managed FFT 邏輯）----

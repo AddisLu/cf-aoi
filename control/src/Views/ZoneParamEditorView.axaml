@@ -7,7 +7,7 @@
     <!-- 頂列：配方 / 儲存 / 確認模式 -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
       <TextBlock Text="配方" VerticalAlignment="Center"/>
-      <ComboBox Width="200" ItemsSource="{Binding RecipeNames}" SelectedItem="{Binding SelectedRecipe}"/>
+      <ComboBox Width="200" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
       <Button Content="儲存配方" Command="{Binding SaveCommand}"/>
       <CheckBox Content="批次更新前確認" IsChecked="{Binding UpdateWithAsk}"/>
     </StackPanel>
@@ -33,13 +33,13 @@
           <Grid ColumnDefinitions="Auto,*" >
             <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="StartX" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="0" Grid.Column="1" Margin="0,2" Value="{Binding Buffer.StartX}" Increment="1"/>
+            <NumericUpDown Grid.Row="0" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.StartX}" Increment="1"/>
             <TextBlock Grid.Row="1" Text="StartY" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="1" Grid.Column="1" Margin="0,2" Value="{Binding Buffer.StartY}" Increment="1"/>
+            <NumericUpDown Grid.Row="1" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.StartY}" Increment="1"/>
             <TextBlock Grid.Row="2" Text="EndX" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="2" Grid.Column="1" Margin="0,2" Value="{Binding Buffer.EndX}" Increment="1"/>
+            <NumericUpDown Grid.Row="2" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.EndX}" Increment="1"/>
             <TextBlock Grid.Row="3" Text="EndY" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="3" Grid.Column="1" Margin="0,2" Value="{Binding Buffer.EndY}" Increment="1"/>
+            <NumericUpDown Grid.Row="3" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.EndY}" Increment="1"/>
           </Grid>
           <Button Content="套用範圍到勾選 ROI" HorizontalAlignment="Stretch" Command="{Binding ApplyRoiRangeCommand}"/>
 
@@ -104,7 +104,7 @@
                   <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
                     <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Center"/>
                     <Button Content="{Binding Label}" Background="Transparent"
-                            Command="{Binding #Root.DataContext.LoadRoiToBufferCommand}" CommandParameter="{Binding}"/>
+                            Command="{Binding #Root.DataContext.SelectRoiCommand}" CommandParameter="{Binding}"/>
                   </StackPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

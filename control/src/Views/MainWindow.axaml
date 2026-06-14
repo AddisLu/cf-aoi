@@ -133,9 +133,18 @@
 
         <HeaderedContentControl Grid.Row="0" Grid.Column="1" Classes="gbx" Header="Recipe">
           <StackPanel Margin="6" Spacing="6">
-            <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding RecipeNames}" SelectedItem="{Binding SelectedRecipe}"/>
-            <TextBlock FontSize="11" Foreground="#666" TextWrapping="Wrap"
-                       Text="（配方參數編輯在第二批的 ZoneParamEditor；此處選擇載入用配方）"/>
+            <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
+            <TextBlock Text="第一個 DetectRoi（唯讀預覽，共用來源）" FontSize="11" Foreground="#888"/>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="BrightThreshold：" Margin="0,1,6,1"/>
+              <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Store.PrimaryZone.BrightThreshold}"/>
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="DarkThreshold：" Margin="0,1,6,1"/>
+              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Store.PrimaryZone.DarkThreshold}"/>
+              <TextBlock Grid.Row="2" Grid.Column="0" Text="PitchX：" Margin="0,1,6,1"/>
+              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Store.PrimaryZone.PitchX}"/>
+              <TextBlock Grid.Row="3" Grid.Column="0" Text="PitchY：" Margin="0,1,6,1"/>
+              <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Store.PrimaryZone.PitchY}"/>
+            </Grid>
           </StackPanel>
         </HeaderedContentControl>
 

@@ -24,6 +24,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Step1ViewModel Step1 { get; }
     public ZoneParamEditorViewModel ZoneEditor { get; }
     public SystemConfigModel Config => _svc.Config;
+    public RecipeStore Store => _svc.RecipeStore;   // 配方共用來源（主視窗 Recipe 區預覽）
 
     // ===== Status 群（每秒更新；對應 lblCurXxx）=====
     [ObservableProperty] private string curCommand = "CF_READY";
@@ -38,9 +39,7 @@ public partial class MainWindowViewModel : ViewModelBase
     // ===== Reserve 按鈕區 =====
     [ObservableProperty] private bool showAdvanced;   // Ctrl+F 切換（沿用舊版隱藏慣例）
 
-    // ===== Recipe 區 =====
-    public ObservableCollection<string> RecipeNames { get; } = new();
-    [ObservableProperty] private string selectedRecipe = "DEFAULT";
+    // ===== Recipe 區：用共用 Store（下拉 + PrimaryZone 預覽）=====
 
     // ===== Log 三區（對應 rtbSys / rtbError / rtbWarning）=====
     public ObservableCollection<LogEntry> SysLog { get; } = new();
@@ -58,7 +57,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ZoneEditor = new ZoneParamEditorViewModel(svc);
 
         OfflineFolder = svc.Config.Paths.ImageDir;
-        RefreshRecipeNames();
+        Store.RecipeReloaded += () => CurRecipe = Store.SelectedRecipe;
 
         // log 路由到三區（UI thread）
         _log.Logged += e => Dispatcher.UIThread.Post(() =>
@@ -90,13 +89,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task CfLoadRecipe()
     {
         CurCommand = "CF_LOAD_RECIPE";
-        CurRecipe = SelectedRecipe;
+        CurRecipe = Store.SelectedRecipe;
         try
         {
-            var ensure = await _svc.Recipes.EnsureRecipeExistsAsync(SelectedRecipe);
-            var xml = _svc.Recipes.ToXmlString(ensure.Recipe);
-            var resp = await _conn.Ip.LoadRecipeAsync(ensure.RecipeXmlPath, CurPanelId, xml);
-            if (resp?["status"]?.GetValue<string>() == "OK") _log.Info($"LOAD_RECIPE {SelectedRecipe} OK");
+            var xml = _svc.Recipes.ToXmlString(Store.Recipe);   // 共用配方（含最新值）
+            var resp = await _conn.Ip.LoadRecipeAsync(Store.SelectedRecipe, CurPanelId, xml);
+            if (resp?["status"]?.GetValue<string>() == "OK") _log.Info($"LOAD_RECIPE {Store.SelectedRecipe} OK");
             else _log.Error($"LOAD_RECIPE 失敗：{resp?.ToJsonString()}");
         }
         catch (Exception ex) { _log.Error($"LOAD_RECIPE: {ex.Message}"); }
@@ -119,39 +117,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task CfSaveRecipe()
     {
-        try
-        {
-            var ensure = await _svc.Recipes.EnsureRecipeExistsAsync(SelectedRecipe);
-            await _svc.Recipes.SaveAsync(SelectedRecipe, ensure.Recipe);
-            _log.Info($"Recipe {SelectedRecipe} 已存");
-        }
+        try { await Store.SaveAsync(); _log.Info($"Recipe {Store.SelectedRecipe} 已存"); }
         catch (Exception ex) { _log.Error($"SaveRecipe: {ex.Message}"); }
     }
 
     [RelayCommand] private void Refresh()
     {
         CurCommand = "REFRESH";
-        RefreshRecipeNames();
+        Store.RefreshNames();
         _log.Info("已重整配方清單");
     }
 
     [RelayCommand] private void ToggleAdvanced() => ShowAdvanced = !ShowAdvanced;
-
-    private void RefreshRecipeNames()
-    {
-        RecipeNames.Clear();
-        RecipeNames.Add("DEFAULT");
-        try
-        {
-            var root = RecipeService.ExpandPath(_svc.Config.Paths.RecipeDir);
-            if (System.IO.Directory.Exists(root))
-                foreach (var d in System.IO.Directory.GetDirectories(root))
-                {
-                    var n = System.IO.Path.GetFileName(d);
-                    if (!RecipeNames.Contains(n)) RecipeNames.Add(n);
-                }
-        }
-        catch { }
-        if (!RecipeNames.Contains(SelectedRecipe)) SelectedRecipe = "DEFAULT";
-    }
 }

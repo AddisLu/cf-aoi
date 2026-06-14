@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Recipe>
+  <M_AlignRoi>
+    <AlignEnable>false</AlignEnable>
+    <AlignResultSave>true</AlignResultSave>
+    <PatternPath />
+    <ReferX>-1</ReferX>
+    <ReferY>-1</ReferY>
+    <SearchWidth>1000</SearchWidth>
+    <SearchHeight>1000</SearchHeight>
+  </M_AlignRoi>
+  <DetectRoiList>
+    <DetectRoi>
+      <StartX>-1</StartX>
+      <StartY>-1</StartY>
+      <EndX>-1</EndX>
+      <EndY>-1</EndY>
+      <M_ImagePreproc>Ip_None</M_ImagePreproc>
+      <SmoothTimes>1</SmoothTimes>
+      <SmoothTimes2>0</SmoothTimes2>
+      <DarkThreshold>0.55</DarkThreshold>
+      <BrightThreshold>1.55</BrightThreshold>
+      <SobelDetectEnable>true</SobelDetectEnable>
+      <SobelSmoothTimes>1</SobelSmoothTimes>
+      <SobelSmoothTimes2>0</SobelSmoothTimes2>
+      <SobelDarkThreshold>-20</SobelDarkThreshold>
+      <SobelBrightThreshold>20</SobelBrightThreshold>
+      <AlgorithmWay>8-Way-Star</AlgorithmWay>
+      <AlgorithmCompare>DIV</AlgorithmCompare>
+      <M_AlgorithmWayCompare>Awc_None</M_AlgorithmWayCompare>
+      <Adjustment />
+      <PitchTime>3</PitchTime>
+      <ChooseAmount>-1</ChooseAmount>
+      <PitchX>33</PitchX>
+      <PitchY>17</PitchY>
+      <SearchX>1</SearchX>
+      <SearchY>1</SearchY>
+      <EdgePassRatio>0.5</EdgePassRatio>
+      <EdgePassThreshold>32</EdgePassThreshold>
+      <BlobMaxSize>100000</BlobMaxSize>
+      <BlobMinSize>80</BlobMinSize>
+      <BlobElongation>100</BlobElongation>
+      <BlobFeretElong>100</BlobFeretElong>
+      <BlobDarkMergeDistance>1</BlobDarkMergeDistance>
+      <BlobBrightMergeDistance>1</BlobBrightMergeDistance>
+      <BlobAllMergeDistance>1</BlobAllMergeDistance>
+    </DetectRoi>
+  </DetectRoiList>
+  <DetectIoiList />
+</Recipe>

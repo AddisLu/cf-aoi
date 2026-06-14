@@ -10,12 +10,13 @@ public sealed class AppServices
     public LogService Log { get; }
     public ConnectionManager Connection { get; }
     public RecipeService Recipes { get; }
+    public RecipeStore RecipeStore { get; }            // 配方單一資料來源（共用）
     public OfflineReviewService Review { get; }
 
     public AppServices(SystemConfigModel cfg, LogService log, ConnectionManager conn,
-                       RecipeService recipes, OfflineReviewService review)
+                       RecipeService recipes, RecipeStore store, OfflineReviewService review)
     {
-        Config = cfg; Log = log; Connection = conn; Recipes = recipes; Review = review;
+        Config = cfg; Log = log; Connection = conn; Recipes = recipes; RecipeStore = store; Review = review;
     }
 
     /// <summary>正式組裝（讀 appsettings.json）。</summary>
@@ -25,8 +26,9 @@ public sealed class AppServices
         var log = new LogService();
         var conn = new ConnectionManager();
         var recipes = new RecipeService(cfg, log);
+        var store = new RecipeStore(recipes, log);
         var review = new OfflineReviewService(conn.Ip, recipes, cfg, log);
-        return new AppServices(cfg, log, conn, recipes, review);
+        return new AppServices(cfg, log, conn, recipes, store, review);
     }
 
     /// <summary>設計階段/預覽用（最小可運作，不連線）。</summary>
@@ -36,7 +38,8 @@ public sealed class AppServices
         var log = new LogService();
         var conn = new ConnectionManager();
         var recipes = new RecipeService(cfg, log);
+        var store = new RecipeStore(recipes, log);
         var review = new OfflineReviewService(conn.Ip, recipes, cfg, log);
-        return new AppServices(cfg, log, conn, recipes, review);
+        return new AppServices(cfg, log, conn, recipes, store, review);
     }
 }
