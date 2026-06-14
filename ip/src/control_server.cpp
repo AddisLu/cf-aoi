@@ -4,11 +4,15 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <map>
 #include <string>
+#include <utility>
 #include <sys/stat.h>
 #include <vector>
 
@@ -111,6 +115,85 @@ int read_defect_cnt(const fs::path& panel_dir) {
         if (j.contains("DefectCnt")) return j["DefectCnt"].get<int>();
         return -1;
     } catch (...) { return -1; }
+}
+
+// 找一塊 panel 夾路徑：date 指定 → <out>/<date>/<folder>；否則跨日期夾搜尋第一個命中。回傳空 = 找不到。
+fs::path locate_panel(const fs::path& out, const std::string& date, const std::string& folder) {
+    std::error_code ec;
+    if (!date.empty()) {
+        fs::path p = out / date / folder;
+        return fs::exists(p, ec) ? p : fs::path{};
+    }
+    if (fs::exists(out, ec))
+        for (const auto& e : fs::directory_iterator(out, ec)) {
+            if (!e.is_directory() || !is_date_dir(e.path().filename().string())) continue;
+            fs::path p = e.path() / folder;
+            if (fs::exists(p, ec)) return p;
+        }
+    return {};
+}
+
+// 解析缺陷檔名 Defect_{ip}_Slice{ff}_Roi{rr}_Run{nn}_X{xxxx}_Y{yyyyyy}_Dr{reason}.png。
+struct DefectName { bool ok = false; int slice = 0, roi = 0, run = 0, x = 0, y = 0; std::string type; };
+DefectName parse_defect_name(const std::string& fn) {
+    DefectName d;
+    auto grab = [&](const char* key, int& out) -> bool {
+        auto p = fn.find(key);
+        if (p == std::string::npos) return false;
+        out = std::atoi(fn.c_str() + p + std::strlen(key));
+        return true;
+    };
+    if (fn.rfind("Defect", 0) != 0) return d;
+    bool ok = grab("_Slice", d.slice) & grab("_Roi", d.roi) & grab("_Run", d.run)
+            & grab("_X", d.x) & grab("_Y", d.y);
+    auto pdr = fn.find("_Dr");
+    if (pdr != std::string::npos) {
+        std::string rest = fn.substr(pdr + 3);
+        auto dot = rest.find('.');
+        d.type = (dot == std::string::npos) ? rest : rest.substr(0, dot);  // Bright / Dark
+    }
+    d.ok = ok;
+    return d;
+}
+
+// base64 編碼（小圖 PNG bytes 經 JSON 傳給 Control）。
+std::string base64_encode(const std::vector<uint8_t>& in) {
+    static const char* tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((in.size() + 2) / 3) * 4);
+    size_t i = 0;
+    for (; i + 2 < in.size(); i += 3) {
+        uint32_t n = (in[i] << 16) | (in[i + 1] << 8) | in[i + 2];
+        out.push_back(tbl[(n >> 18) & 63]); out.push_back(tbl[(n >> 12) & 63]);
+        out.push_back(tbl[(n >> 6) & 63]);  out.push_back(tbl[n & 63]);
+    }
+    if (i < in.size()) {
+        uint32_t n = in[i] << 16;
+        bool two = (i + 1 < in.size());
+        if (two) n |= in[i + 1] << 8;
+        out.push_back(tbl[(n >> 18) & 63]);
+        out.push_back(tbl[(n >> 12) & 63]);
+        out.push_back(two ? tbl[(n >> 6) & 63] : '=');
+        out.push_back('=');
+    }
+    return out;
+}
+
+// 讀整個檔案為 bytes。
+std::vector<uint8_t> read_file_bytes(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                                 std::istreambuf_iterator<char>());
+}
+
+// 讀/寫 panel 夾的 classification.json（patch_filename → "TrueDefect"|"Particle"）。
+json read_classification(const fs::path& panel_dir) {
+    try {
+        std::ifstream f(panel_dir / "classification.json");
+        if (!f) return json::object();
+        json j; f >> j;
+        return j.is_object() ? j : json::object();
+    } catch (...) { return json::object(); }
 }
 
 }  // namespace
@@ -339,27 +422,12 @@ void ControlServer::handle_client(int fd) {
             fs::path dst_root = out / subdir;
             fs::create_directories(dst_root, ec);
 
-            // 找一塊 panel 夾的實際路徑：date 指定 → <out>/<date>/<folder>；否則跨日期夾搜尋第一個命中。
-            auto locate = [&](const std::string& folder) -> fs::path {
-                if (!date.empty()) {
-                    fs::path p = out / date / folder;
-                    return fs::exists(p, ec) ? p : fs::path{};
-                }
-                if (fs::exists(out, ec))
-                    for (const auto& e : fs::directory_iterator(out, ec)) {
-                        if (!e.is_directory() || !is_date_dir(e.path().filename().string())) continue;
-                        fs::path p = e.path() / folder;
-                        if (fs::exists(p, ec)) return p;
-                    }
-                return {};
-            };
-
             json results = json::array();
             int grand_total = 0;
             for (const auto& folder : picked) {
                 int copied = 0;
                 std::string msg;
-                fs::path src = locate(folder);
+                fs::path src = locate_panel(out, date, folder);
                 if (src.empty()) {
                     msg = "folder not found";
                 } else {
@@ -385,6 +453,130 @@ void ControlServer::handle_client(int fd) {
             resp["output_dir"] = dst_root.string();
             std::cout << "[ControlServer] SORT_DEFECTS subdir=" << subdir << " by_id=" << by_id
                       << " panels=" << picked.size() << " → " << grand_total << " 檔\n";
+            reply(fd, resp);
+
+        } else if (cmd == "LIST_DEFECT_PATCHES") {
+            // 列出一塊 panel 夾的所有缺陷小圖 metadata（從檔名解析座標/型別，Size 從 ResultInfo.json，
+            // current_class 從 classification.json）。patch_id = 檔名。
+            std::string date = params.value("date", "");
+            std::string folder = params.value("folder_name", "");
+            fs::path out(output_dir_);
+            fs::path dir = locate_panel(out, date, folder);
+            if (dir.empty()) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "folder not found"}});
+                continue;
+            }
+            // ResultInfo.json → (roi,run) -> Size
+            std::map<std::pair<int,int>, int> size_map;
+            try {
+                std::ifstream rf(dir / (folder + "_ResultInfo.json"));
+                if (rf) {
+                    json rj; rf >> rj;
+                    for (const auto& roi : rj.value("RoiInfoList", json::array())) {
+                        int ridx = roi.value("RoiIndex", 0);
+                        const auto& dl = roi.value("DefectInfoList", json::array());
+                        for (const auto& d : dl) {
+                            int run = d.value("RunIndex", 0);
+                            size_map[{ridx, run}] = d.value("Size", 0);
+                        }
+                    }
+                }
+            } catch (...) {}
+            json cls = read_classification(dir);
+
+            std::error_code ec;
+            json patches = json::array();
+            for (const auto& e : fs::directory_iterator(dir, ec)) {
+                if (ec) break;
+                if (!e.is_regular_file()) continue;
+                std::string fn = e.path().filename().string();
+                DefectName dn = parse_defect_name(fn);
+                if (!dn.ok) continue;
+                auto it = size_map.find({dn.roi, dn.run});
+                int size = it != size_map.end() ? it->second : 0;
+                std::string cur = cls.contains(fn) ? cls[fn].get<std::string>() : "未分類";
+                patches.push_back({
+                    {"patch_id", fn}, {"patch_filename", fn},
+                    {"run_index", dn.run}, {"roi_index", dn.roi},
+                    {"GC_X", dn.x}, {"GC_Y", dn.y}, {"Size", size},
+                    {"Type", dn.type}, {"current_class", cur},
+                });
+            }
+            std::sort(patches.begin(), patches.end(), [](const json& a, const json& b) {
+                if (a["roi_index"] != b["roi_index"]) return a["roi_index"] < b["roi_index"];
+                return a["run_index"] < b["run_index"];
+            });
+            resp["status"] = "OK";
+            resp["folder_name"] = folder;
+            resp["patches"] = patches;
+            std::cout << "[ControlServer] LIST_DEFECT_PATCHES " << folder << " → "
+                      << patches.size() << " 張\n";
+            reply(fd, resp);
+
+        } else if (cmd == "GET_DEFECT_PATCHES_BATCH") {
+            // 批次回傳多張小圖的 PNG bytes（base64）。
+            std::string date = params.value("date", "");
+            std::string folder = params.value("folder_name", "");
+            fs::path dir = locate_panel(fs::path(output_dir_), date, folder);
+            if (dir.empty()) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "folder not found"}});
+                continue;
+            }
+            json arr = json::array();
+            if (params.contains("patch_ids"))
+                for (const auto& pid : params["patch_ids"]) {
+                    std::string id = pid.get<std::string>();
+                    fs::path p = dir / id;
+                    std::error_code ec;
+                    if (!fs::exists(p, ec) || !fs::is_regular_file(p, ec)) continue;
+                    auto bytes = read_file_bytes(p);
+                    if (bytes.empty()) continue;
+                    arr.push_back({{"patch_id", id}, {"png_base64", base64_encode(bytes)}});
+                }
+            resp["status"] = "OK";
+            resp["patches"] = arr;
+            std::cout << "[ControlServer] GET_DEFECT_PATCHES_BATCH " << folder << " → "
+                      << arr.size() << " 張\n";
+            reply(fd, resp);
+
+        } else if (cmd == "SAVE_DEFECT_CLASSIFICATION") {
+            // 依分類把小圖複製到 {folder}/TrueDefect|Particle/，並更新 classification.json。
+            std::string date = params.value("date", "");
+            std::string folder = params.value("folder_name", "");
+            fs::path dir = locate_panel(fs::path(output_dir_), date, folder);
+            if (dir.empty()) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "folder not found"}});
+                continue;
+            }
+            json cls = read_classification(dir);   // 合併既有分類
+            std::error_code ec;
+            int n_true = 0, n_part = 0;
+            if (params.contains("classifications"))
+                for (const auto& c : params["classifications"]) {
+                    std::string id = c.value("patch_id", "");
+                    std::string klass = c.value("class", "");
+                    if (klass != "TrueDefect" && klass != "Particle") continue;
+                    fs::path src = dir / id;
+                    if (!fs::exists(src, ec)) continue;
+                    fs::path sub = dir / klass;
+                    fs::create_directories(sub, ec);
+                    std::error_code cec;
+                    fs::copy_file(src, sub / id, fs::copy_options::overwrite_existing, cec);
+                    if (cec) continue;
+                    cls[id] = klass;
+                    if (klass == "TrueDefect") ++n_true; else ++n_part;
+                }
+            try {
+                std::ofstream of(dir / "classification.json");
+                of << cls.dump(2);
+            } catch (...) {}
+            resp["status"] = "OK";
+            resp["TrueDefect"] = n_true;
+            resp["Particle"] = n_part;
+            resp["total"] = n_true + n_part;
+            resp["output_dir"] = dir.string();
+            std::cout << "[ControlServer] SAVE_DEFECT_CLASSIFICATION " << folder
+                      << " → TrueDefect=" << n_true << " Particle=" << n_part << "\n";
             reply(fd, resp);
 
         } else {

@@ -54,3 +54,24 @@ public sealed class DefectTypeToBrushConverter : IValueConverter
         => new SolidColorBrush((v as string)?.Contains("Bright") == true ? Colors.Red : Colors.Blue);
     public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
 }
+
+/// <summary>分類 → 邊框色（TrueDefect 紅 / Particle 綠 / 未分類 灰）。</summary>
+public sealed class ClassToBorderBrushConverter : IValueConverter
+{
+    public static readonly ClassToBorderBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c) => (v as string) switch
+    {
+        "TrueDefect" => new SolidColorBrush(Color.Parse("#FF0000")),
+        "Particle"   => new SolidColorBrush(Color.Parse("#00C000")),
+        _            => new SolidColorBrush(Color.Parse("#A0A0A0")),
+    };
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
+/// <summary>bool 反相（true→false）。用於 IsVisible 切換。</summary>
+public sealed class InverseBoolConverter : IValueConverter
+{
+    public static readonly InverseBoolConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c) => v is not true;
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => v is not true;
+}

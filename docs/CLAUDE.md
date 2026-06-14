@@ -127,6 +127,25 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 ```
 > date="" 時 SORT 跨日期夾搜尋第一個同名 panel 夾。Step1View 的 OK/NG 即時手動分（少量即時缺陷在 Control 端操作）是另一用途，不走此遠端命令。
 
+##### 小圖人工分類（DefectSort 第二層：看小圖標 TrueDefect/Particle，未來 AI 訓練標註）
+雙擊資料夾進入；缺陷小圖在運算端，透過 network-clean 傳 PNG bytes 給 Control 顯示：
+```json
+// 1) 列出一塊 panel 夾所有缺陷小圖 metadata（patch_id=檔名；座標/型別解析自檔名、Size 讀 ResultInfo.json、
+//    current_class 讀 classification.json）。
+{"cmd":"LIST_DEFECT_PATCHES","seq":6,"params":{"date":"20260614","folder_name":"IP02_panelA_DEFAULT"}}
+  → {"status":"OK","patches":[{"patch_id":"Defect_IP02_..._.png","run_index":0,"roi_index":0,
+       "GC_X":10,"GC_Y":20,"Size":5,"Type":"Bright","current_class":"未分類"}, ...]}
+// 2) 批次取小圖 PNG bytes（base64），一次 ~50 張避免逐張往返。
+{"cmd":"GET_DEFECT_PATCHES_BATCH","seq":7,"params":{"date":"20260614","folder_name":"...","patch_ids":["...","..."]}}
+  → {"status":"OK","patches":[{"patch_id":"...","png_base64":"iVBORw0K..."}, ...]}
+// 3) 人工分類存回：IP 依分類複製到 {folder}/TrueDefect|Particle/ + 寫 classification.json（供 re-training 重用）。
+{"cmd":"SAVE_DEFECT_CLASSIFICATION","seq":8,"params":{"date":"20260614","folder_name":"...",
+       "classifications":[{"patch_id":"...","class":"TrueDefect"},{"patch_id":"...","class":"Particle"}]}}
+  → {"status":"OK","TrueDefect":2,"Particle":1,"total":3,"output_dir":"/.../IP02_panelA_DEFAULT"}
+```
+> AI 暫停用 → 純人工分類；分類結果（classification.json + 子夾）即未來 AI 重訓的標註資料。
+> Control 端 UI：縮圖牆 + 鍵盤 T/P 快速標 + ←→ 切換 + 點圖放大 + 頂部統計，小圖用 Avalonia Bitmap(PNG) 顯示。
+
 ### 配方（RecipeInfo.xml）與結果（ResultInfo.xml）格式 — 考古確認（取代舊「ZoneSetting/ThB/ThD」敘述）
 > 來源已逐檔驗證：`Reference/legacy_win/ClibCf/Recipe.cs`、`JudgeResult.cs`、`CudaCore/CUDA_Func.h`。
 

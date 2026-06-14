@@ -84,6 +84,34 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
             }, ct);
     }
 
+    /// <summary>列出一塊 panel 夾的所有缺陷小圖 metadata（座標/型別/Size/目前分類）。</summary>
+    public Task<JsonNode?> ListDefectPatchesAsync(string date, string folderName, CancellationToken ct = default)
+        => SendCommandAsync("LIST_DEFECT_PATCHES",
+            new JsonObject { ["date"] = date, ["folder_name"] = folderName }, ct);
+
+    /// <summary>批次取回多張小圖的 PNG bytes（base64）。一次 ~50 張避免逐張往返。</summary>
+    public Task<JsonNode?> GetDefectPatchesBatchAsync(string date, string folderName,
+                                                      System.Collections.Generic.IEnumerable<string> patchIds,
+                                                      CancellationToken ct = default)
+    {
+        var arr = new JsonArray();
+        foreach (var id in patchIds) arr.Add(id);
+        return SendCommandAsync("GET_DEFECT_PATCHES_BATCH",
+            new JsonObject { ["date"] = date, ["folder_name"] = folderName, ["patch_ids"] = arr }, ct);
+    }
+
+    /// <summary>人工分類結果送 IP：依 TrueDefect/Particle 歸檔到子夾 + 存 classification.json。</summary>
+    public Task<JsonNode?> SaveDefectClassificationAsync(string date, string folderName,
+            System.Collections.Generic.IEnumerable<(string patchId, string klass)> classifications,
+            CancellationToken ct = default)
+    {
+        var arr = new JsonArray();
+        foreach (var (pid, k) in classifications)
+            arr.Add(new JsonObject { ["patch_id"] = pid, ["class"] = k });
+        return SendCommandAsync("SAVE_DEFECT_CLASSIFICATION",
+            new JsonObject { ["date"] = date, ["folder_name"] = folderName, ["classifications"] = arr }, ct);
+    }
+
     /// <summary>送一張 Mono8 影像（命令行 + 緊接 raw payload）。</summary>
     public async Task<JsonNode?> SendImageForReviewAsync(
         string panelId, int camId, int width, int height, int frameSeq,

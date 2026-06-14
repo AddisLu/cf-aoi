@@ -37,6 +37,7 @@ public static class SelfTest
                 case "store":  return await StoreTest(rest);
                 case "heartbeat": return await HeartbeatTest(rest);
                 case "sort":   return await SortTest();
+                case "patches": return await PatchClassifyTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -118,6 +119,89 @@ public static class SelfTest
 
         bool ok = sentList && sentSort && loggedTotal && byIdOk;
         Console.WriteLine(ok ? "✓ 遠端 LIST/SORT 命令送出 + 回應解析 + log 正確" : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    // 小圖人工分類：假 IP server 模擬 LIST_DEFECT_PATCHES / GET_DEFECT_PATCHES_BATCH /
+    // SAVE_DEFECT_CLASSIFICATION，驗證進資料夾→載 metadata→T/P 分類→存回 IP 的完整鏈。
+    private static async Task<int> PatchClassifyTest()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        string? lastSave = null;
+        // 1x1 PNG base64（headless 無 render backend 時 decode 會回 null，不影響 metadata 測試）
+        const string PNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+        var server = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var cmd = req["cmd"]!.GetValue<string>();
+                var seq = (int?)req["seq"] ?? 0;
+                string resp;
+                if (cmd == "LIST_DEFECT_PATCHES")
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"folder_name\":\"IP02_panelA_DEFAULT\",\"patches\":[" +
+                        "{\"patch_id\":\"Defect_IP02_Slice00_Roi00_Run00_X0010_Y0020_DrBright.png\",\"run_index\":0,\"roi_index\":0,\"GC_X\":10,\"GC_Y\":20,\"Size\":5,\"Type\":\"Bright\",\"current_class\":\"未分類\"}," +
+                        "{\"patch_id\":\"Defect_IP02_Slice00_Roi00_Run01_X0030_Y0040_DrDark.png\",\"run_index\":1,\"roi_index\":0,\"GC_X\":30,\"GC_Y\":40,\"Size\":7,\"Type\":\"Dark\",\"current_class\":\"未分類\"}," +
+                        "{\"patch_id\":\"Defect_IP02_Slice00_Roi00_Run02_X0050_Y0060_DrBright.png\",\"run_index\":2,\"roi_index\":0,\"GC_X\":50,\"GC_Y\":60,\"Size\":3,\"Type\":\"Bright\",\"current_class\":\"TrueDefect\"}]}";
+                else if (cmd == "GET_DEFECT_PATCHES_BATCH")
+                {
+                    var ids = req["params"]!["patch_ids"]!.AsArray();
+                    var items = string.Join(",", ids.Select(id =>
+                        $"{{\"patch_id\":\"{id!.GetValue<string>()}\",\"png_base64\":\"{PNG1x1}\"}}"));
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"patches\":[{items}]}}";
+                }
+                else if (cmd == "SAVE_DEFECT_CLASSIFICATION")
+                {
+                    lastSave = line;
+                    var cs = req["params"]!["classifications"]!.AsArray();
+                    int t = cs.Count(c => c!["class"]!.GetValue<string>() == "TrueDefect");
+                    int p = cs.Count(c => c!["class"]!.GetValue<string>() == "Particle");
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"TrueDefect\":{t},\"Particle\":{p},\"total\":{t + p},\"output_dir\":\"/out/IP02_panelA_DEFAULT\"}}";
+                }
+                else resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        var svc = AppServices.Build();
+        await svc.Connection.Ip.ConnectAsync("127.0.0.1", port);
+        var vm = new ViewModels.DefectSortViewModel(svc);
+
+        await vm.OpenFolderAsync("IP02_panelA_DEFAULT");
+        bool listed = vm.InPatchView && vm.Patches.Count == 3
+                      && vm.Patches[0].GcX == 10 && vm.Patches[0].Type == "Bright"
+                      && vm.Patches[1].Size == 7 && vm.Patches[2].CurrentClass == "TrueDefect";
+        Console.WriteLine($"  OpenFolder → {vm.Patches.Count} 張, metadata 正確={listed}, " +
+            $"初始統計(已分類 {vm.ClassifiedCount}/{vm.TotalCount} T{vm.TrueDefectCount} P{vm.ParticleCount})");
+
+        // 選第 0 張 → 鍵盤 T（標 TrueDefect 並自動跳下一張）
+        vm.SelectedPatch = vm.Patches[0];
+        vm.ClassifySelected("TrueDefect");
+        bool advanced = vm.SelectedPatch == vm.Patches[1];
+        // 對第 1 張按 Particle 鈕
+        vm.MarkParticleCommand.Execute(vm.Patches[1]);
+        Console.WriteLine($"  T/P 分類後 → [0]={vm.Patches[0].CurrentClass}, [1]={vm.Patches[1].CurrentClass}, " +
+            $"自動跳下一張={advanced}, 統計(已分類 {vm.ClassifiedCount}/{vm.TotalCount} T{vm.TrueDefectCount} P{vm.ParticleCount})");
+
+        await vm.SaveClassificationCommand.ExecuteAsync(null);
+        bool savedOk = lastSave != null
+            && lastSave.Contains("\"class\":\"TrueDefect\"") && lastSave.Contains("\"class\":\"Particle\"")
+            && vm.LogLines.Any(l => l.Contains("歸檔完成"));
+        Console.WriteLine($"  SaveClassification → IP 收到分類={savedOk}");
+
+        svc.Connection.Ip.Disconnect();
+        listener.Stop();
+
+        bool ok = listed && advanced && vm.Patches[0].CurrentClass == "TrueDefect"
+                  && vm.Patches[1].CurrentClass == "Particle"
+                  && vm.ClassifiedCount == 3 && savedOk;
+        Console.WriteLine(ok ? "✓ 進資料夾 + 載 metadata + T/P 分類 + 統計 + 存回 IP 正確" : "✗ 不符");
         return ok ? 0 : 1;
     }
 

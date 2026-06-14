@@ -65,6 +65,14 @@ std::string panel_folder_name(const InspectionResult& r) {
     return r.panel_id + "_" + r.recipe_name;
 }
 
+// 缺陷檔名的 IpName 段：取 panel 名第一個 '_' 前的 token（與資料夾一致，例 IP02_Origin000001 → IP02）；
+// panel 名無 '_' 則用整個 panel 名；panel 名為空才退回 --ip-name 預設值。
+std::string ip_tag_from_panel(const std::string& panel_id, const std::string& fallback) {
+    if (panel_id.empty()) return fallback;
+    auto i = panel_id.find('_');
+    return i == std::string::npos ? panel_id : panel_id.substr(0, i);
+}
+
 // 今日 yyyyMMdd（本地時間，對齊 legacy DateTime.Now.ToString("yyyyMMdd")）。
 std::string today_yyyymmdd() {
     std::time_t t = std::time(nullptr);
@@ -260,6 +268,7 @@ int save(const InspectionResult& r,
         return std::chrono::duration<double, std::milli>(b - a).count();
     };
     cv::Mat gray(h, w, CV_8UC1, const_cast<uint8_t*>(img));
+    const std::string ip_tag = ip_tag_from_panel(r.panel_id, ip_name);  // 檔名 IpName 段，與資料夾一致
     const int frame_h = r.frame_height > 0 ? r.frame_height : h;  // Slice = GlobalPosY / frame 高
     const int half = patch_size / 2;
     const std::vector<int> png_fast = {cv::IMWRITE_PNG_COMPRESSION, 1};  // 低壓縮 = 快
@@ -289,7 +298,7 @@ int save(const InspectionResult& r,
                     patch = padded;
                 }
                 std::string reason = d.is_bright ? "Bright" : "Dark";
-                tasks.emplace_back(dst + "/" + defect_filename(ip_name, slice, z.zone_index,
+                tasks.emplace_back(dst + "/" + defect_filename(ip_tag, slice, z.zone_index,
                                                                run - 1, cx, cy, reason),
                                    std::move(patch));
             }
