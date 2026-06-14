@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-14** | 對應 commit：**b651b6c**
+> 最後更新：**2026-06-14**（納入 2026-06-11 Phase-1 硬體實機驗證）| 對應 commit：**a45dcdb**
 
 ## 分級定義
 
@@ -29,8 +29,8 @@
 | 層      | 平台                           | 角色                 | 整體狀態          |
 | ------- | ------------------------------ | -------------------- | ----------------- |
 | Control | C# / Avalonia（Mac·Win·Linux） | 控制平面 + 操作 UI   | **L1–L3（混合）** |
-| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **L0**            |
-| IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L3（offline）** |
+| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **主程式 L0；底層硬體能力 L4（Phase-1 實機驗證）** |
+| IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L3（offline，RTX2080）；GB10 上未驗證** |
 
 ---
 
@@ -72,10 +72,30 @@
 
 ## Grab 端（Linux / C++）
 
-| 模組 | 級別 | 缺什麼 |
-| ---- | ---- | ------ |
-| 相機擷取（pylon / eBUS） | **L0** | ⚠️ 核實：`grab/` 只有 CLAUDE.md + 空的 `src/`、`config/`，無任何 `.cpp/.cu`。需 Reference/phase1_tests + 裝 SDK |
-| RDMA 發送（libibverbs / RoCE v2） | **L0** | 同上，無實作。需 ConnectX-5 硬體確認 |
+> ⚠️ **必須分兩件事看**：① 正式 Grab **主程式**（多相機陣列 / cam_manager / 連 Control）**仍未寫 = L0**；
+> ② 但 Grab 依賴的**底層硬體能力**（相機擷取、RDMA→GPU、端到端）已由 `Reference/phase1_tests/` 測試套件
+> **2026-06-11 實機 PASS = L4**（見下「Phase-1 硬體路徑」表）。**L4 僅限那條測試路徑**；正式 Grab 主程式從測試
+> 工具升級、接上 Control/IP 之前，整體 Grab **不算 L4**。
+
+| 模組 | 級別 | 驗證方式 / 缺什麼 |
+| ---- | ---- | ----------------- |
+| Grab 正式主程式（cam_manager / 多相機 / control_client / rdma_sender） | **L0** | 未寫：`grab/src/` 空（只有 CLAUDE.md + 空 src/config）。待從 phase1_tests 升級 |
+| ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端 | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
+
+### Phase-1 硬體路徑（2026-06-11 實機 PASS）→ 證據：[docs/verification/verification_report_20260611.md](verification/verification_report_20260611.md)
+
+> 主機：截取中心 `damac`（Ryzen7700 + ConnectX-5 MCX516A）↔ DGX Spark `spark-c16f`（GB10/CUDA13/sm_121）；
+> 相機 Basler raL8192-12gm @192.168.5.1；RDMA 192.168.3.2↔192.168.3.1（100G DAC）。
+
+| 測試路徑 | 級別 | 實機結果 |
+| ---- | ---- | ---- |
+| 相機偵測 `t30_pylon_probe` | **L4** | raL8192-12gm SN=25445953 偵測到 |
+| 取像穩定 `t31_pylon_grab`（500 幀） | **L4** | **零掉幀**（0.0000%）、FPS 23.3、光源+600% 亮度確認真感光 |
+| RDMA 鏈路 `10_rdma_linkcheck` | **L4** | 100G PORT_ACTIVE、RoCE v2（Ethernet）|
+| RDMA→GPU 正確性 `t21_rdma_gpu_*` | **L4** | 32MB **逐位元** CRC=0x1591755899 兩端一致、零錯 |
+| RDMA 延遲 `ib_write_lat` | **L4** | avg **1.44μs**、P99 1.57μs |
+| 端到端 `t40_e2e_*`（含 `_file` 回放） | **L4** | 相機/檔案→FrameHeader→GPU 全幀 CRC 正確 |
+| GB10 cudaHostAlloc 收圖（取代 nvidia_peermem） | **L4** | `t40_e2e_server` 用 `cudaHostAlloc(Portable\|Mapped)` 收圖驗證通過（見不變式）|
 
 ---
 
@@ -86,7 +106,9 @@
 | network-clean（配方 XML 內容 / 結果 JSON / patch base64 over TCP） | **L3** | IP 側真機驗證不依賴對方檔案系統；使用者 Mac↔Linux 實跑（過程發現並修了中文亂碼/重複小圖/存圖 bug，即跨機實測佐證）。 |
 | 配方 round-trip（Mac 改→IP 套用） | **L2** | IP offline-tcp `LOAD_RECIPE` 吃 `recipe_xml` 內容並套用，已於 Linux 驗。**(原草稿 L3→L2：完整「Mac 改值→IP 套用→結果反映」由使用者調參時跑過，但本盤點無乾淨可復現的單一佐證，保守標 L2)** |
 | 上位機協議（CF_/8787/gg4mida/timeout 40000） | **L1** | ⚠️ Control 端寫好（含 .Start/CF_ switch），**從未接真實上位機、且未被任何啟動處呼叫**（見 UpstreamServer 列）。 |
-| Grab↔IP RDMA 協議（FrameHeader.h 256-byte） | **L1** | `shared/FrameHeader.h` 定義好（`static_assert(sizeof==256)`），**但無任何收/發實作**（收發碼屬 L0）。 |
+| Grab↔IP RDMA 線格式 — **phase1 版** `Reference/phase1_tests/FrameHeader.h`（magic `0xA01CF00D`） | **L4** | 此版**實機收發驗證過**（t21/t40 全幀 CRC 正確）。定為正式線格式。 |
+| Grab↔IP RDMA 線格式 — **repo 版** `shared/FrameHeader.h`（magic `0xCFA0A001`） | **L1（且與實測版衝突）** | ⚠️ 與 phase1 版**欄位完全不同、從未經 RDMA**。目前僅 IP offline 路徑用到 `width/height/cam_id/frame_seq`+`make_frame_header`。**待對齊 phase1**（對齊方案已備、待確認後執行；屆時改標「已對齊 phase1」）。 |
+| RDMA 收發實作（RdmaSender/Receiver 主程式） | **L0** | 正式 Grab/IP 主程式尚無收發碼（phase1 的 `t40`/`RcConn` 為可升級樣板）。 |
 
 ---
 
@@ -94,10 +116,12 @@
 
 | 硬體 | 狀態 |
 | ---- | ---- |
-| 開發機 RTX 2080 Super（sm_75, CUDA 12.x） | ✅ IP offline 運作中（本盤點實跑） |
-| DGX Spark（生產目標, GB10 sm_121, CUDA 13） | 未驗證（offline 在開發機跑） |
-| 37× raL8192（pylon）/ 18× L803K+iPORT（eBUS） | 未接（Step 2+） |
-| Mellanox ConnectX-5 / SN2201 交換器 | 未確認（Step 2+） |
+| 開發機 RTX 2080 Super（sm_75, CUDA 12.x） | ✅ IP offline 演算法運作中（本盤點實跑） |
+| DGX Spark（GB10 sm_121, CUDA 13） | **RDMA→GPU 收圖路徑 2026-06-11 實機 PASS（L4）**；但 **AOI 演算法在 Spark 上＝未驗證**（演算法只在 RTX 2080S 跑過，尚未在 GB10 編譯/執行）|
+| Basler raL8192-12gm（1 台，pylon 26.05） | ✅ 實機取像 PASS（500 幀零掉幀）；37 台陣列＋Switch 未接（Step 3+）|
+| 18× L803K+iPORT（eBUS） | 未接（eBUS SDK 未裝；Step 2+）|
+| Mellanox ConnectX-5（截取中心）/ ConnectX-7（Spark） | ✅ 100G RDMA 鏈路實測 PASS |
+| SN2201 交換器 | 未到貨 / 未確認（明天為 1 台相機直連，無 Switch）|
 
 ---
 

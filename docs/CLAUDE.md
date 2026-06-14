@@ -205,7 +205,7 @@ static_assert(sizeof(FrameHeader)==256,"");
 | 平台 | GPU | sm | CUDA | 記憶體策略 |
 |------|-----|----|----|----------|
 | Linux RTX2080 Super（開發）| RTX 2080S | 75 | 12.x | cudaMalloc + async |
-| DGX Spark ARM（生產）| GB10 | 121 | 13.0 | zero-copy mapped |
+| DGX Spark（生產，NVLink-C2C SoC）| GB10 | 121 | 13.0 | **`cudaHostAlloc(Portable\|Mapped)` + `cudaHostGetDevicePointer`**（⚠️ 不可用 nvidia_peermem，見不變式 11）|
 
 ---
 
@@ -224,4 +224,8 @@ static_assert(sizeof(FrameHeader)==256,"");
 9. **output 同 panel 重測前先清空該 panel 夾的舊 `Defect_*`**（IP `result_saver` 已無條件清），
    避免 DefectSort 讀到換 IpName/換參數的歷史殘留疊加成倍數
 10. 同一影像跑兩次結果 bit-exact（見 ip/CLAUDE.md 不變式 7/8）
-8. 同一影像跑兩次結果 bit-exact
+11. **GB10（DGX Spark）RDMA 收圖不可用 `nvidia_peermem`，改 `cudaHostAlloc(Portable|Mapped)`**
+    （2026-06-11 實機驗證，見 `docs/verification/verification_report_20260611.md`）：GB10 NVLink-C2C SoC
+    的 GPU Bus ID 非標準 PCIe 空間 → `nvidia_peermem` 載入 EINVAL。正式 IP RDMA 接收用 pinned host memory
+    （`cudaHostAlloc` Portable|Mapped）註冊 MR，GPU 經 `cudaHostGetDevicePointer` 透過 NVLink-C2C(~900GB/s)
+    讀寫；`t40_e2e_server` 已採此法。詳見 grab/CLAUDE.md 不變式 6。

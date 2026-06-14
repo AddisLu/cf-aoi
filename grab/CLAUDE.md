@@ -153,3 +153,14 @@ source /opt/pleora/ebus_sdk/.../set_puregev_env.sh
 3. Grab 無 UI，所有設定從 Control 命令或 system_config.json 來
 4. RDMA NIC link_layer 必須是 `Ethernet`（RoCE v2）
 5. 相機 NIC MTU 必須 9000；RDMA NIC 不需要 jumbo
+6. **GB10（DGX Spark）不可用 `nvidia_peermem`，改 `cudaHostAlloc`（2026-06-11 實機驗證）**：
+   DGX Spark 是 GB10 NVLink-C2C SoC，GPU Bus ID 非標準 PCIe 空間（`0000000F:01:00.0`），
+   `modprobe nvidia_peermem` 回 **EINVAL**（其 PCIe P2P 拓樸檢查正確拒絕）。
+   **正式 IP 端 RDMA 接收（RdmaReceiver）必須**：用
+   `cudaHostAlloc(cudaHostAllocPortable | cudaHostAllocMapped)` 配 pinned host memory →
+   `ibv_reg_mr` 註冊給 RDMA NIC 直接 DMA → GPU 經 `cudaHostGetDevicePointer` 透過
+   NVLink-C2C(~900GB/s) 讀寫（等效甚至優於 PCIe P2P）。
+   ⚠️ `Reference/phase1_tests/rdma_common.h::RcConn::reg()` 的註解「GPU 記憶體失敗多半是
+   nvidia_peermem 未載入」在 GB10 上**不適用**；移植到 IP 時該註解要改成上述 cudaHostAlloc 方案。
+   證據：`docs/verification/verification_report_20260611.md` §五問題1 + `t40_e2e_server.cpp`。
+   （此即 `t40_e2e_server` 已採用的作法：`cudaHostAlloc(...Portable|Mapped)` 配 `gpu_buf`。）
