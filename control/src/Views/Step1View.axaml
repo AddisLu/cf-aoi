@@ -47,6 +47,8 @@
             <!-- 工具列：Fit + 操作提示 -->
             <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="2">
               <Button Name="BtnFit" Content="Fit"/>
+              <Button Content="刷新標示" Command="{Binding RefreshOverlayCommand}"
+                      ToolTip.Tip="從目前缺陷清單重畫大圖圓圈（不需重跑 Test）"/>
               <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#666"
                          Text="滾輪縮放 · 中鍵/空白+拖曳平移 · 按住 M 點兩格量 Pitch"/>
             </StackPanel>

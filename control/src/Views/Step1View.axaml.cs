@@ -68,7 +68,20 @@ public partial class Step1View : UserControl
         {
             vm.PropertyChanged -= OnVmPropertyChanged;
             vm.PropertyChanged += OnVmPropertyChanged;
+            vm.RefreshOverlayRequested -= RebuildOverlay;
+            vm.RefreshOverlayRequested += RebuildOverlay;
         }
+        // 重新開啟視窗時 VM 仍持有缺陷資料 → 從記憶體重建大圖標示（不需重跑 Test）
+        Dispatcher.UIThread.Post(RebuildOverlay);
+    }
+
+    // 從 VM 當前缺陷清單重建大圖圓圈標示（開窗自動重建 + 手動「刷新標示」鈕）
+    private void RebuildOverlay()
+    {
+        if (_defectOverlay is null || Vm is null) return;
+        _defectOverlay.SetDefects(Vm.NavDefects);
+        _defectOverlay.SelectedIndex = Vm.SelectedDefectIndex;
+        _defectOverlay.StrokeScale = _scale;
     }
 
     // 載入新圖 → 重新 Fit、清量測；分析完成（ResultVersion）→ 重綁 overlay 的缺陷清單

@@ -224,6 +224,10 @@ public partial class Step1ViewModel : ViewModelBase
     // Test 可按條件：有影像（已載入）+ 非分析中（配方恆有預設）
     private bool CanRun() => !IsAnalyzing && ImageLoaded;
 
+    // 「刷新標示」：請 View 從目前缺陷清單重畫大圖圓圈（不重跑 Test）。View 訂閱此事件。
+    public event Action? RefreshOverlayRequested;
+    [RelayCommand] private void RefreshOverlay() => RefreshOverlayRequested?.Invoke();
+
     // 對應 btnTest：送 IP 分析（offline-tcp, network-clean）
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task RunAnalysis()
