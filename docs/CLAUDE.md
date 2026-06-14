@@ -101,11 +101,15 @@ GetResult\r\n                  →  OK|{json}\r\n
 <--output>/<yyyyMMdd>/<panelId>_<recipeName>/      ← ① 日期夾（無分隔線）② 一塊 panel/批一夾
    Defect_<IpName>_Slice<ff>_Roi<rr>_Run<nn>_X<xxxx>_Y<yyyyyy>_Dr<Bright|Dark>.png   缺陷小圖（全域座標）
    <panelId>_<recipeName>_ResultInfo.json / .xml   結果（DefectCnt 來源）
-   <panelId>_<recipeName>_result.bmp               overlay
+   <panelId>_<recipeName>_result.png               overlay（PNG 低壓縮）
 ```
 - 簡化為 **3 層**（省略 legacy 第 4 層 `<IpName>/`，新架構每台 IP 自有 output；IpName 進檔名）。
 - `--ip-name`（預設 IP01）決定缺陷檔名；`panelId`=影像/panel 名、`recipeName`=zone 的 recipe 名。
 - 日期格式 **`yyyyMMdd`**（與 legacy 一致；遠端命令的 `date` 參數同此格式，**非** `yyyy-MM-dd`）。
+- **AI 分類預設停用**（訓練資料不足）：模型仍載入（保留架構），但不推論、不過濾，缺陷 `AiType="待人工複核"`；
+  log 顯示「N 缺陷(待人工複核)」。`--use-ai` 重新啟用。
+- **存圖效能**：overlay 用 PNG（非 BMP）、缺陷小圖多緒平行寫；調參可用 `--no-save-images`/`--no-overlay`/
+  `--max-patches N` 加速。log 印 `存圖耗時: crop/patches/overlay ms`。
 
 #### 缺陷遠端歸檔（DefectSort）— 缺陷影像存在運算端 IP/Linux/Spark，不在 Control 本地
 Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統；Control 端不假設能看到 IP 的硬碟）：

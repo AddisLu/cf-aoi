@@ -43,7 +43,13 @@ struct Args {
     std::string ini = "config/default_zone.ini";
     std::string ai_model_dir = "models/gpu_model";
     std::string ip_name = "IP01";  // 缺陷檔名 Defect_{IpName}_... 用
+    bool use_ai = false;           // AI 分類過濾（預設停用：訓練資料不足）
     bool verify_deterministic = false;
+    // 存圖選項（調參加速）
+    bool save_patches = true;
+    bool save_overlay = true;
+    int  max_patches = -1;         // >=0 → 只存前 N 張缺陷小圖
+    int  save_threads = 0;         // 0 → 自動
 };
 
 void usage(const char* prog) {
@@ -57,6 +63,11 @@ void usage(const char* prog) {
     "  --control-port <n>    offline-tcp 監聽 port（預設 8200）\n"
     "  --ai-model-dir <dir>  AI 模型目錄（預設 models/gpu_model；找不到則停用 AI）\n"
     "  --ip-name <name>      本機 IP 名稱（缺陷檔名 Defect_{IpName}_...，預設 IP01）\n"
+    "  --use-ai              啟用 AI 分類過濾（預設停用：訓練資料不足，缺陷標待人工複核）\n"
+    "  --no-save-images      只存 ResultInfo，不存任何缺陷小圖/overlay（調參加速）\n"
+    "  --no-overlay          不存 overlay 全圖（仍存缺陷小圖）\n"
+    "  --max-patches <n>     只存前 n 張缺陷小圖（調參加速）\n"
+    "  --save-threads <n>    缺陷小圖平行寫入緒數（0=自動）\n"
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n";
 }
 
@@ -75,6 +86,11 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--control-port") a.control_port = std::stoi(next("--control-port"));
         else if (k == "--ai-model-dir") a.ai_model_dir = next("--ai-model-dir");
         else if (k == "--ip-name") a.ip_name = next("--ip-name");
+        else if (k == "--use-ai") a.use_ai = true;
+        else if (k == "--no-save-images") { a.save_patches = false; a.save_overlay = false; }
+        else if (k == "--no-overlay") a.save_overlay = false;
+        else if (k == "--max-patches") a.max_patches = std::stoi(next("--max-patches"));
+        else if (k == "--save-threads") a.save_threads = std::stoi(next("--save-threads"));
         else if (k == "--verify-deterministic") a.verify_deterministic = true;
         else if (k == "-h" || k == "--help") { usage(argv[0]); return false; }
         else { std::cerr << "未知參數: " << k << "\n"; usage(argv[0]); return false; }
@@ -127,6 +143,7 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
     agg.panel_id = panel_id;
     agg.image_width = gray.cols;
     agg.image_height = gray.rows;
+    agg.ai_used = pipe.ai_enabled();   // 有效 AI 狀態（停用時缺陷標待人工複核）
     if (!zones.empty()) agg.recipe_name = zones.front().recipe_name;
 
     for (const auto& z : zones) {
@@ -191,8 +208,17 @@ int main(int argc, char** argv) {
 
     // ---- GPU pipeline ----
     GpuPipeline pipe(args.ai_model_dir);
+    pipe.set_ai_active(args.use_ai);   // 預設停用 AI（訓練資料不足）
     std::cout << "[GPU] zero_copy=" << (pipe.is_zero_copy() ? "yes" : "no")
-              << " ai=" << (pipe.ai_enabled() ? "on" : "off") << "\n";
+              << " ai=" << (pipe.ai_enabled() ? "on" : "off")
+              << (pipe.ai_model_loaded() && !args.use_ai ? "（模型已載入但停用）" : "") << "\n";
+
+    // 存圖選項（調參加速）
+    SaveOptions save_opt;
+    save_opt.save_patches = args.save_patches;
+    save_opt.save_overlay = args.save_overlay;
+    save_opt.max_patches  = args.max_patches;
+    save_opt.threads      = args.save_threads;
 
     int processed = 0;
 
@@ -207,7 +233,7 @@ int main(int argc, char** argv) {
             std::string name = src.current_name();
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed);
-            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name);
+            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
             ++processed;
         }
         std::cout << "[Done] 處理 " << processed << " 張影像\n";
@@ -266,7 +292,7 @@ int main(int argc, char** argv) {
             { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }
             bool vf = false;  // tcp 串流模式不做 deterministic 驗證
             InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf);
-            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name);
+            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
             // 把結果經 TCP 回傳給等待中的 Control（跨機器免共用檔案系統）
             server.deliver_result(name, ResultSaver::to_json(res));
             ++processed;

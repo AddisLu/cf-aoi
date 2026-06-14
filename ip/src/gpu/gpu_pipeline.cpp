@@ -185,7 +185,8 @@ public:
     cudaStream_t stream = 0;
     cudaStream_t ai_stream = 0;
     TensorCoreClassifier* ai_classifier = nullptr;
-    bool ai_on = false;
+    bool ai_on = false;        // 模型是否載入成功
+    bool ai_active = false;    // 執行期開關（預設停用：訓練資料不足，暫不推論）
     cudaEvent_t ev_start = nullptr, ev_stop = nullptr;
 
     explicit GpuPipelineImpl(const std::string& ai_model_dir) {
@@ -269,8 +270,8 @@ public:
         CUDA_CHECK(cudaEventRecord(ev_stop, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
 
-        // Step 7: AI 過濾（可選）
-        if (ai_on && ai_classifier) {
+        // Step 7: AI 過濾（可選；ai_active=false 時跳過，缺陷全數輸出待人工複核）
+        if (ai_on && ai_active && ai_classifier) {
             ai_classifier->classifyAndFilterGPU(
                 gpu_mem.getInputPtr(), gpu_mem.getDefectsPtr(),
                 gpu_mem.getDefectCountPtr(), gpu_mem.getFilteredDefectsPtr(),
@@ -318,5 +319,7 @@ DetectionResult GpuPipeline::process_frame(const uint8_t* img, int w, int h,
     return impl_->run(img, w, h, cfg);
 }
 
-bool GpuPipeline::ai_enabled() const { return impl_->ai_on; }
+void GpuPipeline::set_ai_active(bool active) { impl_->ai_active = active; }
+bool GpuPipeline::ai_enabled() const { return impl_->ai_on && impl_->ai_active; }
+bool GpuPipeline::ai_model_loaded() const { return impl_->ai_on; }
 bool GpuPipeline::is_zero_copy() const { return impl_->gpu_mem.isZeroCopy(); }

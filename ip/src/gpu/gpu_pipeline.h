@@ -57,7 +57,12 @@ public:
     DetectionResult process_frame(const uint8_t* img, int w, int h,
                                   const ZoneConfig& cfg);
 
-    bool ai_enabled() const;
+    // AI 分類過濾的執行期開關。模型仍會載入（保留架構），但 active=false 時
+    // pipeline 不做推論、不過濾，缺陷一律輸出待人工複核。預設停用（訓練資料不足）。
+    void set_ai_active(bool active);
+
+    bool ai_enabled() const;   // 有效狀態 = 模型已載入 && active
+    bool ai_model_loaded() const;
     bool is_zero_copy() const;
 
 private:

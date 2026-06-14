@@ -1,11 +1,15 @@
 #include "result_saver.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <thread>
+#include <vector>
 
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
@@ -34,9 +38,12 @@ struct LegacyDefect {
     std::string ImagePath;
 };
 
-LegacyDefect to_legacy(const DefectInfo& d, int off_x, int off_y, int run_index) {
+LegacyDefect to_legacy(const DefectInfo& d, int off_x, int off_y, int run_index,
+                       bool ai_used = false) {
     LegacyDefect L;
     L.RunIndex = run_index;
+    // AI 停用時缺陷一律標待人工複核（保留架構，資料足夠後重啟 AI 才會有 AiOK/SizeNG 等）。
+    L.AiType = ai_used ? "NoSet" : "待人工複核";
     L.GC_X = (int)d.center_x;
     L.GC_Y = (int)d.center_y;
     L.GlobalPosX = off_x + (int)d.center_x;
@@ -161,7 +168,7 @@ std::string to_json(const InspectionResult& r) {
         json defs = json::array();
         int ri = 0;
         for (const auto& d : z.result.defects)
-            defs.push_back(defect_to_json(to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++)));
+            defs.push_back(defect_to_json(to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++, r.ai_used)));
         roi_list.push_back({
             {"RoiIndex", z.zone_index},
             {"roi_offset_x", z.roi_offset_x},
@@ -179,8 +186,9 @@ int save(const InspectionResult& r,
          const uint8_t* img, int w, int h,
          const std::string& out_dir,
          const std::string& ip_name,
-         int patch_size,
+         const SaveOptions& opt,
          std::string* out_panel_dir) {
+    const int patch_size = opt.patch_size;
     // ---- 資料夾結構：<out>/<yyyyMMdd>/<panelId>_<recipeName>/（對齊 legacy）----
     const std::string date = today_yyyymmdd();
     const std::string basename = panel_folder_name(r);   // ResultInfo 檔名前綴 = panel 夾名
@@ -235,7 +243,7 @@ int save(const InspectionResult& r,
             os << "      <DefectInfoList>\n";
             int ri = 0;
             for (const auto& d : z.result.defects)
-                write_defect_xml(os, to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++));
+                write_defect_xml(os, to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++, r.ai_used));
             os << "      </DefectInfoList>\n";
             os << "    </RoiInfo>\n";
         }
@@ -244,25 +252,35 @@ int save(const InspectionResult& r,
         os << "</JudgeResult>\n";
     }
 
-    // ---- 3. 缺陷小圖（legacy Defect_ 命名，全域座標）+ 4. overlay ----
+    // ---- 3. 缺陷小圖（legacy Defect_ 命名）+ 4. overlay ----
+    // 效能：crop（單緒、快）→ 平行寫檔（imwrite 是瓶頸，對不同檔案 thread-safe）。
+    //       overlay 改 PNG（BMP 全圖未壓縮 ~163MB 寫太慢）；調參階段可關圖/限張數。
+    using clk = std::chrono::steady_clock;
+    auto ms = [](clk::time_point a, clk::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
     cv::Mat gray(h, w, CV_8UC1, const_cast<uint8_t*>(img));
-    cv::Mat overlay;
-    cv::cvtColor(gray, overlay, cv::COLOR_GRAY2BGR);
-
     const int frame_h = r.frame_height > 0 ? r.frame_height : h;  // Slice = GlobalPosY / frame 高
-    int half = patch_size / 2;
-    int saved = 0;
-    for (const auto& z : r.zones) {
-        int run = 0;  // 該 ROI 內缺陷流水號（對應 legacy RunIndex）
-        for (const auto& d : z.result.defects) {
-            int cx = z.roi_offset_x + (int)d.center_x;
-            int cy = z.roi_offset_y + (int)d.center_y;
-            int slice = frame_h > 0 ? cy / frame_h : 0;
+    const int half = patch_size / 2;
+    const std::vector<int> png_fast = {cv::IMWRITE_PNG_COMPRESSION, 1};  // 低壓縮 = 快
 
-            // patch（不足 patch_size 補零置中）
-            int x1 = std::max(0, cx - half), y1 = std::max(0, cy - half);
-            int x2 = std::min(w, cx + half),  y2 = std::min(h, cy + half);
-            if (x2 > x1 && y2 > y1) {
+    // -- crop 階段：產生 (檔名, patch) 清單（受 save_patches / max_patches 限制）--
+    auto t_crop0 = clk::now();
+    std::vector<std::pair<std::string, cv::Mat>> tasks;
+    int total_defects = 0;
+    if (opt.save_patches) {
+        for (const auto& z : r.zones) {
+            int run = 0;
+            for (const auto& d : z.result.defects) {
+                ++total_defects;
+                if (opt.max_patches >= 0 && (int)tasks.size() >= opt.max_patches) { ++run; continue; }
+                int cx = z.roi_offset_x + (int)d.center_x;
+                int cy = z.roi_offset_y + (int)d.center_y;
+                int slice = frame_h > 0 ? cy / frame_h : 0;
+                int x1 = std::max(0, cx - half), y1 = std::max(0, cy - half);
+                int x2 = std::min(w, cx + half),  y2 = std::min(h, cy + half);
+                ++run;
+                if (x2 <= x1 || y2 <= y1) continue;
                 cv::Mat patch = gray(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
                 if (patch.cols < patch_size || patch.rows < patch_size) {
                     cv::Mat padded = cv::Mat::zeros(patch_size, patch_size, patch.type());
@@ -271,28 +289,67 @@ int save(const InspectionResult& r,
                     patch = padded;
                 }
                 std::string reason = d.is_bright ? "Bright" : "Dark";
-                std::string fn = dst + "/" +
-                    defect_filename(ip_name, slice, z.zone_index, run, cx, cy, reason);
-                cv::imwrite(fn, patch);
-                ++saved;
+                tasks.emplace_back(dst + "/" + defect_filename(ip_name, slice, z.zone_index,
+                                                               run - 1, cx, cy, reason),
+                                   std::move(patch));
             }
-
-            // overlay bbox（亮=紅 BGR(0,0,255)、暗=藍 BGR(255,0,0)）
-            cv::Scalar color = d.is_bright ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
-            int mx = std::max(0, z.roi_offset_x + d.min_x - 2);
-            int my = std::max(0, z.roi_offset_y + d.min_y - 2);
-            int Mx = std::min(w - 1, z.roi_offset_x + d.max_x + 2);
-            int My = std::min(h - 1, z.roi_offset_y + d.max_y + 2);
-            cv::rectangle(overlay, cv::Point(mx, my), cv::Point(Mx, My), color, 2);
-            ++run;
         }
+    } else {
+        total_defects = r.total_defects();
     }
-    cv::imwrite(dst + "/" + basename + "_result.bmp", overlay);
+    double crop_ms = ms(t_crop0, clk::now());
 
-    std::cout << "[ResultSaver] " << basename << ": " << r.total_defects()
-              << " 缺陷 (" << r.zones.size() << " zones), " << saved
+    // -- 平行寫缺陷小圖 --
+    auto t_patch0 = clk::now();
+    std::atomic<int> saved{0};
+    if (!tasks.empty()) {
+        unsigned nthreads = opt.threads > 0 ? (unsigned)opt.threads
+                                            : std::max(1u, std::thread::hardware_concurrency());
+        nthreads = std::min<unsigned>(nthreads, (unsigned)tasks.size());
+        std::atomic<size_t> next{0};
+        auto worker = [&]() {
+            size_t i;
+            while ((i = next.fetch_add(1)) < tasks.size()) {
+                if (cv::imwrite(tasks[i].first, tasks[i].second, png_fast)) ++saved;
+            }
+        };
+        std::vector<std::thread> pool;
+        for (unsigned t = 0; t < nthreads; ++t) pool.emplace_back(worker);
+        for (auto& th : pool) th.join();
+    }
+    double patch_ms = ms(t_patch0, clk::now());
+
+    // -- overlay（PNG，低壓縮）--
+    auto t_ov0 = clk::now();
+    if (opt.save_overlay) {
+        cv::Mat overlay;
+        cv::cvtColor(gray, overlay, cv::COLOR_GRAY2BGR);
+        for (const auto& z : r.zones) {
+            for (const auto& d : z.result.defects) {
+                cv::Scalar color = d.is_bright ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
+                int mx = std::max(0, z.roi_offset_x + d.min_x - 2);
+                int my = std::max(0, z.roi_offset_y + d.min_y - 2);
+                int Mx = std::min(w - 1, z.roi_offset_x + d.max_x + 2);
+                int My = std::min(h - 1, z.roi_offset_y + d.max_y + 2);
+                cv::rectangle(overlay, cv::Point(mx, my), cv::Point(Mx, My), color, 2);
+            }
+        }
+        cv::imwrite(dst + "/" + basename + "_result.png", overlay, png_fast);
+    }
+    double ov_ms = ms(t_ov0, clk::now());
+
+    const char* ai_note = r.ai_used ? "" : "(待人工複核)";
+    std::cout << "[ResultSaver] " << basename << ": " << total_defects << " 缺陷" << ai_note
+              << " (" << r.zones.size() << " zones), 存 " << saved.load() << "/" << tasks.size()
               << " 缺陷圖 → " << dst << "\n";
-    return saved;
+    std::cout << "[ResultSaver] 存圖耗時: crop " << (long)crop_ms << "ms, patches "
+              << (long)patch_ms << "ms (" << saved.load() << " 張), overlay "
+              << (long)ov_ms << "ms"
+              << (opt.save_patches ? "" : " [跳過 patch]")
+              << (opt.save_overlay ? "" : " [跳過 overlay]")
+              << (opt.max_patches >= 0 ? (" [限 " + std::to_string(opt.max_patches) + " 張]") : "")
+              << "\n";
+    return saved.load();
 }
 
 }  // namespace ResultSaver
