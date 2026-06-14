@@ -67,7 +67,7 @@ public partial class MainWindowViewModel : ViewModelBase
             else if (e.Level == LogLevel.Warning) Append(WarningLog, e);
         });
 
-        _conn.Start(svc.Config);
+        _conn.Start(svc.Config, _log);
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         timer.Tick += (_, _) =>

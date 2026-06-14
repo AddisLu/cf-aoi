@@ -14,7 +14,7 @@ namespace CfAoiControl.Controllers;
 ///   SEND_IMAGE_FOR_REVIEW：命令行(\n) 後緊接 payload_bytes 個 raw bytes（Mono8）。
 /// 注意：IP 收圖後僅回 OK，偵測結果寫到 IP 的 --output（由 OfflineReviewService 讀回 JSON）。
 /// </summary>
-public sealed class IpClient : IDisposable
+public sealed class IpClient : IDisposable, IHeartbeatClient
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
     private TcpClient? _tcp;
@@ -25,6 +25,8 @@ public sealed class IpClient : IDisposable
     public string Host { get; private set; } = "127.0.0.1";
     public int Port { get; private set; } = 8200;
     public bool IsConnected => _tcp?.Connected == true;
+    public bool IsBusy => _lock.CurrentCount == 0;        // 有命令持有鎖 → 進行中
+    public void Disconnect() => CloseInternal();
 
     public async Task ConnectAsync(string host, int port, CancellationToken ct = default)
     {

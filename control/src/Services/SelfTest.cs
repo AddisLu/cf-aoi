@@ -35,6 +35,7 @@ public static class SelfTest
                 case "send":   return await SendTest(rest, cfg, log);
                 case "fft":    return FftTest(rest);
                 case "store":  return await StoreTest(rest);
+                case "heartbeat": return await HeartbeatTest(rest);
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -45,6 +46,23 @@ public static class SelfTest
             Console.WriteLine($"✗ SelfTest 例外: {ex.Message}");
             return 1;
         }
+    }
+
+    // ---- 連線心跳偵測（綠↔紅 + 自動重連）----
+    private static async Task<int> HeartbeatTest(string[] a)
+    {
+        int secs = a.Length > 0 && int.TryParse(a[0], out var s) ? s : 30;
+        string host = a.Length > 1 ? a[1] : "127.0.0.1";
+        var svc = AppServices.Build();
+        if (svc.Config.Nodes.TryGetValue("IpOffline", out var n)) n.Host = host;   // 本機測試用
+        svc.Log.Logged += e => Console.WriteLine($"   LOG[{e.Level}] {e.Message}");
+        svc.Connection.Start(svc.Config, svc.Log);
+        for (int i = 0; i < secs; i++)
+        {
+            Console.WriteLine($"  t={i,2}s IsIpConnected={svc.Connection.IsIpConnected}");
+            await Task.Delay(1000);
+        }
+        return 0;
     }
 
     // ---- 配方單一資料來源（共用實例 + 存檔）----

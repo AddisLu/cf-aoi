@@ -11,7 +11,7 @@ namespace CfAoiControl.Controllers;
 /// TCP → Grab（預設 port 8100），newline-delimited JSON。本階段（Step 1 offline）不取像，
 /// 先提供連線/健康檢查骨架，Step 2+ 再擴充取像命令。
 /// </summary>
-public sealed class GrabClient : IDisposable
+public sealed class GrabClient : IDisposable, IHeartbeatClient
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
     private TcpClient? _tcp;
@@ -22,6 +22,8 @@ public sealed class GrabClient : IDisposable
     public string Host { get; private set; } = "127.0.0.1";
     public int Port { get; private set; } = 8100;
     public bool IsConnected => _tcp?.Connected == true;
+    public bool IsBusy => _lock.CurrentCount == 0;
+    public void Disconnect() => Close();
 
     public async Task ConnectAsync(string host, int port, CancellationToken ct = default)
     {
