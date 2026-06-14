@@ -329,17 +329,22 @@ void ControlServer::handle_client(int fd) {
             uint16_t fseq = (uint16_t)params.value("frame_seq", (int)frame_seq_);
             uint8_t sys_id = (uint8_t)params.value("system_id", 0);
             bool last = params.value("last", false);
+            // debug=true → 本次存全部 patch（調參看小圖）；預設 false → 只存結果+overlay 加速。
+            review_save_patches_ = params.value("debug", false);
 
             if (payload_bytes == 0 || payload_bytes != width * height) {
                 reply(fd, {{"seq", seq}, {"status", "ERR"},
                            {"error", "payload_bytes 必須等於 width*height (Mono8)"}});
                 continue;
             }
+            auto t_recv0 = std::chrono::steady_clock::now();
             std::vector<uint8_t> payload;
             if (!rd.read_exact(payload_bytes, payload)) {
                 std::cerr << "[ControlServer] 讀取影像 payload 時連線中斷\n";
                 break;
             }
+            double recv_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t_recv0).count();
             FrameHeader hdr = make_frame_header(panel, cam_id, fseq, width, height,
                                                 payload.data(), payload_bytes, sys_id,
                                                 /*timestamp*/ 0, last);
@@ -350,6 +355,7 @@ void ControlServer::handle_client(int fd) {
             resp["frame_seq"] = fseq;
 
             // 等處理端 deliver_result(panel, json)，把結果經 TCP 回傳（跨機器免共用檔案系統）。
+            auto t_proc0 = std::chrono::steady_clock::now();
             std::string result_json;
             {
                 std::unique_lock<std::mutex> lk(result_mtx_);
@@ -357,6 +363,12 @@ void ControlServer::handle_client(int fd) {
                     [&] { return results_.find(panel) != results_.end(); });
                 if (got) { result_json = results_[panel]; results_.erase(panel); }
             }
+            double proc_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t_proc0).count();
+            std::cout << "[T.T] 收圖傳輸 " << (long)recv_ms << "ms ("
+                      << (payload_bytes / (1024 * 1024)) << "MB) | 運算+存圖 "
+                      << (long)proc_ms << "ms | debug存patch=" << (review_save_patches_ ? "on" : "off")
+                      << "\n";
             if (!result_json.empty()) {
                 resp["status"] = "OK";
                 try { resp["result"] = json::parse(result_json); }

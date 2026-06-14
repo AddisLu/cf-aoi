@@ -65,6 +65,8 @@
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <Button Content="← 返回" Command="{Binding BackToFoldersCommand}"/>
           <TextBlock Text="{Binding CurrentFolder}" FontWeight="Bold" VerticalAlignment="Center"/>
+          <TextBlock Text="顯示：" VerticalAlignment="Center"/>
+          <ComboBox ItemsSource="{Binding Filters}" SelectedItem="{Binding SelectedFilter}" MinWidth="150"/>
         </StackPanel>
         <TextBlock Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="14">
           <Run Text="已分類"/><Run Text="{Binding ClassifiedCount}"/><Run Text="/"/><Run Text="{Binding TotalCount}"/>

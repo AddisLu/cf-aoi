@@ -52,6 +52,10 @@ public:
     void set_ai_enabled(bool v) { ai_enabled_ = v; }
     void set_output_dir(const std::string& d) { output_dir_ = d; }   // 供 LIST/SORT_DEFECTS 掃描
 
+    // SEND_IMAGE_FOR_REVIEW 的 debug 旗標：true → 該次存全部 patch（調參需要看小圖）；
+    // false（預設）→ 只存結果+overlay 加速。由主處理迴圈讀取決定 SaveOptions。
+    bool review_save_patches() const { return review_save_patches_.load(); }
+
     bool start();   // 開 listener thread
     void stop();    // 關閉並 join；同時 queue.close()
 
@@ -71,6 +75,7 @@ private:
     bool ai_enabled_ = false;
     uint16_t frame_seq_ = 0;
     std::string output_dir_ = "output";
+    std::atomic<bool> review_save_patches_{false};   // SEND_IMAGE_FOR_REVIEW debug 旗標
 
     LoadRecipeFn load_recipe_;
     StatusFn status_;

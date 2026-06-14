@@ -205,6 +205,23 @@ int save(const InspectionResult& r,
     if (out_panel_dir) *out_panel_dir = panel_dir;
     const std::string& dst = panel_dir;   // 缺陷圖 / ResultInfo 都落在 panel 夾
 
+    // ---- 清舊檔：避免跨次 Test（換 IpName/換參數 → 不同檔名）累積成重複小圖 ----
+    // 要重存 patch 時先清掉本層舊 Defect_*；overlay 重存時清舊 _result.bmp（已改用 _result.png）。
+    // 不動 TrueDefect/Particle 子夾與 classification.json（人工分類需保留）。
+    {
+        std::error_code ec;
+        for (const auto& e : fs::directory_iterator(dst, ec)) {
+            if (ec) break;
+            if (!e.is_regular_file()) continue;
+            std::string fn = e.path().filename().string();
+            bool is_patch = fn.rfind("Defect", 0) == 0;
+            bool is_old_bmp = fn.size() > 4 && fn.substr(fn.size() - 4) == ".bmp";
+            if ((opt.save_patches && is_patch) || (opt.save_overlay && is_old_bmp)) {
+                std::error_code rec; fs::remove(e.path(), rec);
+            }
+        }
+    }
+
     // ---- 0. 多 ROI 邊界死區可見化 ----
     // gpu_algo 8-Way kernel 會跳過距 ROI 邊緣 margin 內的像素（cuda_kernels.cu:135-145）：
     //   margin_x = pitch_x*2 + fast_search_range, margin_y = pitch_y*2 + fast_search_range
@@ -347,12 +364,15 @@ int save(const InspectionResult& r,
     }
     double ov_ms = ms(t_ov0, clk::now());
 
+    double gpu_ms = 0.0;
+    for (const auto& z : r.zones) gpu_ms += z.result.process_time_ms;
+
     const char* ai_note = r.ai_used ? "" : "(待人工複核)";
     std::cout << "[ResultSaver] " << basename << ": " << total_defects << " 缺陷" << ai_note
               << " (" << r.zones.size() << " zones), 存 " << saved.load() << "/" << tasks.size()
               << " 缺陷圖 → " << dst << "\n";
-    std::cout << "[ResultSaver] 存圖耗時: crop " << (long)crop_ms << "ms, patches "
-              << (long)patch_ms << "ms (" << saved.load() << " 張), overlay "
+    std::cout << "[T.T] GPU運算 " << (long)gpu_ms << "ms | crop " << (long)crop_ms
+              << "ms | patch存圖 " << (long)patch_ms << "ms (" << saved.load() << " 張) | overlay存圖 "
               << (long)ov_ms << "ms"
               << (opt.save_patches ? "" : " [跳過 patch]")
               << (opt.save_overlay ? "" : " [跳過 overlay]")

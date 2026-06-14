@@ -292,7 +292,10 @@ int main(int argc, char** argv) {
             { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }
             bool vf = false;  // tcp 串流模式不做 deterministic 驗證
             InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf);
-            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
+            // 調參(review)：預設只存結果+overlay；SEND_IMAGE_FOR_REVIEW debug=true 時才存全部 patch。
+            SaveOptions review_opt = save_opt;
+            review_opt.save_patches = server.review_save_patches();
+            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, review_opt);
             // 把結果經 TCP 回傳給等待中的 Control（跨機器免共用檔案系統）
             server.deliver_result(name, ResultSaver::to_json(res));
             ++processed;

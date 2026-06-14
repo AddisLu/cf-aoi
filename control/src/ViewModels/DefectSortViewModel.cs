@@ -151,13 +151,18 @@ public partial class DefectSortViewModel : ViewModelBase
     // ========================================================================
     // 第二層：小圖人工分類（雙擊資料夾進入 → 縮圖牆 + 鍵盤 T/P 快速分類 → 存回 IP）
     // ========================================================================
-    public ObservableCollection<PatchItem> Patches { get; } = new();
+    private readonly List<PatchItem> _all = new();          // 全部小圖（master）
+    public ObservableCollection<PatchItem> Patches { get; } = new();  // 套 filter 後顯示於縮圖牆
+
+    // 篩選：顯示全部 / 只顯示未分類（預設，標到一半回來可接著標）/ 只 TrueDefect / 只 Particle
+    public string[] Filters { get; } = { "只顯示未分類", "顯示全部", "只顯示 TrueDefect", "只顯示 Particle" };
 
     [ObservableProperty] private bool inPatchView;          // true = 小圖檢視；false = 資料夾列表
     [ObservableProperty] private string currentFolder = "";
     [ObservableProperty] private PatchItem? selectedPatch;
     [ObservableProperty] private bool isLoadingPatches;
-    // 頂部統計
+    [ObservableProperty] private string selectedFilter = "只顯示未分類";
+    // 頂部統計（恆以 _all 全集計算）
     [ObservableProperty] private int totalCount;
     [ObservableProperty] private int classifiedCount;
     [ObservableProperty] private int trueDefectCount;
@@ -165,6 +170,8 @@ public partial class DefectSortViewModel : ViewModelBase
     [ObservableProperty] private int unclassifiedCount;
 
     private const int BatchSize = 50;   // GET_DEFECT_PATCHES_BATCH 每批張數
+
+    partial void OnSelectedFilterChanged(string value) => ApplyFilter();
 
     /// <summary>雙擊資料夾 → 進入小圖檢視：LIST metadata → 批次取縮圖。</summary>
     public async Task OpenFolderAsync(string folder)
@@ -175,6 +182,7 @@ public partial class DefectSortViewModel : ViewModelBase
 
         CurrentFolder = folder;
         InPatchView = true;
+        _all.Clear();
         Patches.Clear();
         SelectedPatch = null;
         IsLoadingPatches = true;
@@ -192,7 +200,7 @@ public partial class DefectSortViewModel : ViewModelBase
                 foreach (var p in arr)
                 {
                     if (p is null) continue;
-                    Patches.Add(new PatchItem
+                    _all.Add(new PatchItem
                     {
                         PatchId = p["patch_id"]?.GetValue<string>() ?? "",
                         RunIndex = (int?)p["run_index"] ?? 0,
@@ -205,12 +213,12 @@ public partial class DefectSortViewModel : ViewModelBase
                     });
                 }
             RecomputeStats();
-            if (Patches.Count > 0) SelectedPatch = Patches[0];
-            Log($"  metadata {Patches.Count} 張，載入縮圖中…");
+            ApplyFilter();   // 套用 filter（預設只顯示未分類：續標上次未標的）
+            Log($"  metadata {_all.Count} 張（已分類 {ClassifiedCount}，顯示 {Patches.Count}），載入縮圖中…");
 
-            // 批次取縮圖（背景），decode 後填回 UI。
+            // 批次取縮圖（背景，全集），decode 後填回 UI。
             await LoadThumbnailsAsync(folder);
-            Log($"  縮圖載入完成（{Patches.Count(p => p.Thumb != null)}/{Patches.Count}）");
+            Log($"  縮圖載入完成（{_all.Count(p => p.Thumb != null)}/{_all.Count}）");
         }
         catch (Exception ex) { Log($"❌ 載入小圖失敗：{ex.Message}"); }
         finally { IsLoadingPatches = false; }
@@ -219,9 +227,9 @@ public partial class DefectSortViewModel : ViewModelBase
     private async Task LoadThumbnailsAsync(string folder)
     {
         var ip = _svc.Connection.Ip;
-        for (int i = 0; i < Patches.Count; i += BatchSize)
+        for (int i = 0; i < _all.Count; i += BatchSize)
         {
-            var batch = Patches.Skip(i).Take(BatchSize).ToList();
+            var batch = _all.Skip(i).Take(BatchSize).ToList();
             var ids = batch.Select(p => p.PatchId).ToList();
             JsonNode? resp;
             try { resp = await ip.GetDefectPatchesBatchAsync(DateStr, folder, ids); }
@@ -250,20 +258,45 @@ public partial class DefectSortViewModel : ViewModelBase
     [RelayCommand]
     private void BackToFolders() => InPatchView = false;
 
-    // 縮圖下方按鈕：標某張為 TrueDefect / Particle（不自動跳，使用者點哪張標哪張）。
-    [RelayCommand]
-    private void MarkTrue(PatchItem? p) { if (p != null) { p.CurrentClass = "TrueDefect"; RecomputeStats(); } }
-
-    [RelayCommand]
-    private void MarkParticle(PatchItem? p) { if (p != null) { p.CurrentClass = "Particle"; RecomputeStats(); } }
-
-    /// <summary>分類選中的小圖（"TrueDefect"/"Particle"）並自動跳下一張。鍵盤 T/P 呼叫。</summary>
-    public void ClassifySelected(string klass)
+    private bool PassFilter(PatchItem p) => SelectedFilter switch
     {
-        if (SelectedPatch is null) return;
-        SelectedPatch.CurrentClass = klass;
+        "只顯示未分類"        => !p.IsClassified,
+        "只顯示 TrueDefect"   => p.CurrentClass == "TrueDefect",
+        "只顯示 Particle"     => p.CurrentClass == "Particle",
+        _                     => true,   // 顯示全部
+    };
+
+    // 依 filter 重建可見集合，盡量保留選取（不在則選同位置/第一張）。
+    private void ApplyFilter()
+    {
+        var keep = SelectedPatch;
+        Patches.Clear();
+        foreach (var p in _all) if (PassFilter(p)) Patches.Add(p);
+        if (keep != null && Patches.Contains(keep)) SelectedPatch = keep;
+        else SelectedPatch = Patches.Count > 0 ? Patches[0] : null;
+    }
+
+    // 縮圖下方按鈕：標某張（不自動跳）。
+    [RelayCommand] private void MarkTrue(PatchItem? p) => Classify(p, "TrueDefect", advance: false);
+    [RelayCommand] private void MarkParticle(PatchItem? p) => Classify(p, "Particle", advance: false);
+
+    /// <summary>分類選中的小圖並自動跳下一張。鍵盤 T/P 呼叫。</summary>
+    public void ClassifySelected(string klass) => Classify(SelectedPatch, klass, advance: true);
+
+    // 統一分類：設類別 → 即時存回 IP（持久化）→ 更新統計 → 若被 filter 隱藏則移出可見集合。
+    private void Classify(PatchItem? p, string klass, bool advance)
+    {
+        if (p is null) return;
+        int idx = Patches.IndexOf(p);
+        p.CurrentClass = klass;
+        PersistOne(p);            // 即時存檔（不等 Sort）
         RecomputeStats();
-        MoveSelection(1);   // 分完自動往下一張，加速逐張分類
+        if (!PassFilter(p) && idx >= 0)
+        {
+            Patches.RemoveAt(idx);   // 例如「只顯示未分類」→ 標完即消失
+            SelectedPatch = Patches.Count > 0 ? Patches[Math.Min(idx, Patches.Count - 1)] : null;
+        }
+        else if (advance) MoveSelection(1);
     }
 
     /// <summary>←→ 切換選中小圖。</summary>
@@ -275,22 +308,36 @@ public partial class DefectSortViewModel : ViewModelBase
         SelectedPatch = Patches[idx];
     }
 
+    // 即時把單張分類存回 IP（fire-and-forget；IP 端命令循序處理、IpClient 內部加鎖序列化）。
+    private void PersistOne(PatchItem p)
+    {
+        var ip = _svc.Connection.Ip;
+        if (!ip.IsConnected) return;
+        var folder = CurrentFolder;
+        var one = new[] { (p.PatchId, p.CurrentClass) };
+        _ = Task.Run(async () =>
+        {
+            try { await ip.SaveDefectClassificationAsync(DateStr, folder, one); }
+            catch (Exception ex) { Log($"⚠ 即時存分類失敗（{p.PatchId}）：{ex.Message}"); }
+        });
+    }
+
     private void RecomputeStats()
     {
-        TotalCount = Patches.Count;
-        TrueDefectCount = Patches.Count(p => p.CurrentClass == "TrueDefect");
-        ParticleCount = Patches.Count(p => p.CurrentClass == "Particle");
+        TotalCount = _all.Count;
+        TrueDefectCount = _all.Count(p => p.CurrentClass == "TrueDefect");
+        ParticleCount = _all.Count(p => p.CurrentClass == "Particle");
         ClassifiedCount = TrueDefectCount + ParticleCount;
         UnclassifiedCount = TotalCount - ClassifiedCount;
     }
 
-    /// <summary>送 SAVE_DEFECT_CLASSIFICATION：IP 依分類歸檔到 TrueDefect/ Particle/ 子夾。</summary>
+    /// <summary>整批重存（保險用；分類已即時存回，此鈕重送全部已分類確認歸檔）。</summary>
     [RelayCommand]
     private async Task SaveClassification()
     {
         var ip = _svc.Connection.Ip;
         if (!ip.IsConnected) { Log("❌ IP 未連線，無法存分類"); return; }
-        var classified = Patches.Where(p => p.IsClassified)
+        var classified = _all.Where(p => p.IsClassified)
             .Select(p => (p.PatchId, p.CurrentClass)).ToList();
         if (classified.Count == 0) { Log("⚠ 尚無已分類的小圖"); return; }
 

@@ -129,7 +129,7 @@ public static class SelfTest
         var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
         listener.Start();
         int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-        string? lastSave = null;
+        var saves = new System.Collections.Concurrent.ConcurrentQueue<string>();   // 收到的 SAVE 命令
         // 1x1 PNG base64（headless 無 render backend 時 decode 會回 null，不影響 metadata 測試）
         const string PNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
         var server = Task.Run(async () =>
@@ -157,7 +157,7 @@ public static class SelfTest
                 }
                 else if (cmd == "SAVE_DEFECT_CLASSIFICATION")
                 {
-                    lastSave = line;
+                    saves.Enqueue(line);
                     var cs = req["params"]!["classifications"]!.AsArray();
                     int t = cs.Count(c => c!["class"]!.GetValue<string>() == "TrueDefect");
                     int p = cs.Count(c => c!["class"]!.GetValue<string>() == "Particle");
@@ -173,35 +173,45 @@ public static class SelfTest
         await svc.Connection.Ip.ConnectAsync("127.0.0.1", port);
         var vm = new ViewModels.DefectSortViewModel(svc);
 
+        // 預設 filter「只顯示未分類」：_all=3、其中 1 張(patch2)已是 TrueDefect → 可見只 2 張未分類。
         await vm.OpenFolderAsync("IP02_panelA_DEFAULT");
-        bool listed = vm.InPatchView && vm.Patches.Count == 3
+        bool listed = vm.InPatchView && vm.TotalCount == 3 && vm.ClassifiedCount == 1
+                      && vm.Patches.Count == 2
                       && vm.Patches[0].GcX == 10 && vm.Patches[0].Type == "Bright"
-                      && vm.Patches[1].Size == 7 && vm.Patches[2].CurrentClass == "TrueDefect";
-        Console.WriteLine($"  OpenFolder → {vm.Patches.Count} 張, metadata 正確={listed}, " +
-            $"初始統計(已分類 {vm.ClassifiedCount}/{vm.TotalCount} T{vm.TrueDefectCount} P{vm.ParticleCount})");
+                      && vm.Patches[1].Size == 7;
+        Console.WriteLine($"  OpenFolder（預設只顯示未分類）→ 全集 {vm.TotalCount}、可見 {vm.Patches.Count}、" +
+            $"已分類 {vm.ClassifiedCount}, metadata 正確={listed}");
 
-        // 選第 0 張 → 鍵盤 T（標 TrueDefect 並自動跳下一張）
+        // 標選中第 0 張為 TrueDefect → 即時存 + 從未分類視圖消失（剩 1 張）
         vm.SelectedPatch = vm.Patches[0];
         vm.ClassifySelected("TrueDefect");
-        bool advanced = vm.SelectedPatch == vm.Patches[1];
-        // 對第 1 張按 Particle 鈕
-        vm.MarkParticleCommand.Execute(vm.Patches[1]);
-        Console.WriteLine($"  T/P 分類後 → [0]={vm.Patches[0].CurrentClass}, [1]={vm.Patches[1].CurrentClass}, " +
-            $"自動跳下一張={advanced}, 統計(已分類 {vm.ClassifiedCount}/{vm.TotalCount} T{vm.TrueDefectCount} P{vm.ParticleCount})");
+        bool hiddenAfterClassify = vm.Patches.Count == 1;
+        // 對剩下那張按 Particle 鈕 → 也消失（剩 0 張）
+        vm.MarkParticleCommand.Execute(vm.Patches[0]);
+        Console.WriteLine($"  標 T/P 後 → 未分類視圖剩 {vm.Patches.Count} 張, " +
+            $"統計(已分類 {vm.ClassifiedCount}/{vm.TotalCount} T{vm.TrueDefectCount} P{vm.ParticleCount})");
 
-        await vm.SaveClassificationCommand.ExecuteAsync(null);
-        bool savedOk = lastSave != null
-            && lastSave.Contains("\"class\":\"TrueDefect\"") && lastSave.Contains("\"class\":\"Particle\"")
-            && vm.LogLines.Any(l => l.Contains("歸檔完成"));
-        Console.WriteLine($"  SaveClassification → IP 收到分類={savedOk}");
+        // 等即時持久化（fire-and-forget）抵達假 server：應有 2 筆 SAVE（T、P 各一）
+        for (int i = 0; i < 40 && saves.Count < 2; i++) await Task.Delay(50);
+        var saveLines = saves.ToArray();
+        bool persistedImmediately = saveLines.Length >= 2
+            && saveLines.Any(l => l.Contains("\"class\":\"TrueDefect\""))
+            && saveLines.Any(l => l.Contains("\"class\":\"Particle\""));
+        Console.WriteLine($"  即時持久化 → 收到 {saveLines.Length} 筆 SAVE（不需按 Sort）={persistedImmediately}");
+
+        // 切換「顯示全部」→ 應看回全部 3 張（含已分類）
+        vm.SelectedFilter = "顯示全部";
+        bool showAll = vm.Patches.Count == 3;
+        vm.SelectedFilter = "只顯示 TrueDefect";
+        bool onlyTrue = vm.Patches.Count == 2 && vm.Patches.All(p => p.CurrentClass == "TrueDefect");
+        Console.WriteLine($"  filter → 顯示全部={showAll}（3 張）, 只顯示TrueDefect={onlyTrue}（2 張）");
 
         svc.Connection.Ip.Disconnect();
         listener.Stop();
 
-        bool ok = listed && advanced && vm.Patches[0].CurrentClass == "TrueDefect"
-                  && vm.Patches[1].CurrentClass == "Particle"
-                  && vm.ClassifiedCount == 3 && savedOk;
-        Console.WriteLine(ok ? "✓ 進資料夾 + 載 metadata + T/P 分類 + 統計 + 存回 IP 正確" : "✗ 不符");
+        bool ok = listed && hiddenAfterClassify && persistedImmediately && showAll && onlyTrue
+                  && vm.ClassifiedCount == 3 && vm.TrueDefectCount == 2 && vm.ParticleCount == 1;
+        Console.WriteLine(ok ? "✓ filter（隱藏已分類）+ 即時持久化 + 統計 + 切換檢視 正確" : "✗ 不符");
         return ok ? 0 : 1;
     }
 

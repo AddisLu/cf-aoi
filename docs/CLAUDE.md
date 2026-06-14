@@ -145,6 +145,11 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 ```
 > AI 暫停用 → 純人工分類；分類結果（classification.json + 子夾）即未來 AI 重訓的標註資料。
 > Control 端 UI：縮圖牆 + 鍵盤 T/P 快速標 + ←→ 切換 + 點圖放大 + 頂部統計，小圖用 Avalonia Bitmap(PNG) 顯示。
+> **分類即時持久化**：每標一張即送 SAVE（不必按 Sort）→ 中途離開回來、預設 filter「只顯示未分類」續標未標的；
+> filter 另可切「顯示全部 / 只 TrueDefect / 只 Particle」複查。**存圖避免累積**：result_saver 每次存 patch 前
+> 先清本層舊 `Defect_*`（換 IpName/換參數的舊檔），確保 DefectSort 張數 = 當次缺陷數（非倍數）。
+> **調參加速**：SEND_IMAGE_FOR_REVIEW `debug=true` 才存全部 patch；預設只存結果+overlay。
+> IP log `[T.T]`：GPU運算 / crop / patch存圖 / overlay存圖 / 收圖傳輸 各階段 ms。
 
 ### 配方（RecipeInfo.xml）與結果（ResultInfo.xml）格式 — 考古確認（取代舊「ZoneSetting/ThB/ThD」敘述）
 > 來源已逐檔驗證：`Reference/legacy_win/ClibCf/Recipe.cs`、`JudgeResult.cs`、`CudaCore/CUDA_Func.h`。
