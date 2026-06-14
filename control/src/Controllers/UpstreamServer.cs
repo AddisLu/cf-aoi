@@ -9,30 +9,41 @@ using System.Threading.Tasks;
 namespace CfAoiControl.Controllers;
 
 /// <summary>
-/// TCP server ← 上位機。遷移自 legacy PrjCfAoi/Class/MainProc.cs，移除 MIL/Camera，
-/// 內部把命令轉成對 IP 的 JSON 呼叫（透過 callbacks，ViewModel 不直接碰 TCP）。
+/// TCP server ← 上位機（Master Controller）。遷移自 legacy PrjCfAoi/Class/MainProc.cs，移除 MIL/Camera。
 ///
-/// ⚠️ TODO — 上位機真實協議缺口（接真實上位機前必改）：
-///   本實作用的是 docs/CLAUDE.md 的「簡化介面」：port 8000、命令 LoadRecipe|RECIPE|PANEL /
-///   GrabStart|PANEL / GetResult，回應 OK\r\n。
-///   但考古確認 legacy 實際是：port **8787**、命令前綴 **CF_**（CF_LOAD_RECIPE/CF_GRAB_START/
-///   CF_CHECK_ALIGN/CF_SET_ALIGN/CF_GET_RESULT）、'|' 分隔 9 參數、回應 OK|p1..|p9 / ERR，
-///   CF_GET_RESULT 回 ResultInfo.xml 路徑+缺陷數（非 JSON）。
-///   → 串接真實上位機時，須改成 CF_ 前綴 / 9 參數 / 8787。本檔已在 docs/CLAUDE.md §5 與
-///     control/CLAUDE.md 不變式區留有對應 TODO。
-/// 不變式：上位機命令名稱（LoadRecipe/GrabStart/GetResult）不可改。連線失敗不阻塞啟動。
+/// ★ 真實協議（考古自 frmCfAoi/Common.cs/MainProc.cs，取代先前錯誤的 LoadRecipe|RECIPE|PANEL 假設）：
+///   - port **8787**、命令前綴 **CF_**、'|' 分隔、'\r\n' 結尾。
+///   - 回應走 9 參數：`OK|p1|p2|…|p9` 或 `ERR|…|{errMsg在p9}`。
+///   命令：
+///   - CF_LOAD_RECIPE|{recipe}|{panelId}|{yyyy-MM-dd-HH-mm-ss}|||||||{detectMode 0=inline/1=offline}
+///   - CF_GRAB_START|{timeoutMs}                （範例 40000）
+///   - CF_CHECK_ALIGN                            → OK|{camStatus}|{shiftX}|{shiftY}
+///   - CF_SET_ALIGN|{result}|{shiftX}|{shiftY}
+///   - CF_GET_RESULT                             → OK|{IP0_ResultInfo.xml,IP1_...}|{900,50,...}
+///     （回各 IP 的 ResultInfo.xml 路徑 + 缺陷數，逗號分隔，**非 JSON**）
+/// 內部把命令轉成對 IP 的 JSON 呼叫（透過 callbacks，ViewModel 不直接碰 TCP）。
+/// 不變式：上位機命令名稱/格式不可更改；連線失敗不阻塞啟動。
 /// </summary>
 public sealed class UpstreamServer : IDisposable
 {
-    public Func<string, string, Task<bool>>? OnLoadRecipe { get; set; }  // (recipe, panel)
-    public Func<string, Task<bool>>? OnGrabStart { get; set; }           // (panel)
-    public Func<Task<string>>? OnGetResult { get; set; }                 // → json/payload
+    public const string CF_READY        = "CF_READY";
+    public const string CF_LOAD_RECIPE  = "CF_LOAD_RECIPE";
+    public const string CF_GRAB_START   = "CF_GRAB_START";
+    public const string CF_CHECK_ALIGN  = "CF_CHECK_ALIGN";
+    public const string CF_SET_ALIGN    = "CF_SET_ALIGN";
+    public const string CF_GET_RESULT   = "CF_GET_RESULT";
+
+    public sealed record GetResultPayload(string FilePaths, string DefectCounts);
+
+    // (recipe, panelId, detectMode) → 成功與否
+    public Func<string, string, string, Task<bool>>? OnLoadRecipe { get; set; }
+    public Func<string, Task<bool>>? OnGrabStart { get; set; }   // (timeoutMs)
+    public Func<Task<GetResultPayload>>? OnGetResult { get; set; }
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private readonly int _port;
     private readonly Action<string>? _log;
-
     public bool IsListening { get; private set; }
 
     public UpstreamServer(int port, Action<string>? log = null) { _port = port; _log = log; }
@@ -47,10 +58,10 @@ public sealed class UpstreamServer : IDisposable
     {
         try
         {
-            _listener = new TcpListener(IPAddress.Any, _port);
+            _listener = new TcpListener(IPAddress.Any, _port);   // 真實上位機 port = 8787
             _listener.Start();
             IsListening = true;
-            _log?.Invoke($"[Upstream] 監聽 port {_port}");
+            _log?.Invoke($"[Upstream] 監聽 port {_port}（CF_ 協議）");
         }
         catch (Exception ex) { _log?.Invoke($"[Upstream] 無法監聽 {_port}: {ex.Message}"); return; }
 
@@ -73,42 +84,57 @@ public sealed class UpstreamServer : IDisposable
             string? line;
             while (!ct.IsCancellationRequested && (line = await reader.ReadLineAsync(ct)) is not null)
             {
-                var parts = line.Split('|');
-                var cmd = parts[0].Trim();
+                var p = line.Split('|');
+                var cmd = p[0].Trim().ToUpperInvariant();
+                string P(int i) => i < p.Length ? p[i] : "";
                 try
                 {
                     switch (cmd)
                     {
-                        case "LoadRecipe":
+                        case CF_LOAD_RECIPE:
                         {
-                            var recipe = parts.Length > 1 ? parts[1] : "";
-                            var panel = parts.Length > 2 ? parts[2] : "";
-                            var ok = OnLoadRecipe is null || await OnLoadRecipe(recipe, panel);
-                            await writer.WriteLineAsync(ok ? "OK" : "ERR");
+                            // p1=recipe, p2=panelId, p3=datetime, p9=detectMode
+                            var ok = OnLoadRecipe is null || await OnLoadRecipe(P(1), P(2), P(9));
+                            await writer.WriteLineAsync(Resp(ok, errMsg: ok ? "" : "load recipe failed"));
                             break;
                         }
-                        case "GrabStart":
+                        case CF_GRAB_START:
                         {
-                            var panel = parts.Length > 1 ? parts[1] : "";
-                            var ok = OnGrabStart is null || await OnGrabStart(panel);
-                            await writer.WriteLineAsync(ok ? "OK" : "ERR");
+                            var ok = OnGrabStart is null || await OnGrabStart(P(1));
+                            await writer.WriteLineAsync(Resp(ok, errMsg: ok ? "" : "grab failed"));
                             break;
                         }
-                        case "GetResult":
+                        case CF_CHECK_ALIGN:
+                            // 新流程無 MIL 對位：回 OK + 0 位移（p1=camStatus, p2=shiftX, p3=shiftY）
+                            await writer.WriteLineAsync(Resp(true, p1: "Cs_AlignSet", p2: "0", p3: "0"));
+                            break;
+                        case CF_SET_ALIGN:
+                            await writer.WriteLineAsync(Resp(true));
+                            break;
+                        case CF_GET_RESULT:
                         {
-                            var payload = OnGetResult is null ? "{}" : await OnGetResult();
-                            await writer.WriteLineAsync($"OK|{payload}");
+                            var r = OnGetResult is null ? new GetResultPayload("", "0") : await OnGetResult();
+                            await writer.WriteLineAsync(Resp(true, p1: r.FilePaths, p2: r.DefectCounts));
                             break;
                         }
+                        case CF_READY:
+                            await writer.WriteLineAsync(Resp(true));
+                            break;
                         default:
-                            await writer.WriteLineAsync($"ERR|unknown cmd: {cmd}");
+                            await writer.WriteLineAsync(Resp(false, errMsg: $"unknown cmd: {cmd}"));
                             break;
                     }
                 }
-                catch (Exception ex) { await writer.WriteLineAsync($"ERR|{ex.Message}"); }
+                catch (Exception ex) { await writer.WriteLineAsync(Resp(false, errMsg: ex.Message)); }
             }
         }
     }
+
+    // 9 參數回應：OK|p1|…|p8|{p9=errMsg} 或 ERR|…
+    private static string Resp(bool ok, string p1 = "", string p2 = "", string p3 = "",
+                               string p4 = "", string p5 = "", string p6 = "", string p7 = "",
+                               string p8 = "", string errMsg = "")
+        => $"{(ok ? "OK" : "ERR")}|{p1}|{p2}|{p3}|{p4}|{p5}|{p6}|{p7}|{p8}|{errMsg}";
 
     public void Dispose()
     {

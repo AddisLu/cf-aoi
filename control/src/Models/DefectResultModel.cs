@@ -50,6 +50,9 @@ public sealed class DefectModel
     [JsonIgnore] [XmlIgnore] public string SizeStr => $"{Width}×{Height} ({Size})";
     [JsonIgnore] [XmlIgnore] public string AiResult => AiType.Length == 0 ? "-" : AiType;
     [JsonIgnore] [XmlIgnore] public string AiScoreStr => AiScore < 0 ? "-" : AiScore.ToString("F2");
+    // 影像 overlay 用（全圖像素座標；Canvas.Left/Top = X_Min/Y_Min）
+    [JsonIgnore] [XmlIgnore] public int BoxW => System.Math.Max(1, XMax - XMin + 1);
+    [JsonIgnore] [XmlIgnore] public int BoxH => System.Math.Max(1, YMax - YMin + 1);
 }
 
 /// <summary>單一 ROI 結果 — JSON 多了 roi_offset/num_defects/process_time_ms；XML 為 legacy RoiInfo。</summary>

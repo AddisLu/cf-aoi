@@ -13,6 +13,20 @@
         <conv:BoolToGreenRedConverter x:Key="BoolToGreenRed"/>
         <conv:LogLevelToBrushConverter x:Key="LogLevelToBrush"/>
         <conv:DefectTypeToBrushConverter x:Key="DefectTypeToBrush"/>
+
+        <!-- 舊版 WinForms 顏色慣例（規格書實際 RGB），集中於此供 1:1 重建 -->
+        <SolidColorBrush x:Key="ColErrorRed"   Color="#FF0000"/>  <!-- 錯誤字 -->
+        <SolidColorBrush x:Key="ColWarnBlue"   Color="#0000FF"/>  <!-- 警告字 / ROI 框 -->
+        <SolidColorBrush x:Key="ColSobelYellow" Color="#FFFF00"/> <!-- Sobel 缺陷 -->
+        <SolidColorBrush x:Key="ColInfoBg"     Color="#FFFFE1"/>  <!-- SystemColors.Info log 底 -->
+        <SolidColorBrush x:Key="ColLightGreen" Color="#90EE90"/>  <!-- Test / Select 鈕 -->
+        <SolidColorBrush x:Key="ColDodgerBlue" Color="#1E90FF"/>  <!-- Save Setting 鈕 -->
+        <SolidColorBrush x:Key="ColOrange"     Color="#FFA500"/>  <!-- Cut/Remap/HistEq/Reload/Sort 鈕 -->
+        <SolidColorBrush x:Key="ColOrangeRed"  Color="#FF4500"/>  <!-- Delete Rect 鈕 -->
+        <SolidColorBrush x:Key="ColPink"       Color="#FFC0CB"/>  <!-- Clear 鈕 -->
+        <SolidColorBrush x:Key="ColGoldenrod"  Color="#DAA520"/>  <!-- Update Chk Params 鈕 -->
+        <SolidColorBrush x:Key="ColDarkGray"   Color="#A9A9A9"/>  <!-- 停用鈕 -->
+        <SolidColorBrush x:Key="ColBlack"      Color="#000000"/>  <!-- 影像區底 -->
     </Application.Resources>
 
     <Application.Styles>

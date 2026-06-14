@@ -3,83 +3,120 @@
              xmlns:vm="using:CfAoiControl.ViewModels"
              xmlns:m="using:CfAoiControl.Models"
              x:Class="CfAoiControl.Views.Step1View"
-             x:DataType="vm:Step1ViewModel">
+             x:DataType="vm:Step1ViewModel" FontFamily="Arial">
 
-  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="8">
-    <!-- 自動生成配方警告 -->
-    <Border Grid.Row="0" Background="#FFF3CD" CornerRadius="4" Padding="12,8" Margin="0,0,0,8"
-            IsVisible="{Binding ShowAutoGenWarning}">
-      <TextBlock TextWrapping="Wrap" Text="⚠ 配方為自動生成，請確認 PitchX / PitchY 是否符合實際影像！"/>
+  <DockPanel>
+    <!-- 8 格狀態列 -->
+    <Border DockPanel.Dock="Bottom" Background="#F0F0F0" BorderBrush="#C0C0C0" BorderThickness="0,1,0,0" Padding="6,3">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="{Binding ImageSizeText}"/>
+        <TextBlock Text="{Binding AxisText}"/>
+        <TextBlock Text="{Binding ValueText}"/>
+        <TextBlock Text="{Binding ZoomText}"/>
+        <TextBlock Text="{Binding SelectedText}"/>
+        <TextBlock Text="{Binding RecipeText}"/>
+        <TextBlock Text="{Binding RegionText}"/>
+        <TextBlock Text="{Binding DefectCntText}"/>
+      </StackPanel>
     </Border>
 
-    <!-- 影像 + 配方 + 快速調參 -->
-    <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-      <StackPanel Spacing="4" Margin="0,0,16,0">
-        <TextBlock Text="影像檔案"/>
-        <StackPanel Orientation="Horizontal" Spacing="4">
-          <TextBox Text="{Binding SelectedImagePath}" Width="340"/>
-          <Button Content="瀏覽…" Command="{Binding BrowseImageCommand}"/>
-        </StackPanel>
-      </StackPanel>
-      <StackPanel Spacing="4" Margin="0,0,16,0">
-        <TextBlock Text="配方"/>
-        <ComboBox ItemsSource="{Binding RecipeNames}" SelectedItem="{Binding SelectedRecipe}" Width="160"/>
-      </StackPanel>
-      <StackPanel Spacing="4" Margin="0,0,16,0">
-        <TextBlock Text="快速調參（DIV 比例域）"/>
-        <Grid ColumnDefinitions="Auto,90,Auto,90" RowDefinitions="Auto,Auto">
-          <TextBlock Grid.Row="0" Grid.Column="0" Text="BrightTh" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding BrightThreshold}" Increment="0.05" Minimum="1.01" Maximum="3.0" FormatString="F2"/>
-          <TextBlock Grid.Row="0" Grid.Column="2" Text="DarkTh" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding DarkThreshold}" Increment="0.05" Minimum="0.1" Maximum="0.99" FormatString="F2"/>
-          <TextBlock Grid.Row="1" Grid.Column="0" Text="PitchX" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding PitchX}" Increment="1" Minimum="1"/>
-          <TextBlock Grid.Row="1" Grid.Column="2" Text="PitchY" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding PitchY}" Increment="1" Minimum="1"/>
-        </Grid>
-      </StackPanel>
-      <StackPanel VerticalAlignment="Bottom" Spacing="4">
-        <Button Content="▶ 送 IP 分析" Command="{Binding RunAnalysisCommand}"
-                Background="#0078d4" Foreground="White" Padding="16,8"/>
-        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsAnalyzing}" Height="4"/>
-      </StackPanel>
-    </WrapPanel>
-
-    <!-- 缺陷清單 + patch -->
-    <Grid Grid.Row="2" ColumnDefinitions="*,320">
-      <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}"
-                AutoGenerateColumns="False" CanUserSortColumns="True" IsReadOnly="True"
-                GridLinesVisibility="Horizontal">
-        <DataGrid.Columns>
-          <DataGridTextColumn Header="類型" Binding="{Binding Type}" Width="110"/>
-          <DataGridTextColumn Header="X" Binding="{Binding GlobalPosX}" Width="80"/>
-          <DataGridTextColumn Header="Y" Binding="{Binding GlobalPosY}" Width="80"/>
-          <DataGridTextColumn Header="尺寸" Binding="{Binding SizeStr}" Width="100"/>
-          <DataGridTextColumn Header="GL_Mean" Binding="{Binding GlMean}" Width="80"/>
-          <DataGridTextColumn Header="AI" Binding="{Binding AiResult}" Width="70"/>
-          <DataGridTextColumn Header="Score" Binding="{Binding AiScoreStr}" Width="70"/>
-        </DataGrid.Columns>
-      </DataGrid>
-
-      <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="6">
-        <TextBlock Text="缺陷影像" FontWeight="Bold"/>
-        <Border BorderBrush="#ccc" BorderThickness="1" Background="Black" Width="300" Height="300">
-          <Image Source="{Binding SelectedDefectBitmap}" Stretch="Uniform"/>
+    <Grid ColumnDefinitions="65*,35*">
+      <!-- ===== 左欄：影像區 + 缺陷縮圖牆 ===== -->
+      <Grid Grid.Column="0" RowDefinitions="70*,30*" Margin="3">
+        <!-- 黑底影像 + 缺陷框 overlay -->
+        <Border Grid.Row="0" Background="{StaticResource ColBlack}" Margin="1">
+          <Viewbox Stretch="Uniform">
+            <Grid Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" x:CompileBindings="False">
+              <Image Source="{Binding SourceBitmap}" Stretch="Fill"/>
+              <ItemsControl ItemsSource="{Binding DrawDefects}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.Styles>
+                  <Style Selector="ItemsControl > ContentPresenter">
+                    <Setter Property="Canvas.Left" Value="{Binding XMin}"/>
+                    <Setter Property="Canvas.Top" Value="{Binding YMin}"/>
+                  </Style>
+                </ItemsControl.Styles>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Rectangle Width="{Binding BoxW}" Height="{Binding BoxH}"
+                               StrokeThickness="12"
+                               Stroke="{Binding Type, Converter={StaticResource DefectTypeToBrush}}"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+          </Viewbox>
         </Border>
-        <StackPanel Orientation="Horizontal" Spacing="6">
-          <Button Content="✓ 歸檔 OK" Command="{Binding ClassifyOkCommand}" Background="#2ecc71" Foreground="White"/>
-          <Button Content="✗ 歸檔 NG" Command="{Binding ClassifyNgCommand}" Background="#e74c3c" Foreground="White"/>
-        </StackPanel>
-        <TextBlock Text="（OK/NG 歸檔供 AI 訓練資料蒐集）" FontSize="11" Foreground="#888"/>
-      </StackPanel>
-    </Grid>
 
-    <!-- 結果摘要列 -->
-    <Border Grid.Row="3" Padding="8,6" Background="#f3f4f6" Margin="0,8,0,0">
-      <StackPanel Orientation="Horizontal" Spacing="16">
-        <TextBlock Text="{Binding ResultSummary}" VerticalAlignment="Center"/>
-        <Button Content="儲存配方" Command="{Binding SaveRecipeCommand}"/>
-      </StackPanel>
-    </Border>
-  </Grid>
+        <!-- 缺陷縮圖牆（listView1 LargeIcon）-->
+        <Border Grid.Row="1" BorderBrush="#A0A0A0" BorderThickness="1" Background="White" Margin="1">
+          <ListBox ItemsSource="{Binding Thumbs}" SelectedItem="{Binding SelectedThumb}" Background="Transparent">
+            <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:DefectThumb">
+                <StackPanel Width="74" Margin="2">
+                  <Image Source="{Binding Image}" Width="64" Height="64"/>
+                  <TextBlock Text="{Binding Label}" FontSize="10" HorizontalAlignment="Center"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Border>
+      </Grid>
+
+      <!-- ===== 右欄：Action 按鈕 + 參數 ===== -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="3">
+        <!-- Action -->
+        <Border Grid.Row="0" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Padding="4" Margin="1">
+          <StackPanel Spacing="4">
+            <TextBlock Text="Action" FontWeight="Bold"/>
+            <WrapPanel>
+              <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="用下方配方下拉選擇" Content="Load&#10;Recipe"/>
+              <Button Width="80" Height="58" Margin="3" Content="Save&#10;Setting" Background="{StaticResource ColDodgerBlue}" Foreground="White" Command="{Binding SaveRecipeCommand}"/>
+              <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Add Rect"/>
+              <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Save&#10;Recipe"/>
+
+              <Button Width="80" Height="58" Margin="3" Content="Load&#10;Image" Command="{Binding BrowseImageCommand}"/>
+              <Button Width="80" Height="58" Margin="3" Content="Test" Background="{StaticResource ColLightGreen}" Command="{Binding RunAnalysisCommand}"/>
+              <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Delete Rect" Background="{StaticResource ColOrangeRed}" Foreground="White"/>
+              <CheckBox Width="80" Margin="3" Content="Debug"/>
+
+              <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Load Multi&#10;Image"/>
+              <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Draw Recipe Roi"/>
+              <Button Width="80" Height="36" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Cut" Background="{StaticResource ColOrange}"/>
+              <Button Width="80" Height="36" Margin="3" IsEnabled="False" ToolTip.Tip="需 MIL Remap" Content="Remap" Background="{StaticResource ColOrange}"/>
+              <Button Width="80" Height="36" Margin="3" IsEnabled="False" ToolTip.Tip="需 MIL" Content="HistEq" Background="{StaticResource ColOrange}"/>
+              <Button Width="80" Height="36" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Reload" Background="{StaticResource ColOrange}"/>
+            </WrapPanel>
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsAnalyzing}" Height="4"/>
+            <Border Background="#FFF3CD" CornerRadius="3" Padding="6,4" IsVisible="{Binding ShowAutoGenWarning}">
+              <TextBlock TextWrapping="Wrap" FontSize="11" Text="⚠ 配方為自動生成，請確認 PitchX/PitchY！"/>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <!-- 參數（propertyGrid 類比：快速調參 + 配方選擇）-->
+        <Border Grid.Row="1" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Padding="6" Margin="1,4,1,1">
+          <StackPanel Spacing="8">
+            <TextBlock Text="參數 (M_DetectRoi)" FontWeight="Bold"/>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="配方" VerticalAlignment="Center" Margin="0,0,8,4"/>
+              <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding RecipeNames}" SelectedItem="{Binding SelectedRecipe}"/>
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="BrightThreshold" VerticalAlignment="Center" Margin="0,0,8,4"/>
+              <NumericUpDown Grid.Row="1" Grid.Column="1" Margin="0,0,0,4" Value="{Binding BrightThreshold}" Increment="0.05" Minimum="1.01" Maximum="3.0" FormatString="F2"/>
+              <TextBlock Grid.Row="2" Grid.Column="0" Text="DarkThreshold" VerticalAlignment="Center" Margin="0,0,8,4"/>
+              <NumericUpDown Grid.Row="2" Grid.Column="1" Margin="0,0,0,4" Value="{Binding DarkThreshold}" Increment="0.05" Minimum="0.1" Maximum="0.99" FormatString="F2"/>
+              <TextBlock Grid.Row="3" Grid.Column="0" Text="PitchX" VerticalAlignment="Center" Margin="0,0,8,4"/>
+              <NumericUpDown Grid.Row="3" Grid.Column="1" Margin="0,0,0,4" Value="{Binding PitchX}" Increment="1" Minimum="1"/>
+              <TextBlock Grid.Row="4" Grid.Column="0" Text="PitchY" VerticalAlignment="Center" Margin="0,0,8,4"/>
+              <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding PitchY}" Increment="1" Minimum="1"/>
+            </Grid>
+            <TextBlock FontSize="11" Foreground="#666" TextWrapping="Wrap"
+                       Text="（完整 32 參數編輯在第二批 ZoneParamEditor；此處為快速調參）"/>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </DockPanel>
 </UserControl>

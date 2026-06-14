@@ -74,6 +74,10 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 > 9 參數 `ReturnResponse`（`OK|p1|…|p9` / `ERR`）。命令常數：
 > `CF_LOAD_RECIPE` / `CF_GRAB_START` / `CF_CHECK_ALIGN` / `CF_SET_ALIGN` / `CF_GET_RESULT`。
 > `CF_GET_RESULT` 回傳的是各 IP 的 **ResultInfo.xml 路徑 + 缺陷數**（逗號分隔），**不是** JSON。
+> 具體格式（已實作於 `control/src/Controllers/UpstreamServer.cs`）：
+> `CF_LOAD_RECIPE|{recipe}|{panelId}|{yyyy-MM-dd-HH-mm-ss}|||||||{detectMode 0/1}`（panel 範例 "gg4mida"）、
+> `CF_GRAB_START|{timeoutMs}`（範例 40000）、`CF_SET_ALIGN|{result}|{shiftX}|{shiftY}`；
+> 回應一律 9 參數 `OK|p1|…|p8|{p9=errMsg}` 或 `ERR|…`。Control 監聽 port 由 appsettings `UpstreamServer.ListenPort`（預設 **8787**）。
 >
 > 下面的 `LoadRecipe/GrabStart/GetResult`（port 8000）是**新版 Control 對外**要呈現的簡化介面；
 > Control 的 `UpstreamServer` 負責把它對映回上位機所需格式。**IP 程式不直接實作 8787**，
