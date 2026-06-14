@@ -53,6 +53,8 @@ public partial class Step1ViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
     private bool isAnalyzing;
     [ObservableProperty] private bool showAutoGenWarning;
+    // Debug 勾選：Test 時請 IP 存全部缺陷小圖（供 DefectSort 分類）；預設不存，只存結果+overlay（調參快）。
+    [ObservableProperty] private bool debugSaveDefectPatches;
     // 影像是否已載入記憶體（Test/FFT 的 CanExecute 依此；改變時通知重新評估）
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunAnalysisCommand))]
@@ -230,7 +232,8 @@ public partial class Step1ViewModel : ViewModelBase
         try
         {
             // 用共用的當前配方（含 PrimaryZone 的最新值）直接送 IP，不再各自覆寫
-            var result = await _svc.Review.AnalyzeAsync(SelectedImagePath, Store.Recipe, Store.SelectedRecipe);
+            var result = await _svc.Review.AnalyzeAsync(SelectedImagePath, Store.Recipe, Store.SelectedRecipe,
+                                                        saveDefectPatches: DebugSaveDefectPatches);
 
             // 載入原圖一次：建顯示圖 + 縮圖牆 + 導航清單 + 上限/密度
             BuildVisuals(SelectedImagePath, result);

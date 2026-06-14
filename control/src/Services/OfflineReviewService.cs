@@ -66,7 +66,7 @@ public sealed class OfflineReviewService
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
 
         await _ip.SendImageStreamBeginAsync(panel, ct);
-        var resp = await _ip.SendImageForReviewAsync(panel, camId, w, h, frameSeq: 0, payload, last: true, ct);
+        var resp = await _ip.SendImageForReviewAsync(panel, camId, w, h, frameSeq: 0, payload, last: true, ct: ct);
         var status = resp?["status"]?.GetValue<string>();
         if (status != "OK")
             throw new InvalidOperationException($"IP 影像處理未回 OK：{resp?.ToJsonString()}");
@@ -85,7 +85,8 @@ public sealed class OfflineReviewService
     /// 配方以 XML 內容 over TCP 送出（network-clean），回傳結果。
     /// </summary>
     public async Task<DefectResultModel> AnalyzeAsync(
-        string imagePath, RecipeModel recipe, string recipeName, int camId = 0, CancellationToken ct = default)
+        string imagePath, RecipeModel recipe, string recipeName, int camId = 0,
+        bool saveDefectPatches = false, CancellationToken ct = default)
     {
         var panel = Path.GetFileNameWithoutExtension(imagePath);
         using var img = Image.Load<L8>(imagePath);
@@ -100,7 +101,8 @@ public sealed class OfflineReviewService
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
 
         await _ip.SendImageStreamBeginAsync(panel, ct);
-        var resp = await _ip.SendImageForReviewAsync(panel, camId, w, h, frameSeq: 0, payload, last: true, ct);
+        var resp = await _ip.SendImageForReviewAsync(panel, camId, w, h, frameSeq: 0, payload,
+                                                     last: true, debug: saveDefectPatches, ct: ct);
         if (resp?["status"]?.GetValue<string>() != "OK")
             throw new InvalidOperationException($"IP 影像處理未回 OK：{resp?.ToJsonString()}");
         var node = resp?["result"]

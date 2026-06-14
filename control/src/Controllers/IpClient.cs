@@ -115,7 +115,7 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
     /// <summary>送一張 Mono8 影像（命令行 + 緊接 raw payload）。</summary>
     public async Task<JsonNode?> SendImageForReviewAsync(
         string panelId, int camId, int width, int height, int frameSeq,
-        byte[] payload, bool last = true, CancellationToken ct = default)
+        byte[] payload, bool last = true, bool debug = false, CancellationToken ct = default)
     {
         if (payload.Length != (long)width * height)
             throw new ArgumentException("payload 長度必須等於 width*height (Mono8)");
@@ -135,6 +135,7 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
                     ["width"] = width, ["height"] = height,
                     ["frame_seq"] = frameSeq, ["payload_bytes"] = payload.Length,
                     ["last"] = last,
+                    ["debug"] = debug,   // true → IP 存全部缺陷小圖（供 DefectSort）；預設只存結果+overlay
                 },
             };
             var line = cmd.ToJsonString() + "\n";
