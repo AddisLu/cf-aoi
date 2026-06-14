@@ -149,12 +149,67 @@
           </StackPanel>
         </HeaderedContentControl>
 
+        <!-- ShareSetting：全域旗標（存 appsettings.json）。可編輯 3 項 + 3 項停用 -->
         <HeaderedContentControl Grid.Row="1" Grid.Column="0" Classes="gbx" Header="ShareSetting">
-          <TextBlock Margin="6" FontSize="11" Foreground="#666" Text="（共用設定，第二批接上）"/>
+          <ScrollViewer>
+            <StackPanel Margin="6" Spacing="3">
+              <CheckBox Content="SaveSourceImage（存原圖）" IsChecked="{Binding ShareSetting.SaveSourceImage}"/>
+              <CheckBox Content="DebugAlgorithm（全域預設：存全部缺陷小圖）"
+                        IsChecked="{Binding ShareSetting.DebugAlgorithm}"
+                        ToolTip.Tip="全域預設。Step1 Test 開窗以此為初值，當次可勾選覆寫，不回寫全域。"/>
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="AiRootPath：" VerticalAlignment="Center"/>
+                <TextBox Width="150" Text="{Binding ShareSetting.AiRootPath}" Watermark="留空＝用 RecipeDir"
+                         ToolTip.Tip="AI/配方根目錄，依平台填寫；留空＝用 appsettings Paths.RecipeDir。"/>
+              </StackPanel>
+              <TextBlock Text="以下為 legacy 旗標，新版未啟用：" FontSize="11" Foreground="#888" Margin="0,4,0,0"/>
+              <CheckBox Content="TuningRecipe" IsEnabled="False" IsChecked="{Binding ShareSetting.TuningRecipe}"
+                        ToolTip.Tip="空跑不檢測：新流程未啟用"/>
+              <CheckBox Content="SaveFullImage" IsEnabled="False" IsChecked="{Binding ShareSetting.SaveFullImage}"
+                        ToolTip.Tip="存合圖：多-frame 合圖/MIL，未啟用"/>
+              <CheckBox Content="BypassAlignment" IsEnabled="False" IsChecked="{Binding ShareSetting.BypassAlignment}"
+                        ToolTip.Tip="略過對位：新版無 MIL 對位"/>
+              <Button Content="儲存" HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding SaveShareSettingCommand}"/>
+            </StackPanel>
+          </ScrollViewer>
         </HeaderedContentControl>
 
+        <!-- RecipeSetting：per-recipe 存圖設定（存 {RecipeDir}/{recipe}/RecipeSetting.xml）。IP 待接 -->
         <HeaderedContentControl Grid.Row="1" Grid.Column="1" Classes="gbx" Header="RecipeSetting">
-          <TextBlock Margin="6" FontSize="11" Foreground="#666" Text="（RecipeSetting，第二批接上）"/>
+          <ScrollViewer>
+            <StackPanel Margin="6" Spacing="2">
+              <TextBlock Text="{Binding Store.SelectedRecipe, StringFormat='配方：{0}'}" FontWeight="Bold"/>
+              <TextBlock Text="（以下欄位 IP 待接，僅存檔未生效）" FontSize="11" Foreground="#888"/>
+              <Grid ColumnDefinitions="Auto,90" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,2,0,0">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="MaxSaveDefectCount" Margin="0,1,6,1"/>
+                <TextBox    Grid.Row="0" Grid.Column="1" Text="{Binding Store.RecipeSaving.MaxSaveDefectCount}"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="MaxSaveAiOkCount" Margin="0,1,6,1"/>
+                <TextBox    Grid.Row="1" Grid.Column="1" Text="{Binding Store.RecipeSaving.MaxSaveAiOkCount}"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="MaxSaveRuleOkCount" Margin="0,1,6,1"/>
+                <TextBox    Grid.Row="2" Grid.Column="1" Text="{Binding Store.RecipeSaving.MaxSaveRuleOkCount}"/>
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="MaxDefectCountPass" Margin="0,1,6,1"
+                           ToolTip.Tip="IP 端固定 = cuda_kernels MAX_DEFECTS，唯讀不可改"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Foreground="#888"
+                           Text="{Binding Store.RecipeSaving.MaxDefectCountPass, StringFormat='{}{0}（IP固定）'}"
+                           ToolTip.Tip="IP 端固定 = cuda_kernels MAX_DEFECTS"/>
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="SaveDefectWidth" Margin="0,1,6,1"
+                           ToolTip.Tip="legacy 預設 64；IP 目前實際存 100×100，此欄未接 IP"/>
+                <TextBox    Grid.Row="4" Grid.Column="1" Text="{Binding Store.RecipeSaving.SaveDefectWidth}"
+                           ToolTip.Tip="legacy 預設 64；IP 目前實際存 100×100，此欄未接 IP"/>
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="SaveDefectHeight" Margin="0,1,6,1"/>
+                <TextBox    Grid.Row="5" Grid.Column="1" Text="{Binding Store.RecipeSaving.SaveDefectHeight}"/>
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="AiDefectWidth" Margin="0,1,6,1"/>
+                <TextBox    Grid.Row="6" Grid.Column="1" Text="{Binding Store.RecipeSaving.AiDefectWidth}"/>
+                <TextBlock Grid.Row="7" Grid.Column="0" Text="AiDefectHeight" Margin="0,1,6,1"/>
+                <TextBox    Grid.Row="7" Grid.Column="1" Text="{Binding Store.RecipeSaving.AiDefectHeight}"/>
+              </Grid>
+              <CheckBox Content="SaveAiTrain（存 AI 訓練小圖）" IsChecked="{Binding Store.RecipeSaving.SaveAiTrain}"
+                        ToolTip.Tip="AI 目前停用；存檔未生效"/>
+              <TextBlock Text="Kernal（MIL 前處理，IP 未接）" FontSize="11" Foreground="#888" Margin="0,2,0,0"/>
+              <TextBox Text="{Binding Store.RecipeSaving.KernalFile}" IsEnabled="False"/>
+              <Button Content="儲存" HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding SaveRecipeSettingCommand}"/>
+            </StackPanel>
+          </ScrollViewer>
         </HeaderedContentControl>
       </Grid>
     </Grid>

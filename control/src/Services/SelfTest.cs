@@ -38,6 +38,7 @@ public static class SelfTest
                 case "heartbeat": return await HeartbeatTest(rest);
                 case "sort":   return await SortTest();
                 case "patches": return await PatchClassifyTest();
+                case "settings": return SettingsTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -48,6 +49,66 @@ public static class SelfTest
             Console.WriteLine($"✗ SelfTest 例外: {ex.Message}");
             return 1;
         }
+    }
+
+    // ---- ShareSetting / RecipeSetting 存讀 round-trip ----
+    // ShareSetting → appsettings.json（JSON，全域）；RecipeSetting → per-recipe XML。皆用暫存目錄隔離。
+    private static int SettingsTest()
+    {
+        bool ok = true;
+
+        // (1) ShareSetting：寫暫存 appsettings.json → 重讀值一致 + AiRootPath 預設空
+        var cfgDir = Path.Combine(Path.GetTempPath(), "cfaoi_settings_cfg");
+        Directory.CreateDirectory(cfgDir);
+        File.WriteAllText(Path.Combine(cfgDir, "appsettings.json"), "{ \"ActiveIpNode\": \"IpOffline\" }");
+        var share = new ShareSettingModel
+        {
+            SaveSourceImage = true, DebugAlgorithm = true, AiRootPath = "/data/ai",
+            TuningRecipe = false, SaveFullImage = true, BypassAlignment = false,
+        };
+        ConfigLoader.SaveShareSetting(share, cfgDir);
+        var reloaded = ConfigLoader.Load(cfgDir);
+        var rs = reloaded.ShareSetting;
+        bool shareOk = rs.SaveSourceImage && rs.DebugAlgorithm && rs.AiRootPath == "/data/ai"
+                       && rs.SaveFullImage && !rs.TuningRecipe && !rs.BypassAlignment
+                       && reloaded.ActiveIpNode == "IpOffline";   // 其餘節點保留未被覆蓋
+        bool defaultEmpty = new ShareSettingModel().AiRootPath == "";   // 跨平台預設留空（非 O:\Recipe）
+        Console.WriteLine($"  ShareSetting round-trip={shareOk}, AiRootPath 預設空={defaultEmpty}");
+        ok &= shareOk && defaultEmpty;
+
+        // (2) RecipeSetting：暫存 RecipeDir，存 per-recipe XML → 重讀值一致
+        var rcpRoot = Path.Combine(Path.GetTempPath(), "cfaoi_settings_rcp");
+        if (Directory.Exists(rcpRoot)) Directory.Delete(rcpRoot, true);
+        Directory.CreateDirectory(rcpRoot);
+        var cfg = new SystemConfigModel();
+        cfg.Paths.RecipeDir = rcpRoot;
+        var svc = new RecipeService(cfg, new LogService());
+        var model = new RecipeSavingModel
+        {
+            MaxSaveDefectCount = 123, MaxSaveAiOkCount = 45, SaveDefectWidth = 80, SaveAiTrain = true,
+        };
+        svc.SaveRecipeSetting("RCP1", model);
+        var path = svc.RecipeSettingXmlPath("RCP1");
+        var back = svc.LoadRecipeSetting("RCP1");
+        bool rcpOk = File.Exists(path)
+                     && back.MaxSaveDefectCount == 123 && back.MaxSaveAiOkCount == 45
+                     && back.SaveDefectWidth == 80 && back.SaveAiTrain
+                     && back.RecipeName == "RCP1"
+                     && back.MaxDefectCountPass == 10000;   // 預設＝IP MAX_DEFECTS
+        bool missingDefault = svc.LoadRecipeSetting("NOPE").MaxSaveDefectCount == 250;  // 不存在→預設
+        Console.WriteLine($"  RecipeSetting round-trip={rcpOk}（{path}）, 不存在回預設={missingDefault}");
+        ok &= rcpOk && missingDefault;
+
+        // (3) Step1 Debug 初值＝ShareSetting.DebugAlgorithm（全域預設→Step1 初值）
+        var svc2 = AppServices.Build();
+        svc2.Config.ShareSetting.DebugAlgorithm = true;
+        var step1 = new ViewModels.Step1ViewModel(svc2);
+        bool initOk = step1.DebugSaveDefectPatches;
+        Console.WriteLine($"  Step1 Debug 初值＝ShareSetting.DebugAlgorithm={initOk}");
+        ok &= initOk;
+
+        Console.WriteLine(ok ? "✓ ShareSetting/RecipeSetting 存讀 + Step1 初值 正確" : "✗ 不符");
+        return ok ? 0 : 1;
     }
 
     // ---- 缺陷整理 Parse + Sort 複製 ----

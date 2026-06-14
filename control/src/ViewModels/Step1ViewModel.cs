@@ -40,6 +40,8 @@ public partial class Step1ViewModel : ViewModelBase
     {
         _svc = svc;
         SelectedImagePath = DefaultImagePath();
+        // Debug 初值來自全域 ShareSetting.DebugAlgorithm；當次可勾選覆寫，不回寫全域。
+        DebugSaveDefectPatches = svc.Config.ShareSetting.DebugAlgorithm;
     }
 
     // 配方單一資料來源（共用）：快速調參直接綁 Store.PrimaryZone、配方下拉綁 Store

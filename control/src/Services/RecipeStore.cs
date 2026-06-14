@@ -24,6 +24,8 @@ public sealed partial class RecipeStore : ObservableObject
     [ObservableProperty] private RecipeModel recipe = new();
     // 第一個 DetectRoi：快速調參 / 主視窗預覽共用同一實例
     [ObservableProperty] private ZoneSettingModel? primaryZone;
+    // per-recipe 存圖設定（= legacy RecipeSetting.xml），切換配方一起載入
+    [ObservableProperty] private RecipeSavingModel recipeSaving = new();
 
     /// <summary>配方重新載入（切換配方 / 首次載入）後觸發，供各 VM 重建清單。</summary>
     public event Action? RecipeReloaded;
@@ -51,6 +53,7 @@ public sealed partial class RecipeStore : ObservableObject
             Recipe = ensure.Recipe;
             if (Recipe.DetectRoiList.Count == 0) Recipe.DetectRoiList.Add(new ZoneSettingModel());
             PrimaryZone = Recipe.DetectRoiList[0];
+            RecipeSaving = _recipes.LoadRecipeSetting(name);   // per-recipe 存圖設定一起載入
             RecipeReloaded?.Invoke();
         }
         finally { _inSelect = false; }
@@ -65,6 +68,9 @@ public sealed partial class RecipeStore : ObservableObject
     }
 
     public Task SaveAsync() { Save(); return Task.CompletedTask; }
+
+    /// <summary>存 per-recipe RecipeSetting.xml（主視窗 RecipeSetting 面板「儲存」用）。</summary>
+    public void SaveRecipeSetting() => _recipes.SaveRecipeSetting(SelectedRecipe, RecipeSaving);
 
     public void RefreshNames()
     {

@@ -26,6 +26,23 @@ public partial class MainWindowViewModel : ViewModelBase
     public DefectSortViewModel DefectSort { get; }
     public SystemConfigModel Config => _svc.Config;
     public RecipeStore Store => _svc.RecipeStore;   // 配方共用來源（主視窗 Recipe 區預覽）
+    public ShareSettingModel ShareSetting => _svc.Config.ShareSetting;   // 全域旗標（ShareSetting 面板）
+
+    // ShareSetting 面板「儲存」→ 寫回 appsettings.json（只改 ShareSetting 節點）
+    [RelayCommand]
+    private void SaveShareSetting()
+    {
+        try { ConfigLoader.SaveShareSetting(_svc.Config.ShareSetting); _log.Info("ShareSetting 已存 appsettings.json"); }
+        catch (Exception ex) { _log.Error($"存 ShareSetting 失敗：{ex.Message}"); }
+    }
+
+    // RecipeSetting 面板「儲存」→ 存 per-recipe RecipeSetting.xml
+    [RelayCommand]
+    private void SaveRecipeSetting()
+    {
+        try { Store.SaveRecipeSetting(); }
+        catch (Exception ex) { _log.Error($"存 RecipeSetting 失敗：{ex.Message}"); }
+    }
 
     // ===== Status 群（每秒更新；對應 lblCurXxx）=====
     [ObservableProperty] private string curCommand = "CF_READY";

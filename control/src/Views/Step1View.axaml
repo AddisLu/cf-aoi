@@ -87,7 +87,7 @@
               <Button Width="80" Height="58" Margin="3" Content="Test" Background="{StaticResource ColLightGreen}" Command="{Binding RunAnalysisCommand}"/>
               <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Delete Rect" Background="{StaticResource ColOrangeRed}" Foreground="White"/>
               <CheckBox Width="80" Margin="3" Content="Debug" IsChecked="{Binding DebugSaveDefectPatches}"
-                        ToolTip.Tip="勾選：Test 時請 IP 存全部缺陷小圖（供 DefectSort 分類）。不勾只存結果+overlay（調參較快）。"/>
+                        ToolTip.Tip="勾選：Test 時請 IP 存全部缺陷小圖（供 DefectSort 分類）。不勾只存結果+overlay（調參較快）。初值來自 ShareSetting.DebugAlgorithm（全域預設），當次覆寫不回寫全域。"/>
 
               <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Load Multi&#10;Image"/>
               <Button Width="80" Height="58" Margin="3" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="Draw Recipe Roi"/>

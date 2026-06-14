@@ -17,6 +17,7 @@ public sealed class RecipeService
     private readonly SystemConfigModel _cfg;
     private readonly LogService _log;
     private static readonly XmlSerializer _ser = new(typeof(RecipeModel));
+    private static readonly XmlSerializer _setSer = new(typeof(RecipeSavingModel));
 
     public RecipeService(SystemConfigModel cfg, LogService log) { _cfg = cfg; _log = log; }
 
@@ -71,6 +72,40 @@ public sealed class RecipeService
 
     public Task SaveAsync(string recipeName, RecipeModel recipe, string ipName = "IP0")
     { Save(recipeName, recipe, ipName); return Task.CompletedTask; }
+
+    // ---- RecipeSetting（per-recipe 存圖設定，= legacy RecipeSetting.xml，放配方資料夾根）----
+    public string RecipeSettingXmlPath(string recipeName) =>
+        Path.Combine(ExpandPath(_cfg.Paths.RecipeDir), recipeName, "RecipeSetting.xml");
+
+    /// <summary>讀 per-recipe RecipeSetting.xml；不存在則回預設（並帶入 RecipeName）。</summary>
+    public RecipeSavingModel LoadRecipeSetting(string recipeName)
+    {
+        var path = RecipeSettingXmlPath(recipeName);
+        if (File.Exists(path))
+        {
+            try
+            {
+                using var fs = File.OpenRead(path);
+                var m = (RecipeSavingModel)(_setSer.Deserialize(fs) ?? new RecipeSavingModel());
+                if (string.IsNullOrEmpty(m.RecipeName)) m.RecipeName = recipeName;
+                return m;
+            }
+            catch (Exception ex) { _log.Error($"讀 RecipeSetting 失敗（{path}）：{ex.Message}"); }
+        }
+        return new RecipeSavingModel { RecipeName = recipeName };
+    }
+
+    public void SaveRecipeSetting(string recipeName, RecipeSavingModel model)
+    {
+        model.RecipeName = recipeName;
+        var path = RecipeSettingXmlPath(recipeName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var fs = File.Create(path);
+        var ns = new XmlSerializerNamespaces();
+        ns.Add("", "");
+        _setSer.Serialize(fs, model, ns);
+        _log.Info($"RecipeSetting 已存：{path}");
+    }
 
     public RecipeEnsureResult EnsureRecipeExists(string recipeName, string ipName = "IP0")
     {

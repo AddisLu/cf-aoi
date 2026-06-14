@@ -33,6 +33,7 @@ public sealed class SystemConfigModel
     public Dictionary<string, NodeConfig> Nodes { get; set; } = new();
     public string ActiveIpNode { get; set; } = "IpOffline";
     public PathsConfig Paths { get; set; } = new();
+    public ShareSettingModel ShareSetting { get; set; } = new();   // 全域系統旗標（appsettings.json）
 
     public NodeConfig? ActiveIp =>
         Nodes.TryGetValue(ActiveIpNode, out var n) ? n : null;
