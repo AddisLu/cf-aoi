@@ -135,9 +135,10 @@ class TcpImageSource : public IImageSource {
 ## 5. RecipeInfo.xml 參數對應（ZoneConfig 橋接）
 
 > ⚠️ **考古修正**：舊版本文件寫的 `ThB`/`ThD`/`ZoneSetting` 對應**是錯的**。
-> 實際 legacy 配方是序列化的 **`Recipe`**（`ClibCf/Recipe.cs`），每台 IP 一份，內含
-> `DetectRoiList`（`List<DetectRoi>`）。`DetectRoi` 的閾值欄位是 **`BrightThreshold`/`DarkThreshold`**，
-> **沒有 `ThB`/`ThD`**（`ThB/ThD` 只是裝置端 `CUDAZone` 內部欄位名）。
+> 實際 legacy 配方是序列化的 **`Recipe`**（`ClibCf/Recipe.cs`），每台 IP 一份，結構：
+> **`Recipe → M_AlignRoi + DetectRoiList(List<DetectRoi>，每個 32 欄) + DetectIoiList`**。
+> `DetectRoi` 的閾值欄位是 **`BrightThreshold`/`DarkThreshold`**，**沒有 `ThB`/`ThD`**
+> （`ThB/ThD` 只是裝置端 `CUDAZone` 內部欄位名，由 CPU 端 `ThB=(float)BrightThreshold` 直接賦值）。
 
 `DetectRoi`（legacy）→ `ZoneConfig`（gpu_algo KernelParams）對應：
 
@@ -297,3 +298,16 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 9. **DIV-only 閾值（ip-div-only-threshold）**：`from_recipe_xml` **只接受 `AlgorithmCompare="DIV"`**，
    其餘（SUB／缺 tag）一律報錯拒絕。`BTH = BrightThreshold`、`DTH = DarkThreshold` **嚴格相等對應，
    不做任何近似轉換**。（SUB 灰階差轉比例需依賴背景灰階，無固定公式。）
+10. **output 同 panel 重測前清空（避免 DefectSort 殘留疊加）**：`result_saver::save` 每次存圖**無條件**
+    先清掉該 panel 夾本層舊 `Defect_*` 與舊 `.bmp`（不動 `TrueDefect/`、`Particle/` 子夾與 `classification.json`）。
+    否則跨次 Test 換 `--ip-name`（IP01→IP02）或換參數會產生不同檔名 → 堆疊成 N 倍（曾見 1122=561×2，
+    座標完全相同重複兩次）。單次乾淨偵測恆 1:1：`DetectionResult 缺陷數 == JSON DefectInfo 筆數 == 寫出 patch 數`
+    （`[Diag]` log 印此三數）。
+11. **network-clean（跨機免共用檔案系統）**：Control↔IP 為 Mac↔Linux 不同機器、無共用磁碟。
+    `LOAD_RECIPE` 傳**配方 XML 內容**（`recipe_xml`，非路徑）；`SEND_IMAGE_FOR_REVIEW` 結果 JSON
+    經 TCP 回傳（`deliver_result` rendezvous）；缺陷小圖以 PNG bytes（base64）經
+    `GET_DEFECT_PATCHES_BATCH` 回傳。IP 不讀寫對方硬碟，反之亦然。
+12. **缺陷檔名 IpName 段取自 panel 名前綴**（`result_saver`：panel 第一個 '_' 前 token，例
+    `IP02_Origin000001` → `Defect_IP02_...`），與資料夾一致；不要用固定 `--ip-name` 硬寫死（那是 fallback）。
+13. **AI 預設停用**（訓練資料不足）：模型仍載入（保留架構）但 `set_ai_active(false)`，不推論、不過濾，
+    缺陷 `AiType="待人工複核"`；`--use-ai` 重啟。缺陷分類靠 DefectSort 人工標 TrueDefect/Particle。

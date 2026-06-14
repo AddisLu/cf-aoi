@@ -28,8 +28,8 @@
 
 ```
 上位機（Master Controller PC，另一台 PC，不是 PLC）
-    ↕ TCP port 8000（文字命令 LoadRecipe|GrabStart|GetResult）
-CONTROL（C# Avalonia，Linux/Windows）
+    ↕ TCP port 8787（CF_ 前綴文字命令，| 分隔，\r\n，9 參數回應；見 §5）
+CONTROL（C# Avalonia，Linux/Windows/macOS）
     ↓ TCP JSON 8100        ↓ TCP JSON 8200
 GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
     → RDMA libibverbs →
@@ -58,7 +58,7 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 | `gpu_algo/src/cuda_kernels_fast.cu` | `ip/src/gpu/cuda_kernels.cu` | ✅ 直接複製不改 |
 | `gpu_algo/src/tensor_core_classifier.cu` | `ip/src/ai/ai_kernels.cu` | ✅ 直接複製不改 |
 | `gpu_algo/src/batch_detector.cpp` | `ip/src/gpu/gpu_pipeline.cpp` | 🔧 換 I/O 外殼 |
-| `gpu_algo/config.ini` | `ip/config/default_zone.ini` | ✅ 參數對應 ZoneSetting |
+| `gpu_algo/config.ini` | `ip/config/default_zone.ini` | ✅ 參數對應 ZoneConfig（非「ZoneSetting」）|
 | `phase1_tests/shared/FrameHeader.h` | `shared/FrameHeader.h` | ✅ 直接複製 |
 | `phase1_tests/src/t31_*` | `grab/src/cam_*.cpp` | 🔧 升級多相機 |
 | `legacy_win/PrjCfAoi/MainProc.cs` | `control/src/Controllers/UpstreamServer.cs` | 🔧 移除 MIL |
@@ -77,16 +77,11 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 > 具體格式（已實作於 `control/src/Controllers/UpstreamServer.cs`）：
 > `CF_LOAD_RECIPE|{recipe}|{panelId}|{yyyy-MM-dd-HH-mm-ss}|||||||{detectMode 0/1}`（panel 範例 "gg4mida"）、
 > `CF_GRAB_START|{timeoutMs}`（範例 40000）、`CF_SET_ALIGN|{result}|{shiftX}|{shiftY}`；
-> 回應一律 9 參數 `OK|p1|…|p8|{p9=errMsg}` 或 `ERR|…`。Control 監聽 port 由 appsettings `UpstreamServer.ListenPort`（預設 **8787**）。
+> 回應一律 9 參數 `OK|p1|…|p8|{p9=errMsg}` 或 `ERR|…`。Control 監聽 port 由 appsettings `UpstreamServer.ListenPort`（**= 8787**）。
 >
-> 下面的 `LoadRecipe/GrabStart/GetResult`（port 8000）是**新版 Control 對外**要呈現的簡化介面；
-> Control 的 `UpstreamServer` 負責把它對映回上位機所需格式。**IP 程式不直接實作 8787**，
-> 只對 Control 走 8200 JSON。
-```
-LoadRecipe|RECIPE|PANEL\r\n   →  OK\r\n        （Control 對外簡化介面）
-GrabStart|PANEL\r\n
-GetResult\r\n                  →  OK|{json}\r\n
-```
+> ✅ **已實作**：`control/src/Controllers/UpstreamServer.cs` 即以 **CF_ 前綴 / `|` 分隔 / 9 參數** 實作，
+> 不再有「port 8000 簡化介面」這回事（舊文件的 `LoadRecipe|RECIPE|PANEL` 假設已作廢）。
+> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON；`UpstreamServer` 收 CF_ 命令後轉呼叫 `IpClient`。
 
 ### Control ↔ Grab/IP（JSON，8100/8200）
 ```json
@@ -163,7 +158,12 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 - **只支援 `AlgorithmCompare="DIV"`**：gpu_algo kernel 是比例式（`center/mean₈(neighbors) vs BTH/DTH`），
   legacy DIV 同定義域 → `BTH=BrightThreshold`、`DTH=DarkThreshold` 嚴格相等對應。
   **SUB（灰階差）無法不依賴背景灰階精確轉成比例 → IP 直接拒絕載入並報錯。**
-- **結果 `{IpName}_ResultInfo.xml` = 序列化 `JudgeResult`**：
+- **幾何欄位對應**（`DetectRoi`→ZoneConfig，見 ip/CLAUDE.md §5）：`PitchX→pitch_x`、`PitchY→pitch_y`、
+  `SearchX→search_range_x`、`SearchY→search_range_y`，**`fast_search_range = clamp(SearchY,0,2)`**（kernel 實吃的垂直局部搜尋）；
+  ROI `StartX/StartY/EndX/EndY`（-1=全幅，每個 DetectRoi 一個 zone）。
+- **結果雙寫**（IP `result_saver.cpp`，兩者欄位一致）：
+  `{panelId}_{recipeName}_ResultInfo.json`（Control 反序列化用）+ `{panelId}_{recipeName}_ResultInfo.xml`
+  （= 序列化 `JudgeResult`，給上位機 `CF_GET_RESULT` 鏈相容）。
   `JudgeResult → RoiInfoList → RoiInfo → DefectInfoList → DefectInfo`（OK/NG 判定：`DefectCnt==0` 即 PASS）。
 - **缺陷欄位一律用 legacy 名稱**（IP 輸出 JSON 與 XML 皆然）：
   `GC_X/GC_Y`、`Size`、`Width/Height`、`X_Min/X_Max/Y_Min/Y_Max`、`Type`(PointBright/PointDark)、
@@ -207,11 +207,17 @@ static_assert(sizeof(FrameHeader)==256,"");
 
 ## 7. 不變式
 
-1. `cuda_kernels.cu` / `ai_kernels.cu` 禁止修改任何 kernel 邏輯
+1. `cuda_kernels.cu` / `ai_kernels.cu` 禁止修改任何 `__global__` kernel 邏輯（host wrapper 編排可改，見 ip/CLAUDE.md 不變式 7）
 2. `shared/FrameHeader.h` 兩端版本一致，`sizeof==256`
 3. magic 用合法 hex `0xCFA0A001`（不是 0xCFAOI001）
-4. 上位機命令名稱（LoadRecipe/GrabStart/GetResult）不可改
-5. RecipeInfo.xml 格式與舊系統相容
+4. 上位機命令名稱固定為 **`CF_` 前綴**（`CF_LOAD_RECIPE`/`CF_GRAB_START`/`CF_GET_RESULT` 等，port 8787，9 參數）不可改；
+   舊文件的 `LoadRecipe/GrabStart/GetResult|RECIPE|PANEL` 假設已作廢
+5. RecipeInfo.xml 格式與舊系統相容（= legacy `Recipe`；閾值 `BrightThreshold`/`DarkThreshold`，非 ThB/ThD；只收 DIV）
 6. pylon/eBUS 路徑嚴格分離
 7. 影像載入用 cv::IMREAD_UNCHANGED，禁止任何後處理
+8. **network-clean**：Control↔IP 跨機（Mac↔Linux）不共用檔案系統 → 配方傳 **XML 內容**（非路徑）、
+   結果 JSON 與缺陷小圖 PNG bytes 皆 **over TCP** 回傳；IP 不依賴對方硬碟，反之亦然
+9. **output 同 panel 重測前先清空該 panel 夾的舊 `Defect_*`**（IP `result_saver` 已無條件清），
+   避免 DefectSort 讀到換 IpName/換參數的歷史殘留疊加成倍數
+10. 同一影像跑兩次結果 bit-exact（見 ip/CLAUDE.md 不變式 7/8）
 8. 同一影像跑兩次結果 bit-exact
