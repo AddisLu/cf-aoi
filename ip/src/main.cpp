@@ -42,6 +42,7 @@ struct Args {
     std::string recipe;            // RecipeInfo.xml 路徑（可選）
     std::string ini = "config/default_zone.ini";
     std::string ai_model_dir = "models/gpu_model";
+    std::string ip_name = "IP01";  // 缺陷檔名 Defect_{IpName}_... 用
     bool verify_deterministic = false;
 };
 
@@ -55,6 +56,7 @@ void usage(const char* prog) {
     "  --ini <path>          預設參數 INI（預設 config/default_zone.ini）\n"
     "  --control-port <n>    offline-tcp 監聽 port（預設 8200）\n"
     "  --ai-model-dir <dir>  AI 模型目錄（預設 models/gpu_model；找不到則停用 AI）\n"
+    "  --ip-name <name>      本機 IP 名稱（缺陷檔名 Defect_{IpName}_...，預設 IP01）\n"
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n";
 }
 
@@ -72,6 +74,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--ini") a.ini = next("--ini");
         else if (k == "--control-port") a.control_port = std::stoi(next("--control-port"));
         else if (k == "--ai-model-dir") a.ai_model_dir = next("--ai-model-dir");
+        else if (k == "--ip-name") a.ip_name = next("--ip-name");
         else if (k == "--verify-deterministic") a.verify_deterministic = true;
         else if (k == "-h" || k == "--help") { usage(argv[0]); return false; }
         else { std::cerr << "未知參數: " << k << "\n"; usage(argv[0]); return false; }
@@ -204,7 +207,7 @@ int main(int argc, char** argv) {
             std::string name = src.current_name();
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed);
-            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, name);
+            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name);
             ++processed;
         }
         std::cout << "[Done] 處理 " << processed << " 張影像\n";
@@ -263,7 +266,7 @@ int main(int argc, char** argv) {
             { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }
             bool vf = false;  // tcp 串流模式不做 deterministic 驗證
             InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf);
-            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, name);
+            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name);
             // 把結果經 TCP 回傳給等待中的 Control（跨機器免共用檔案系統）
             server.deliver_result(name, ResultSaver::to_json(res));
             ++processed;

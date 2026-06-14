@@ -45,7 +45,8 @@ public partial class DefectSortViewModel : ViewModelBase
     [ObservableProperty] private bool canSort;       // Parse 成功後才 true（Sort 鈕 enabled + 變橘）
     [ObservableProperty] private bool isSorting;
 
-    private string DateStr => (SelectedDate ?? DateTimeOffset.Now).ToString("yyyy-MM-dd");
+    // IP 的日期資料夾為 yyyyMMdd（對齊 legacy frmSortDefect / MainProc），命令也用此格式。
+    private string DateStr => (SelectedDate ?? DateTimeOffset.Now).ToString("yyyyMMdd");
 
     [RelayCommand]
     private async Task Parse()

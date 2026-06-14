@@ -95,20 +95,33 @@ GetResult\r\n                  →  OK|{json}\r\n
 {"cmd":"CHECK_HEALTH","seq":3,"params":{}}
 ```
 
+#### IP output 資料夾結構（考古對齊 legacy，result_saver 產生）
+> 來源：`Reference/legacy_win/PrjCfAoi/Class/MainProc.cs`(L412) + `CamProc.cs`(L915) + `PrjAoiSettingEditor/frmSortDefect.cs`。
+```
+<--output>/<yyyyMMdd>/<panelId>_<recipeName>/      ← ① 日期夾（無分隔線）② 一塊 panel/批一夾
+   Defect_<IpName>_Slice<ff>_Roi<rr>_Run<nn>_X<xxxx>_Y<yyyyyy>_Dr<Bright|Dark>.png   缺陷小圖（全域座標）
+   <panelId>_<recipeName>_ResultInfo.json / .xml   結果（DefectCnt 來源）
+   <panelId>_<recipeName>_result.bmp               overlay
+```
+- 簡化為 **3 層**（省略 legacy 第 4 層 `<IpName>/`，新架構每台 IP 自有 output；IpName 進檔名）。
+- `--ip-name`（預設 IP01）決定缺陷檔名；`panelId`=影像/panel 名、`recipeName`=zone 的 recipe 名。
+- 日期格式 **`yyyyMMdd`**（與 legacy 一致；遠端命令的 `date` 參數同此格式，**非** `yyyy-MM-dd`）。
+
 #### 缺陷遠端歸檔（DefectSort）— 缺陷影像存在運算端 IP/Linux/Spark，不在 Control 本地
 Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統；Control 端不假設能看到 IP 的硬碟）：
 ```json
-// 列出 IP --output 下（指定日期 mtime 的）缺陷結果。date="" = 全部。每筆對應一塊 panel。
-{"cmd":"LIST_DEFECT_FOLDERS","seq":4,"params":{"date":"2026-06-14"}}
-  → {"status":"OK","folders":[{"folder_name":"IP01_panelA","panel_id":"IP01_panelA","defect_count":3}, ...]}
-// IP 就地把選中 panel 的 patches/{panel}_defect_*.png 複製到 output/{output_subdir}
-//（by_id_folder=true → 依檔名前綴 '_' 前建子夾，對應 legacy "By ID Folder"）。
-{"cmd":"SORT_DEFECTS","seq":5,"params":{"date":"","output_subdir":"sorted","by_id_folder":true,
-                                        "selected_folders":["IP01_panelA","IP01_panelB"]}}
+// 列出 <output>/<yyyyMMdd>/ 下的 panel 夾。date="" = 掃所有日期夾彙整。每筆對應一塊 panel。
+{"cmd":"LIST_DEFECT_FOLDERS","seq":4,"params":{"date":"20260614"}}
+  → {"status":"OK","folders":[{"folder_name":"IP01_panelA_DEFAULT","panel_id":"IP01_panelA_DEFAULT",
+                               "date":"20260614","defect_count":3}, ...]}
+// IP 就地把選中 panel 夾的 Defect* 檔複製到 output/{output_subdir}，檔名加前綴 {folder}_。
+//（by_id_folder=true → 依資料夾名前兩段 '_' token 建子夾，對應 legacy "By ID Folder"）。
+{"cmd":"SORT_DEFECTS","seq":5,"params":{"date":"20260614","output_subdir":"sorted","by_id_folder":true,
+                                        "selected_folders":["IP01_panelA_DEFAULT","IP01_panelB_DEFAULT"]}}
   → {"status":"OK","total":8,"output_dir":"/.../output/sorted",
-     "results":[{"folder":"IP01_panelA","copied":3},{"folder":"IP01_panelB","copied":5}]}
+     "results":[{"folder":"IP01_panelA_DEFAULT","copied":3},{"folder":"IP01_panelB_DEFAULT","copied":5}]}
 ```
-> Step1View 的 OK/NG 即時手動分（少量即時缺陷在 Control 端操作）是另一用途，不走此遠端命令。
+> date="" 時 SORT 跨日期夾搜尋第一個同名 panel 夾。Step1View 的 OK/NG 即時手動分（少量即時缺陷在 Control 端操作）是另一用途，不走此遠端命令。
 
 ### 配方（RecipeInfo.xml）與結果（ResultInfo.xml）格式 — 考古確認（取代舊「ZoneSetting/ThB/ThD」敘述）
 > 來源已逐檔驗證：`Reference/legacy_win/ClibCf/Recipe.cs`、`JudgeResult.cs`、`CudaCore/CUDA_Func.h`。

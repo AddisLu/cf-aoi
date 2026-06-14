@@ -83,27 +83,27 @@ void reply(int fd, const json& j) {
 
 namespace fs = std::filesystem;
 
-// 檔案 mtime 的本地日期 "yyyy-MM-dd"（IP 為 Linux，用 POSIX stat）。失敗回空字串。
-std::string file_date(const fs::path& p) {
-    struct stat st {};
-    if (::stat(p.c_str(), &st) != 0) return "";
-    std::tm tm {};
-    ::localtime_r(&st.st_mtime, &tm);
-    char buf[16];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
-    return buf;
+// By ID Folder：取資料夾名前兩段 '_' token（對齊 legacy frmSortDefect dir.Split('_')[0]_[1]）。
+// 不足兩段時退回整個名稱。
+std::string id_group(const std::string& folder_name) {
+    auto i = folder_name.find('_');
+    if (i == std::string::npos) return folder_name;
+    auto j = folder_name.find('_', i + 1);
+    if (j == std::string::npos) return folder_name;   // 只有一個 '_' → 整名
+    return folder_name.substr(0, j);
 }
 
-// 依檔名前綴分組（取第一個 '_' 前），對應 legacy "By ID Folder"。
-std::string id_prefix(const std::string& file_name) {
-    std::string stem = fs::path(file_name).stem().string();
-    auto i = stem.find('_');
-    return i != std::string::npos ? stem.substr(0, i) : stem;
+// 名稱是否像 yyyyMMdd 日期夾（8 位數字）。
+bool is_date_dir(const std::string& name) {
+    if (name.size() != 8) return false;
+    for (char c : name) if (c < '0' || c > '9') return false;
+    return true;
 }
 
-// 讀 {panel}_ResultInfo.json 的 DefectCnt（讀不到回 -1）。
-int read_defect_cnt(const fs::path& p) {
+// 讀 panel 夾內 {folder}_ResultInfo.json 的 DefectCnt（讀不到回 -1）。
+int read_defect_cnt(const fs::path& panel_dir) {
     try {
+        fs::path p = panel_dir / (panel_dir.filename().string() + "_ResultInfo.json");
         std::ifstream f(p);
         if (!f) return -1;
         json j;
@@ -285,30 +285,36 @@ void ControlServer::handle_client(int fd) {
             reply(fd, resp);
 
         } else if (cmd == "LIST_DEFECT_FOLDERS") {
-            // 掃 output 目錄，列出（指定日期的）缺陷結果，每筆對應一塊 panel。
-            // folder_name = panel（{panel}_ResultInfo.json 的 stem）、defect_count、panel_id。
+            // 掃 <output>/<yyyyMMdd>/ 下的 panel 夾（= {panelId}_{recipeName}）。
+            // date="" → 掃所有日期夾彙整；否則只掃該日期。每筆 folder_name/panel_id + defect_count。
             std::string date = params.value("date", "");
             json folders = json::array();
             std::error_code ec;
             fs::path out(output_dir_);
-            if (fs::exists(out, ec)) {
-                const std::string suffix = "_ResultInfo.json";
+
+            std::vector<fs::path> date_dirs;
+            if (!date.empty()) {
+                date_dirs.push_back(out / date);
+            } else if (fs::exists(out, ec)) {
                 for (const auto& e : fs::directory_iterator(out, ec)) {
                     if (ec) break;
-                    if (!e.is_regular_file()) continue;
-                    std::string name = e.path().filename().string();
-                    if (name.size() <= suffix.size() ||
-                        name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
-                        continue;
-                    if (!date.empty() && file_date(e.path()) != date) continue;
-                    std::string panel = name.substr(0, name.size() - suffix.size());
+                    if (e.is_directory() && is_date_dir(e.path().filename().string()))
+                        date_dirs.push_back(e.path());
+                }
+            }
+            for (const auto& dd : date_dirs) {
+                if (!fs::exists(dd, ec)) continue;
+                for (const auto& e : fs::directory_iterator(dd, ec)) {
+                    if (ec) break;
+                    if (!e.is_directory()) continue;
+                    std::string folder = e.path().filename().string();
                     int cnt = read_defect_cnt(e.path());
-                    folders.push_back({{"folder_name", panel},
-                                       {"panel_id", panel},
+                    folders.push_back({{"folder_name", folder},
+                                       {"panel_id", folder},
+                                       {"date", dd.filename().string()},
                                        {"defect_count", cnt}});
                 }
             }
-            // 依 panel 名排序，輸出穩定
             std::sort(folders.begin(), folders.end(), [](const json& a, const json& b) {
                 return a["folder_name"].get<std::string>() < b["folder_name"].get<std::string>();
             });
@@ -319,7 +325,8 @@ void ControlServer::handle_client(int fd) {
             reply(fd, resp);
 
         } else if (cmd == "SORT_DEFECTS") {
-            // 就地把選中 panel 的缺陷 patch 複製到 output/{output_subdir}（by_id → 依前綴建子夾）。
+            // 就地把選中 panel 夾的 Defect* 檔複製到 <output>/<output_subdir>/
+            //（by_id → 依資料夾名前兩段建子夾；檔名前綴 {folder}_，對齊 legacy）。
             std::string date = params.value("date", "");
             std::string subdir = params.value("output_subdir", "sorted");
             bool by_id = params.value("by_id_folder", false);
@@ -329,35 +336,48 @@ void ControlServer::handle_client(int fd) {
 
             std::error_code ec;
             fs::path out(output_dir_);
-            fs::path patches = out / "patches";
             fs::path dst_root = out / subdir;
             fs::create_directories(dst_root, ec);
 
+            // 找一塊 panel 夾的實際路徑：date 指定 → <out>/<date>/<folder>；否則跨日期夾搜尋第一個命中。
+            auto locate = [&](const std::string& folder) -> fs::path {
+                if (!date.empty()) {
+                    fs::path p = out / date / folder;
+                    return fs::exists(p, ec) ? p : fs::path{};
+                }
+                if (fs::exists(out, ec))
+                    for (const auto& e : fs::directory_iterator(out, ec)) {
+                        if (!e.is_directory() || !is_date_dir(e.path().filename().string())) continue;
+                        fs::path p = e.path() / folder;
+                        if (fs::exists(p, ec)) return p;
+                    }
+                return {};
+            };
+
             json results = json::array();
             int grand_total = 0;
-            for (const auto& panel : picked) {
+            for (const auto& folder : picked) {
                 int copied = 0;
                 std::string msg;
-                if (fs::exists(patches, ec)) {
-                    std::string pfx = panel + "_";  // patch 命名：{panel}_defect_*.png
-                    for (const auto& e : fs::directory_iterator(patches, ec)) {
+                fs::path src = locate(folder);
+                if (src.empty()) {
+                    msg = "folder not found";
+                } else {
+                    fs::path dst_dir = by_id ? (dst_root / id_group(folder)) : dst_root;
+                    fs::create_directories(dst_dir, ec);
+                    for (const auto& e : fs::directory_iterator(src, ec)) {
                         if (ec) break;
                         if (!e.is_regular_file()) continue;
                         std::string fn = e.path().filename().string();
-                        if (fn.rfind(pfx, 0) != 0) continue;
-                        fs::path dst_dir = by_id ? (dst_root / id_prefix(panel)) : dst_root;
-                        fs::create_directories(dst_dir, ec);
+                        if (fn.rfind("Defect", 0) != 0) continue;   // 只複製 Defect* 缺陷圖
                         std::error_code cec;
-                        fs::copy_file(e.path(), dst_dir / fn,
+                        fs::copy_file(e.path(), dst_dir / (folder + "_" + fn),
                                       fs::copy_options::overwrite_existing, cec);
                         if (!cec) copied++;
                     }
-                } else {
-                    msg = "no patches dir";
                 }
                 grand_total += copied;
-                results.push_back({{"folder", panel}, {"copied", copied},
-                                   {"message", msg}});
+                results.push_back({{"folder", folder}, {"copied", copied}, {"message", msg}});
             }
             resp["status"] = "OK";
             resp["results"] = results;

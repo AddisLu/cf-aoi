@@ -1,5 +1,7 @@
 #include "result_saver.h"
 
+#include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -45,8 +47,35 @@ LegacyDefect to_legacy(const DefectInfo& d, int off_x, int off_y, int run_index)
     L.X_Min = off_x + d.min_x; L.X_Max = off_x + d.max_x;
     L.Y_Min = off_y + d.min_y; L.Y_Max = off_y + d.max_y;
     L.Type = d.is_bright ? "PointBright" : "PointDark";
+    L.DetectReason = d.is_bright ? "Bright" : "Dark";  // gpu_algo 比例式 → 亮/暗點
     L.GL_Mean = d.avg_brightness;
     return L;
+}
+
+// 一塊 panel 的資料夾名 = legacy "{panelId}_{recipeName}"（recipe 空則只用 panelId）。
+std::string panel_folder_name(const InspectionResult& r) {
+    if (r.recipe_name.empty()) return r.panel_id;
+    return r.panel_id + "_" + r.recipe_name;
+}
+
+// 今日 yyyyMMdd（本地時間，對齊 legacy DateTime.Now.ToString("yyyyMMdd")）。
+std::string today_yyyymmdd() {
+    std::time_t t = std::time(nullptr);
+    std::tm tm {};
+    ::localtime_r(&t, &tm);
+    char buf[16];
+    std::strftime(buf, sizeof(buf), "%Y%m%d", &tm);
+    return buf;
+}
+
+// legacy 缺陷檔名：Defect_{Ip}_Slice{ff}_Roi{rr}_Run{nn}_X{xxxx}_Y{yyyyyy}_Dr{reason}.png
+std::string defect_filename(const std::string& ip_name, int slice, int roi, int run,
+                            int gx, int gy, const std::string& reason) {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf),
+                  "Defect_%s_Slice%02d_Roi%02d_Run%02d_X%04d_Y%06d_Dr%s.png",
+                  ip_name.c_str(), slice, roi, run, gx, gy, reason.c_str());
+    return buf;
 }
 
 void xml_escape(std::ostream& os, const std::string& s) {
@@ -149,9 +178,16 @@ std::string to_json(const InspectionResult& r) {
 int save(const InspectionResult& r,
          const uint8_t* img, int w, int h,
          const std::string& out_dir,
-         const std::string& basename,
-         int patch_size) {
-    fs::create_directories(out_dir);
+         const std::string& ip_name,
+         int patch_size,
+         std::string* out_panel_dir) {
+    // ---- 資料夾結構：<out>/<yyyyMMdd>/<panelId>_<recipeName>/（對齊 legacy）----
+    const std::string date = today_yyyymmdd();
+    const std::string basename = panel_folder_name(r);   // ResultInfo 檔名前綴 = panel 夾名
+    const std::string panel_dir = out_dir + "/" + date + "/" + basename;
+    fs::create_directories(panel_dir);
+    if (out_panel_dir) *out_panel_dir = panel_dir;
+    const std::string& dst = panel_dir;   // 缺陷圖 / ResultInfo 都落在 panel 夾
 
     // ---- 0. 多 ROI 邊界死區可見化 ----
     // gpu_algo 8-Way kernel 會跳過距 ROI 邊緣 margin 內的像素（cuda_kernels.cu:135-145）：
@@ -178,13 +214,13 @@ int save(const InspectionResult& r,
 
     // ---- 1. 新版 JSON（legacy 欄位名）----
     {
-        std::ofstream f(out_dir + "/" + basename + "_ResultInfo.json");
+        std::ofstream f(dst + "/" + basename + "_ResultInfo.json");
         f << to_json(r);
     }
 
     // ---- 2. legacy JudgeResult XML ----
     {
-        std::ofstream os(out_dir + "/" + basename + "_ResultInfo.xml");
+        std::ofstream os(dst + "/" + basename + "_ResultInfo.xml");
         os << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
         os << "<JudgeResult>\n";
         os << "  <DefectCnt>" << r.total_defects() << "</DefectCnt>\n";
@@ -208,21 +244,22 @@ int save(const InspectionResult& r,
         os << "</JudgeResult>\n";
     }
 
-    // ---- 3. patches + 4. overlay（全域座標）----
+    // ---- 3. 缺陷小圖（legacy Defect_ 命名，全域座標）+ 4. overlay ----
     cv::Mat gray(h, w, CV_8UC1, const_cast<uint8_t*>(img));
-    const std::string patch_dir = out_dir + "/patches";
-    fs::create_directories(patch_dir);
     cv::Mat overlay;
     cv::cvtColor(gray, overlay, cv::COLOR_GRAY2BGR);
 
+    const int frame_h = r.frame_height > 0 ? r.frame_height : h;  // Slice = GlobalPosY / frame 高
     int half = patch_size / 2;
-    int saved = 0, gid = 0;
+    int saved = 0;
     for (const auto& z : r.zones) {
+        int run = 0;  // 該 ROI 內缺陷流水號（對應 legacy RunIndex）
         for (const auto& d : z.result.defects) {
             int cx = z.roi_offset_x + (int)d.center_x;
             int cy = z.roi_offset_y + (int)d.center_y;
+            int slice = frame_h > 0 ? cy / frame_h : 0;
 
-            // patch
+            // patch（不足 patch_size 補零置中）
             int x1 = std::max(0, cx - half), y1 = std::max(0, cy - half);
             int x2 = std::min(w, cx + half),  y2 = std::min(h, cy + half);
             if (x2 > x1 && y2 > y1) {
@@ -233,9 +270,9 @@ int save(const InspectionResult& r,
                     patch.copyTo(padded(cv::Rect(ox, oy, patch.cols, patch.rows)));
                     patch = padded;
                 }
-                std::string type = d.is_bright ? "bright" : "dark";
-                std::string fn = patch_dir + "/" + basename + "_defect_" + std::to_string(gid) +
-                                 "_" + type + "_" + std::to_string(cx) + "_" + std::to_string(cy) + ".png";
+                std::string reason = d.is_bright ? "Bright" : "Dark";
+                std::string fn = dst + "/" +
+                    defect_filename(ip_name, slice, z.zone_index, run, cx, cy, reason);
                 cv::imwrite(fn, patch);
                 ++saved;
             }
@@ -247,14 +284,14 @@ int save(const InspectionResult& r,
             int Mx = std::min(w - 1, z.roi_offset_x + d.max_x + 2);
             int My = std::min(h - 1, z.roi_offset_y + d.max_y + 2);
             cv::rectangle(overlay, cv::Point(mx, my), cv::Point(Mx, My), color, 2);
-            ++gid;
+            ++run;
         }
     }
-    cv::imwrite(out_dir + "/" + basename + "_result.bmp", overlay);
+    cv::imwrite(dst + "/" + basename + "_result.bmp", overlay);
 
     std::cout << "[ResultSaver] " << basename << ": " << r.total_defects()
               << " 缺陷 (" << r.zones.size() << " zones), " << saved
-              << " patches → " << out_dir << "\n";
+              << " 缺陷圖 → " << dst << "\n";
     return saved;
 }
 
