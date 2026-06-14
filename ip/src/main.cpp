@@ -14,6 +14,9 @@
  */
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -50,6 +53,12 @@ struct Args {
     bool save_overlay = true;
     int  max_patches = -1;         // >=0 → 只存前 N 張缺陷小圖
     int  save_threads = 0;         // 0 → 自動
+    // bench 模式（量純 GPU 運算速度）
+    int  bench_iters = 100;
+    int  bench_warmup = 10;
+    // 單一全幅 zone 的覆寫（bench 用來掃缺陷負載上下界；<0/<=0 = 不覆寫）
+    float ov_bth = -1.f, ov_dth = -1.f;
+    int  ov_pitch_x = -1, ov_pitch_y = -1;
 };
 
 void usage(const char* prog) {
@@ -68,7 +77,12 @@ void usage(const char* prog) {
     "  --no-overlay          不存 overlay 全圖（仍存缺陷小圖）\n"
     "  --max-patches <n>     只存前 n 張缺陷小圖（調參加速）\n"
     "  --save-threads <n>    缺陷小圖平行寫入緒數（0=自動）\n"
-    "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n";
+    "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
+    "  --mode bench           量純 GPU process_image 速度：一張圖重複跑，報 gpu_ms/wall_ms 統計\n"
+    "  --bench-iters <n>      bench 量測張數（預設 100）\n"
+    "  --bench-warmup <n>     bench 暖機張數（丟棄，預設 10；吸收 CUDA init/JIT）\n"
+    "  --bth/--dth <f>        覆寫單一全幅 zone 的 BTH/DTH（bench 掃缺陷負載用）\n"
+    "  --pitch-x/--pitch-y <n> 覆寫 pitch（bench 掃缺陷負載用）\n";
 }
 
 bool parse_args(int argc, char** argv, Args& a) {
@@ -91,6 +105,12 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--no-overlay") a.save_overlay = false;
         else if (k == "--max-patches") a.max_patches = std::stoi(next("--max-patches"));
         else if (k == "--save-threads") a.save_threads = std::stoi(next("--save-threads"));
+        else if (k == "--bench-iters") a.bench_iters = std::stoi(next("--bench-iters"));
+        else if (k == "--bench-warmup") a.bench_warmup = std::stoi(next("--bench-warmup"));
+        else if (k == "--bth") a.ov_bth = std::stof(next("--bth"));
+        else if (k == "--dth") a.ov_dth = std::stof(next("--dth"));
+        else if (k == "--pitch-x") a.ov_pitch_x = std::stoi(next("--pitch-x"));
+        else if (k == "--pitch-y") a.ov_pitch_y = std::stoi(next("--pitch-y"));
         else if (k == "--verify-deterministic") a.verify_deterministic = true;
         else if (k == "-h" || k == "--help") { usage(argv[0]); return false; }
         else { std::cerr << "未知參數: " << k << "\n"; usage(argv[0]); return false; }
@@ -193,6 +213,11 @@ int main(int argc, char** argv) {
 
     // ---- 建立 ZoneConfig（INI 預設 + 可選 recipe）----
     ZoneConfig base = ZoneConfigAdapter::from_ini(args.ini);
+    // bench 覆寫單一全幅 zone（掃缺陷負載上下界用；只對無 recipe 的單 zone 生效）
+    if (args.ov_bth >= 0.f)  base.BTH = args.ov_bth;
+    if (args.ov_dth >= 0.f)  base.DTH = args.ov_dth;
+    if (args.ov_pitch_x > 0) base.pitch_x = args.ov_pitch_x;
+    if (args.ov_pitch_y > 0) base.pitch_y = args.ov_pitch_y;
     std::vector<ZoneConfig> zones;
     if (!args.recipe.empty()) {
         try {
@@ -302,6 +327,75 @@ int main(int argc, char** argv) {
         }
         server.stop();
         std::cout << "[Done] 處理 " << processed << " 張影像\n";
+
+    } else if (args.mode == "bench") {
+        // 速度量測：一張圖載入後重複跑 process_image（所有 zone），量純 GPU 與 wall 時間。
+        if (args.input.empty()) { std::cerr << "bench 需要 --input\n"; return 1; }
+        FileImageSource src(args.input);
+        FrameHeader hdr;
+        std::vector<uint8_t> payload;
+        if (!src.next_frame(hdr, payload)) { std::cerr << "[Bench] 讀不到影像\n"; return 1; }
+        cv::Mat gray(hdr.height, hdr.width, CV_8UC1, payload.data());
+        const int w = hdr.width, h = hdr.height;
+        std::string name = src.current_name();
+        bool vf = false;
+
+        std::cout << "[Bench] 影像 " << w << "x" << h << " | zones=" << zones.size()
+                  << " | BTH=" << zones[0].BTH << " DTH=" << zones[0].DTH
+                  << " pitch=(" << zones[0].pitch_x << "," << zones[0].pitch_y << ")"
+                  << " | warmup=" << args.bench_warmup << " iters=" << args.bench_iters
+                  << " | ai=" << (pipe.ai_enabled() ? "on" : "off") << "\n";
+
+        auto now = [] { return std::chrono::steady_clock::now(); };
+        auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+
+        for (int i = 0; i < args.bench_warmup; ++i)
+            process_image(pipe, zones, gray, name, false, vf);   // 暖機（吸收 CUDA init/JIT/malloc）
+
+        std::vector<double> gpu, wall;
+        gpu.reserve(args.bench_iters); wall.reserve(args.bench_iters);
+        int ndef = 0;
+        for (int i = 0; i < args.bench_iters; ++i) {
+            auto t0 = now();
+            InspectionResult res = process_image(pipe, zones, gray, name, false, vf);
+            auto t1 = now();
+            double g = 0; for (const auto& z : res.zones) g += z.result.process_time_ms;
+            gpu.push_back(g);
+            wall.push_back(ms(t0, t1));
+            ndef = res.total_defects();
+        }
+
+        // 含存圖的 wall（full save 到暫存，5 次取樣）
+        std::vector<double> wall_save;
+        SaveOptions full; full.save_patches = true; full.save_overlay = true;
+        for (int i = 0; i < 5; ++i) {
+            auto t0 = now();
+            InspectionResult res = process_image(pipe, zones, gray, name, false, vf);
+            ResultSaver::save(res, payload.data(), w, h, "/tmp/bench_out", args.ip_name, full);
+            wall_save.push_back(ms(t0, now()));
+        }
+
+        auto rep = [](const char* tag, std::vector<double> v) {
+            std::sort(v.begin(), v.end());
+            double s = 0; for (double x : v) s += x;
+            double mean = s / v.size(), med = v[v.size() / 2];
+            double p99 = v[(size_t)std::ceil(0.99 * v.size()) - 1];
+            std::printf("  %-22s mean=%.2f  median=%.2f  P99=%.2f  min=%.2f  max=%.2f ms (n=%zu)\n",
+                        tag, mean, med, p99, v.front(), v.back(), v.size());
+        };
+        std::cout << "[Bench] 缺陷數=" << ndef << "\n";
+        rep("gpu_ms(cudaEvent)", gpu);
+        rep("wall_ms(no save)", wall);
+        rep("wall_ms(incl save)", wall_save);
+
+        std::sort(gpu.begin(), gpu.end());
+        double g_med = gpu[gpu.size() / 2];
+        double total_s = 1110.0 * g_med / 1000.0;
+        std::printf("[Bench] 容量換算：1110 張 × %.2fms(gpu median) = %.1f s/面板"
+                    "（30s 節拍）→ N_spark = ceil(%.2f) = %d\n",
+                    g_med, total_s, total_s / 30.0, (int)std::ceil(total_s / 30.0));
 
     } else {
         std::cerr << "未知 mode: " << args.mode << "\n";
