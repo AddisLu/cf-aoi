@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-15**（納入 2026-06-15 ARM/GB10 運算驗證；前次 2026-06-11 Phase-1 硬體實機驗證）| 對應 commit：**7433f34**
+> 最後更新：**2026-06-15**（納入正式 cfaoi_grab Step 2 單相機 RDMA 驗證；前次：2026-06-15 ARM/GB10 運算驗證 + 2026-06-11 Phase-1 硬體實機驗證）
 
 ## 分級定義
 
@@ -29,7 +29,7 @@
 | 層      | 平台                           | 角色                 | 整體狀態          |
 | ------- | ------------------------------ | -------------------- | ----------------- |
 | Control | C# / Avalonia（Mac·Win·Linux） | 控制平面 + 操作 UI   | **L1–L3（混合）** |
-| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **主程式 L0；底層硬體能力 L4（Phase-1 實機驗證）** |
+| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2 實機驗證）；多相機全陣列 L0（Step 3，待 Switch）** |
 | IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L4（DGX Spark GB10 sm_121 實機：編譯+運算正確性+跨架一致性+速度，2026-06-15）** |
 
 ---
@@ -72,15 +72,16 @@
 
 ## Grab 端（Linux / C++）
 
-> ⚠️ **必須分兩件事看**：① 正式 Grab **主程式**（多相機陣列 / cam_manager / 連 Control）**仍未寫 = L0**；
-> ② 但 Grab 依賴的**底層硬體能力**（相機擷取、RDMA→GPU、端到端）已由 `Reference/phase1_tests/` 測試套件
-> **2026-06-11 實機 PASS = L4**（見下「Phase-1 硬體路徑」表）。**L4 僅限那條測試路徑**；正式 Grab 主程式從測試
-> 工具升級、接上 Control/IP 之前，整體 Grab **不算 L4**。
+> **2026-06-15 Step 2 更新**：正式 `cfaoi_grab` 單相機路徑已實機驗通（L4）。
+> 見 [Step 2 驗證報告](verification/verification_report_step2_20260615.md)。
+> 多相機全陣列（--cam-count ALL）+ Switch + N-slot ring buffer 屬 Step 3，尚未實作（L0）。
 
 | 模組 | 級別 | 驗證方式 / 缺什麼 |
 | ---- | ---- | ----------------- |
-| Grab 正式主程式（cam_manager / 多相機 / control_client / rdma_sender） | **L0** | 未寫：`grab/src/` 空（只有 CLAUDE.md + 空 src/config）。待從 phase1_tests 升級 |
-| ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端 | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
+| 正式 cfaoi_grab 單相機→RDMA→Spark（cam_pylon + rdma_sender + control_server + main） | **L4** | 2026-06-15 Step 2 實機：raL8192-12gm → pylon → FrameHeader(0xA01CF00D)+CRC32 → RDMA 18515 → Spark GB10 pinned memory → CRC 20/20，FAIL=0（見 [Step 2 報告](verification/verification_report_step2_20260615.md)）|
+| 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L0** | 未實作；Step 3 待 Switch 到貨 |
+| Control↔Grab 8100 完整接線 | **L1** | control_server.cpp 寫好、命令解析正確；本次以 nc hardcode 觸發，未接真正 Control UI |
+| ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端（Phase-1 測試套件） | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
 
 ### Phase-1 硬體路徑（2026-06-11 實機 PASS）→ 證據：[docs/verification/verification_report_20260611.md](verification/verification_report_20260611.md)
 
@@ -108,8 +109,8 @@
 | 配方 round-trip（Mac 改→IP 套用） | **L2** | IP offline-tcp `LOAD_RECIPE` 吃 `recipe_xml` 內容並套用，已於 Linux 驗。**(原草稿 L3→L2：完整「Mac 改值→IP 套用→結果反映」由使用者調參時跑過，但本盤點無乾淨可復現的單一佐證，保守標 L2)** |
 | 上位機協議（CF_/8787/gg4mida/timeout 40000） | **L1** | ⚠️ Control 端寫好（含 .Start/CF_ switch），**從未接真實上位機、且未被任何啟動處呼叫**（見 UpstreamServer 列）。 |
 | Grab↔IP RDMA 線格式 — **phase1 版** `Reference/phase1_tests/FrameHeader.h`（magic `0xA01CF00D`） | **L4** | 此版**實機收發驗證過**（t21/t40 全幀 CRC 正確）。定為正式線格式。 |
-| Grab↔IP RDMA 線格式 — `shared/FrameHeader.h` | **已對齊 phase1（L2 編譯驗證，wire 仍待 L4 真機收發）** | ✅ 2026-06-14 已把 `shared/FrameHeader.h` 對齊 phase1 版（magic `0xA01CF00D` + frameSeq u64/panelId/sliceIndex/machineCoordXY）；IP 編譯通過、offline 偵測 2606 bit-exact 不受影響（只 rename camId/frameSeq 2 處 + make_frame_header 相容層）。舊 `0xCFA0A001` 版作廢。**wire 真機收發**仍待 RDMA 主程式（明天起）。 |
-| RDMA 收發實作（RdmaSender/Receiver 主程式） | **L0** | 正式 Grab/IP 主程式尚無收發碼（phase1 的 `t40`/`RcConn` 為可升級樣板）。 |
+| Grab↔IP RDMA 線格式 — `shared/FrameHeader.h` | **L4** | ✅ 2026-06-14 對齊 phase1 版（magic `0xA01CF00D`）；2026-06-15 Step 2 cfaoi_grab 以此 Header 實機傳輸，Spark 端 magic/CRC 全對，wire 真機收發驗通。舊 `0xCFA0A001` 版作廢。 |
+| RDMA 收發實作（RdmaSender 正式主程式 / 單相機） | **L4** | 2026-06-15 Step 2：`grab/src/rdma_sender.cpp` 實機驗通（CRC 20/20）。IP 端 rdma-validate / rdma_receiver 仍 L0。 |
 
 ---
 
@@ -165,11 +166,13 @@
 
 ---
 
-## 下一階段：Step 2（Grab + RDMA）前置
+## 下一階段：Step 3（Grab 全陣列 + Switch）
 
-進入硬體階段前需要：
-1. 傳 `Reference/phase1_tests/` 到開發機
-2. 裝 pylon SDK（Basler）+ eBUS SDK（Pleora）
-3. 確認 ConnectX-5 NIC + SN2201 交換器 + DAC 線實體狀態
-4. UpstreamServer 接線（online 階段需要）：L1→（接線啟動+綁回呼）→ L4
-5. RDMA 收發實作（FrameHeader.h 已備）：L0/L1 → L3 → L4
+Step 2 已完成（2026-06-15），下一步：
+
+1. **SN2201 交換器到貨** + 37 台 raL8192 接線
+2. `cfaoi_grab --cam-count ALL`（全陣列多相機）
+3. N-slot ring buffer（配合連續多相機流量，IP 端協商多 MrInfo）
+4. Control↔Grab 8100 完整接線（目前 hardcode nc，待 Step 3 接真正 Control UI）
+5. IP 端加入 `rdma-validate` 模式（目前 t40_e2e_server 代，Step 3 正規化）
+6. UpstreamServer 接線（online 階段需要）：L1→（接線啟動+綁回呼）→ L4
