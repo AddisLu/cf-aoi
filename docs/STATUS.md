@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-15**（納入正式 cfaoi_grab Step 2 單相機 RDMA 驗證；前次：2026-06-15 ARM/GB10 運算驗證 + 2026-06-11 Phase-1 硬體實機驗證）
+> 最後更新：**2026-06-15**（納入 IP 行車紀錄 flight recorder + 收圖入口驗證；前次：正式 cfaoi_grab Step 2 單相機 RDMA 驗證 + 2026-06-15 ARM/GB10 運算驗證 + 2026-06-11 Phase-1 硬體實機驗證）
 
 ## 分級定義
 
@@ -67,6 +67,8 @@
 | AI 推論（RF model, Tensor Core FP16） | **L1** | ⚠️ 核實：`ai_classifier` 有載入（`ai_on=true`），但 `ai_active` 預設 **false**、`--use-ai` 才開；Step 7 過濾 gated on `ai_on && ai_active`，預設缺陷全標 `待人工複核`。因 TrueDefect 樣本不足暫停用。(草稿 L1 ✓ 確認) |
 | RecipeSetting 接線（max_save / patch_size 吃設定） | **L0** | ⚠️ 核實：`result_saver` **不讀** RecipeSetting.xml，固定用 `SaveOptions.patch_size=100` + `debug` gate（甚至把 100 寫進結果 XML 的 SaveDefectWidth）。待擴 TCP 協議。(草稿 L0 ✓ 確認) |
 | rdma-validate / image-capture / online 模式 | **L0** | ⚠️ 核實：`main.cpp` 只有 `offline-file` / `offline-tcp` 兩分支；`ip/src/modes/` **空目錄**、`image_source/` 無 `rdma_source`。CMake 雖有 IBVERBS 條件項但對應檔不存在。**(草稿漏列，補上)** |
+| 行車紀錄（flight recorder：結構化診斷 JSONL/incident） | **L3** | `diag/flight_recorder` 環形緩衝+只記出事；2026-06-15 RTX 2080 端到端驗證五種 incident kind（cuda_fatal 經人為 OOM 觸發、frame_validation/bad_json/recipe_load/uncaught_exception）+ JSON 全可解析 + 決定性不破 + bench 無 `_diag`（recorder no-op，gpu_ms 零擾動）。見 ip/CLAUDE.md 不變式 16。 |
+| 收圖入口 magic/version/CRC32 + 尺寸驗證 | **L3（offline-tcp）/ L1（RDMA wire）** | offline-tcp：尺寸防呆 + client 宣告 `crc32` 比對於 RTX 2080 實測拒收+記 incident（L3）。**RDMA wire header 的 magic/version/CRC 驗證分支待 `rdma_source` 實作後才生效（L1）**。見 ip/CLAUDE.md 不變式 17。 |
 
 ---
 

@@ -27,6 +27,7 @@
 #include <nlohmann/json.hpp>
 
 #include "config/zone_config_adapter.h"
+#include "diag/flight_recorder.h"
 #include "gpu/gpu_pipeline.h"
 #include "image_source/file_source.h"
 #include "image_source/tcp_source.h"
@@ -203,6 +204,43 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
     return agg;
 }
 
+// 行車紀錄：從 zones + FrameHeader 組「僅參數」現場（process 前 set_scene 用，
+// 使 CUDA fatal 在運算中途也抓得到當下 panel/zone 參數）。
+diag::FrameScene make_scene_params(const std::vector<ZoneConfig>& zones,
+                                   const std::string& panel, const FrameHeader& hdr) {
+    diag::FrameScene s;
+    s.panel_id  = panel;
+    s.frame_seq = hdr.frameSeq;
+    s.cam_id    = hdr.camId;
+    s.width     = (int)hdr.width;
+    s.height    = (int)hdr.height;
+    for (const auto& z : zones) {
+        diag::ZoneSnap zs;
+        zs.zone_index = z.zone_index;
+        zs.BTH = z.BTH; zs.DTH = z.DTH;
+        zs.pitch_x = z.pitch_x; zs.pitch_y = z.pitch_y;
+        zs.search_x = z.search_range_x; zs.search_y = z.search_range_y;
+        zs.roi_x1 = z.roi_start_x; zs.roi_y1 = z.roi_start_y;
+        zs.roi_x2 = z.roi_end_x;   zs.roi_y2 = z.roi_end_y;
+        s.zones.push_back(zs);
+    }
+    return s;
+}
+
+// 把結果補進現場（process 後 record_frame 用）。
+void fill_scene_results(diag::FrameScene& s, const InspectionResult& res) {
+    s.gpu_ms = res.total_time_ms;
+    int total = 0, bright = 0, dark = 0;
+    for (size_t i = 0; i < res.zones.size(); ++i) {
+        if (i < s.zones.size()) s.zones[i].defects = res.zones[i].result.num_defects;
+        total  += res.zones[i].result.num_defects;
+        bright += res.zones[i].result.num_bright;
+        dark   += res.zones[i].result.num_dark;
+    }
+    s.num_defects = total; s.num_bright = bright; s.num_dark = dark;
+    s.pass = (total == 0);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -211,32 +249,48 @@ int main(int argc, char** argv) {
 
     std::cout << "==== CF-AOI IP (mode=" << args.mode << ") ====\n";
 
-    // ---- 建立 ZoneConfig（INI 預設 + 可選 recipe）----
+    // ---- INI 預設參數 ----
     ZoneConfig base = ZoneConfigAdapter::from_ini(args.ini);
     // bench 覆寫單一全幅 zone（掃缺陷負載上下界用；只對無 recipe 的單 zone 生效）
     if (args.ov_bth >= 0.f)  base.BTH = args.ov_bth;
     if (args.ov_dth >= 0.f)  base.DTH = args.ov_dth;
     if (args.ov_pitch_x > 0) base.pitch_x = args.ov_pitch_x;
     if (args.ov_pitch_y > 0) base.pitch_y = args.ov_pitch_y;
+
+    // ---- GPU pipeline（先建：使行車紀錄拿得到 zero_copy/ai 狀態；CUDA init 也在 recipe 解析前）----
+    GpuPipeline pipe(args.ai_model_dir);
+    pipe.set_ai_active(args.use_ai);   // 預設停用 AI（訓練資料不足）
+    std::cout << "[GPU] zero_copy=" << (pipe.is_zero_copy() ? "yes" : "no")
+              << " ai=" << (pipe.ai_enabled() ? "on" : "off")
+              << (pipe.ai_model_loaded() && !args.use_ai ? "（模型已載入但停用）" : "") << "\n";
+
+    // ---- 行車紀錄 begin_session（bench 不啟用 → recorder 全程 no-op，gpu_ms 零擾動）----
+    if (args.mode != "bench") {
+        diag::SessionInfo si;
+        si.mode       = args.mode;
+        si.ip_name    = args.ip_name;
+        si.ini        = args.ini;
+        si.recipe     = args.recipe;   // 空 → offline-tcp 由 LOAD_RECIPE 帶 inline xml
+        si.output_dir = args.output;
+        si.zero_copy  = pipe.is_zero_copy();
+        si.ai_active  = pipe.ai_enabled();
+        diag::FlightRecorder::instance().begin_session(si);
+    }
+
+    // ---- 建立 ZoneConfig（INI 預設 + 可選 recipe）----
     std::vector<ZoneConfig> zones;
     if (!args.recipe.empty()) {
         try {
             zones = ZoneConfigAdapter::from_recipe_xml(args.recipe, base);
         } catch (const RecipeError& e) {
             std::cerr << "[Recipe] 載入失敗: " << e.what() << "\n";
+            diag::FlightRecorder::instance().record_incident("recipe_load", e.what());
             return 2;
         }
     } else {
         zones = { base };  // 單一全幅 zone
     }
     std::cout << "[Zone] " << zones.size() << " 個檢測區\n";
-
-    // ---- GPU pipeline ----
-    GpuPipeline pipe(args.ai_model_dir);
-    pipe.set_ai_active(args.use_ai);   // 預設停用 AI（訓練資料不足）
-    std::cout << "[GPU] zero_copy=" << (pipe.is_zero_copy() ? "yes" : "no")
-              << " ai=" << (pipe.ai_enabled() ? "on" : "off")
-              << (pipe.ai_model_loaded() && !args.use_ai ? "（模型已載入但停用）" : "") << "\n";
 
     // 存圖選項（調參加速）
     SaveOptions save_opt;
@@ -256,8 +310,12 @@ int main(int argc, char** argv) {
         while (src.next_frame(hdr, payload)) {
             cv::Mat gray(hdr.height, hdr.width, CV_8UC1, payload.data());
             std::string name = src.current_name();
+            diag::FrameScene scene = make_scene_params(zones, name, hdr);
+            diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed);
+            fill_scene_results(scene, res);
+            diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
             ++processed;
         }
@@ -291,7 +349,11 @@ int main(int argc, char** argv) {
                               << (recipe_xml.empty() ? ("'" + recipe + "'") : "(inline xml)")
                               << " panel=" << panel << " → " << zones.size() << " zones\n";
                     return true;
-                } catch (const RecipeError& e) { err = e.what(); return false; }
+                } catch (const RecipeError& e) {
+                    err = e.what();
+                    diag::FlightRecorder::instance().record_incident("recipe_load", err);
+                    return false;
+                }
             });
         server.set_status_provider([&]() -> std::string {
             json s;
@@ -316,7 +378,11 @@ int main(int argc, char** argv) {
             std::vector<ZoneConfig> z_snapshot;
             { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }
             bool vf = false;  // tcp 串流模式不做 deterministic 驗證
+            diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
+            diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf);
+            fill_scene_results(scene, res);
+            diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
             // 調參(review)：預設只存結果+overlay；SEND_IMAGE_FOR_REVIEW debug=true 時才存全部 patch。
             SaveOptions review_opt = save_opt;
             review_opt.save_patches = server.review_save_patches();

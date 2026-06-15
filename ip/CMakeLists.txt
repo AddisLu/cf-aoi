@@ -40,6 +40,7 @@ add_executable(cfaoi_ip
     src/gpu/cuda_kernels.cu          # ← 直接複製來的，不改
     src/ai/ai_kernels.cu             # ← 直接複製來的（tensor_core_classifier.cu），不改
     src/config/zone_config_adapter.cpp
+    src/diag/flight_recorder.cpp
     src/image_source/file_source.cpp
     src/image_source/tcp_source.cpp
     src/result_saver.cpp

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <ctime>
@@ -23,9 +24,41 @@
 
 #include <nlohmann/json.hpp>
 
+#include "diag/flight_recorder.h"
+
 using json = nlohmann::json;
 
 namespace {
+
+// 收圖結構驗證（行車紀錄 frame_validation 用）：magic/version/headerBytes/payloadBytes 一致
+// + payload CRC32 比對。回傳空字串=通過，否則=失敗原因（含期望vs實得）。
+// offline-tcp 的 header 為本地建構（magic 等恆對）→ 主要擋未來 RDMA wire 損壞 + make_frame_header 迴歸；
+// offline-tcp 的真實損壞偵測靠 SEND_IMAGE_FOR_REVIEW 的可選 client 宣告 crc32（見呼叫處）。
+std::string validate_frame_header(const FrameHeader& h, const uint8_t* payload, uint32_t n) {
+    char b[96];
+    if (h.magic != FRAME_MAGIC) {
+        std::snprintf(b, sizeof(b), "magic 不符 期望=0x%08X 實得=0x%08X", FRAME_MAGIC, h.magic);
+        return b;
+    }
+    if (h.version != FRAME_VERSION) {
+        std::snprintf(b, sizeof(b), "version 不符 期望=%u 實得=%u", FRAME_VERSION, h.version);
+        return b;
+    }
+    if (h.headerBytes != 256) {
+        std::snprintf(b, sizeof(b), "headerBytes 不符 期望=256 實得=%u", h.headerBytes);
+        return b;
+    }
+    if (h.payloadBytes != n) {
+        std::snprintf(b, sizeof(b), "payloadBytes 不符 header=%u 實收=%u", h.payloadBytes, n);
+        return b;
+    }
+    uint32_t c = crc32_ieee(payload, n);
+    if (h.crc32 != c) {
+        std::snprintf(b, sizeof(b), "CRC32 不符 header=0x%08X 實算=0x%08X", h.crc32, c);
+        return b;
+    }
+    return "";
+}
 
 // 連線讀緩衝：支援先讀「一行（\n 結尾）」再讀「剛好 N bytes 二進位」。
 struct ConnReader {
@@ -287,6 +320,7 @@ void ControlServer::handle_client(int fd) {
             cmd = req.value("cmd", "");
             seq = req.value("seq", 0);
         } catch (const std::exception& e) {
+            diag::FlightRecorder::instance().record_incident("bad_json", e.what());
             reply(fd, {{"status", "ERR"}, {"error", std::string("bad json: ") + e.what()}});
             continue;
         }
@@ -332,9 +366,17 @@ void ControlServer::handle_client(int fd) {
             // debug=true → 本次存全部 patch（調參看小圖）；預設 false → 只存結果+overlay 加速。
             review_save_patches_ = params.value("debug", false);
 
-            if (payload_bytes == 0 || payload_bytes != width * height) {
-                reply(fd, {{"seq", seq}, {"status", "ERR"},
-                           {"error", "payload_bytes 必須等於 width*height (Mono8)"}});
+            // 收圖入口驗證①：尺寸/payload 防呆（bogus 尺寸→巨量配置→OOM(cuda_fatal)）。
+            constexpr uint32_t kMaxDim = 16384;
+            if (width == 0 || height == 0 || width > kMaxDim || height > kMaxDim ||
+                payload_bytes == 0 || payload_bytes != width * height) {
+                char eb[176];
+                std::snprintf(eb, sizeof(eb),
+                    "影像尺寸/payload 非法: width=%u height=%u payload_bytes=%u (需 1..%u 且 payload=w*h)",
+                    width, height, payload_bytes, kMaxDim);
+                diag::FlightRecorder::instance().record_incident("frame_validation",
+                    "panel=" + panel + " : " + eb);
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", eb}});
                 continue;
             }
             auto t_recv0 = std::chrono::steady_clock::now();
@@ -348,6 +390,25 @@ void ControlServer::handle_client(int fd) {
             FrameHeader hdr = make_frame_header(panel, cam_id, fseq, width, height,
                                                 payload.data(), payload_bytes, sys_id,
                                                 /*timestamp*/ 0, last);
+            // 收圖入口驗證②：結構（magic/version/CRC32）+ 可選 client 宣告 crc32（offline-tcp 偵測傳輸損壞）。
+            // 失敗 → 記 frame_validation incident + 拒收（不 enqueue）。
+            std::string verr = validate_frame_header(hdr, payload.data(), payload_bytes);
+            if (verr.empty() && params.contains("crc32")) {
+                uint32_t declared = (uint32_t)params.value("crc32", 0u);
+                uint32_t actual = crc32_ieee(payload.data(), payload_bytes);
+                if (declared != actual) {
+                    char eb[96];
+                    std::snprintf(eb, sizeof(eb),
+                        "CRC32 不符 client宣告=0x%08X 實算=0x%08X", declared, actual);
+                    verr = eb;
+                }
+            }
+            if (!verr.empty()) {
+                diag::FlightRecorder::instance().record_incident("frame_validation",
+                    "panel=" + panel + " seq=" + std::to_string(fseq) + " : " + verr);
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", verr}});
+                continue;
+            }
             // 清掉同 panel 的舊結果，避免讀到上一張的；再 enqueue 並等本次結果。
             { std::lock_guard<std::mutex> lk(result_mtx_); results_.erase(panel); }
             queue_.push(hdr, panel, std::move(payload));

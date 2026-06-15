@@ -192,6 +192,8 @@ ip/
     │   ├── offline_processor.cpp        ← 🔧 改自 batch_detector 的 offline 流程
     │   ├── rdma_validator.cpp           ← 🔧 改自 inline_controller RDMA 接收
     │   └── image_capturer.cpp           ← 🆕 Step 4 存圖
+    ├── diag/
+    │   └── flight_recorder.h/.cpp       ← 🆕 行車紀錄（結構化診斷 JSONL/incident，見不變式 16）
     ├── align_engine.h/.cpp              ← 🆕 OpenCV Pattern Match（取代 MIL）
     ├── control_server.h/.cpp            ← 🆕 TCP JSON server
     ├── result_saver.h/.cpp              ← 🔧 改自 batch_detector ResultWriter
@@ -323,3 +325,17 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     `1110 張 × 7.4ms = 8.2s/面板 < 30s 節拍` → **1 台 Spark 足夠**（G8.5 37 相機陣列，餘裕 ~73%）。
     vs reference gpu_algo 同影像 4.9ms 慢 **1.5×**，是 **CCL 收斂迴圈（不變式 7）+ zero-copy mapped 讀 + canonical
     排序（不變式 8）的決定性代價**，非效能 bug；gpu_ms 隨缺陷量 scaling（爆量觸頂 ~14ms）證實此 kernel 記憶體頻寬綁定。
+16. **行車紀錄純觀測，不得擾動運算（flight-recorder-observe-only）**：`diag/flight_recorder.cpp` 平時零磁碟
+    I/O（最近 64 張現場進記憶體環形緩衝），出事才落地 `<output>/_diag/<yyyyMMdd>.jsonl`（每事件一行 compact 索引）
+    + `incident_<ts>.json`（完整現場 pretty-print）。**`record_frame` 在 `cudaEvent` 計時區外呼叫**、
+    `set_scene` 寫 ring 只鎖極短（小 struct 複製）→ 不影響 `gpu_ms`/bit-exact 決定性（不變式 5）。
+    **bench 模式不呼叫 `begin_session` → `enabled_=false` → 所有方法 no-op**（bench `process_image` 路徑無任何
+    scene hook，gpu_ms 零擾動）。跨執行緒抓現場用全域 `std::atomic<const FrameScene*> latest_`（非 thread_local）：
+    `CUDA_CHECK` 的 `exit()` 觸發 `std::atexit` handler，讀 `latest_` + `cudaPeekAtLastError()` dump `cuda_fatal`；
+    `std::set_terminate` dump `uncaught_exception`。incident kind：`cuda_fatal`/`frame_validation`/`recipe_load`/
+    `bad_json`/`uncaught_exception`。（2026-06-15 RTX 2080 五種 kind + 決定性 + bench-noop 全驗證。）
+17. **收圖入口驗證（frame-ingress-validate）**：`control_server.cpp` 收圖入口驗證
+    **magic/version/headerBytes/payloadBytes + payload CRC32**（用 `shared/FrameHeader.h::crc32_ieee`）+ **尺寸防呆**
+    （width/height ∈ [1, 16384]，擋 bogus 尺寸→巨量配置→OOM）；offline-tcp 另支援 client 在 `SEND_IMAGE_FOR_REVIEW`
+    可選帶 `crc32` 宣告值比對偵測傳輸損壞。**任一失敗 → 記 `frame_validation` incident + 回 ERR 拒收（不 enqueue）**。
+    （offline-tcp header 為本地建構故 magic 等恆對，wire 驗證主擋未來 RDMA 收圖路徑；該 RDMA 分支待 `rdma_source` 實作後才實際生效。）
