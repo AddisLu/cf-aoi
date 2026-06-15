@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-14**（納入 2026-06-11 Phase-1 硬體實機驗證）| 對應 commit：**a45dcdb**
+> 最後更新：**2026-06-15**（納入 2026-06-15 ARM/GB10 運算驗證；前次 2026-06-11 Phase-1 硬體實機驗證）| 對應 commit：**7433f34**
 
 ## 分級定義
 
@@ -30,7 +30,7 @@
 | ------- | ------------------------------ | -------------------- | ----------------- |
 | Control | C# / Avalonia（Mac·Win·Linux） | 控制平面 + 操作 UI   | **L1–L3（混合）** |
 | Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **主程式 L0；底層硬體能力 L4（Phase-1 實機驗證）** |
-| IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L3（offline，RTX2080）；GB10 上未驗證** |
+| IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L4（DGX Spark GB10 sm_121 實機：編譯+運算正確性+跨架一致性+速度，2026-06-15）** |
 
 ---
 
@@ -58,8 +58,8 @@
 
 | 模組 | 級別 | 驗證方式 / 缺什麼 |
 | ---- | ---- | ----------------- |
-| GPU 演算法引擎（DIV-only 比例式閾值） | **L3** | 開發機 RTX 2080S 實跑 offline-file（2606 缺陷）；DIV=gpu_algo 嚴格相等（程式碼+不變式）。(草稿 L3 ✓) |
-| CCL 決定性（收斂迴圈 + canonical 排序） | **L3** | 本次實跑 `--verify-deterministic`：**「✓ 全部影像兩次執行 bit-exact」(2606)**。(草稿 L3 ✓ 已取得硬證據) |
+| GPU 演算法引擎（DIV-only 比例式閾值） | **L4** | RTX 2080S offline-file（2606 缺陷）；**2026-06-15 DGX Spark GB10/sm_121 實機**：26 張真實面板 vs reference ground truth 25/26 缺陷數完全一致（見 [ARM 驗證報告](verification/verification_report_arm_20260615.md)）。 |
+| CCL 決定性（收斂迴圈 + canonical 排序） | **L4** | `--verify-deterministic`：x86 bit-exact(2606)；**GB10 sm_121 上 26 張兩跑全 bit-exact（2026-06-15）**。 |
 | 結構化輸出（{yyyyMMdd}/{panel}_{recipe}/） | **L3** | 真機跑出該結構；`[Diag]` 三數一致（DetectionResult=JSON DefectInfo=寫出 patch=2606）。(草稿 L3 ✓) |
 | 缺陷 patch 存圖（PNG、多執行緒、debug gate、重測清舊） | **L3** | 真機 offline 驗證：PNG overlay、多緒寫、`debug` 門檻 off→0/on→全存、無條件清舊 Defect_*。(草稿 L3 ✓) |
 | ControlServer（port 8200, newline-JSON 命令） | **L3** | python TCP 客戶端於真機驅動 LIST/SORT/patches/SEND_IMAGE 跑通；使用者 Mac Control 亦連上。(草稿 L3 ✓) |
@@ -103,6 +103,7 @@
 
 | 項目 | 級別 | 驗證方式 |
 | ---- | ---- | -------- |
+| 跨架構一致性（x86 sm_75 ↔ ARM GB10 sm_121） | **L4** | 2026-06-15 GB10 實機：26 張真實面板 vs reference ground truth，**25/26 缺陷數完全一致**；整數/幾何完全一致，浮點邊界像素可能單像素 ULP 翻面（028 案例，DTH 0.60→0.58 即消失，偏保守方向，**已判定接受**）→ **off-line 調參對 on-line 有效**。見 [ARM 驗證報告](verification/verification_report_arm_20260615.md)。 |
 | network-clean（配方 XML 內容 / 結果 JSON / patch base64 over TCP） | **L3** | IP 側真機驗證不依賴對方檔案系統；使用者 Mac↔Linux 實跑（過程發現並修了中文亂碼/重複小圖/存圖 bug，即跨機實測佐證）。 |
 | 配方 round-trip（Mac 改→IP 套用） | **L2** | IP offline-tcp `LOAD_RECIPE` 吃 `recipe_xml` 內容並套用，已於 Linux 驗。**(原草稿 L3→L2：完整「Mac 改值→IP 套用→結果反映」由使用者調參時跑過，但本盤點無乾淨可復現的單一佐證，保守標 L2)** |
 | 上位機協議（CF_/8787/gg4mida/timeout 40000） | **L1** | ⚠️ Control 端寫好（含 .Start/CF_ switch），**從未接真實上位機、且未被任何啟動處呼叫**（見 UpstreamServer 列）。 |
@@ -117,7 +118,7 @@
 | 硬體 | 狀態 |
 | ---- | ---- |
 | 開發機 RTX 2080 Super（sm_75, CUDA 12.x） | ✅ IP offline 演算法運作中（本盤點實跑） |
-| DGX Spark（GB10 sm_121, CUDA 13） | **RDMA→GPU 收圖路徑 2026-06-11 實機 PASS（L4）**；但 **AOI 演算法在 Spark 上＝未驗證**（演算法只在 RTX 2080S 跑過，尚未在 GB10 編譯/執行）|
+| DGX Spark（GB10 sm_121, CUDA 13） | **RDMA→GPU 收圖路徑 2026-06-11 實機 PASS（L4）**；**AOI 演算法 2026-06-15 GB10 實機驗證 PASS（L4）**：編譯零警告、26 張真實面板跨架一致、~7.4ms/張 → **1 台 Spark 足夠**（餘裕 ~73%）|
 | Basler raL8192-12gm（1 台，pylon 26.05） | ✅ 實機取像 PASS（500 幀零掉幀）；37 台陣列＋Switch 未接（Step 3+）|
 | 18× L803K+iPORT（eBUS） | 未接（eBUS SDK 未裝；Step 2+）|
 | Mellanox ConnectX-5（截取中心）/ ConnectX-7（Spark） | ✅ 100G RDMA 鏈路實測 PASS |
@@ -134,6 +135,8 @@
 - **重測前清 panel 夾**：`result_saver` 無條件清舊 `Defect_*`，避免 DefectSort 歷史殘留疊加（曾 561→1122）
 - **缺陷檔名 IpName 取自 panel 前綴**：與資料夾一致（修正 Defect_IP01 vs 夾 IP02）
 - **TCP 整行 UTF-8 解碼**：`IpClient` 累積 bytes 整行解 UTF-8（修中文亂碼，不可逐 byte→char）
+- **跨架構一致性（x86↔ARM）**：整數/幾何欄位完全一致；浮點閾值邊界像素可能單像素 ULP 翻面，方向偏保守（**寧抓勿漏**）→ 可接受，進 DefectSort 人工複核。案例：IP04_028 單像素 dark @(1852,2372)，DTH 0.60→0.58 即消失（2026-06-15 GB10 實測）
+- **GB10 容量：1 台 Spark 足夠**：實測正常面板 ~7.4ms/張（cudaEvent），1110×7.4ms=8.2s/面板 < 30s 節拍（餘裕 ~73%）。block_dim 16×16 vs 32×32 無差異。vs reference 4.9ms 慢 1.5× 屬 CCL 收斂迴圈+zero-copy+canonical 排序的決定性代價，非 bug
 - **誠實分級（meta #0）**：功能狀態須分 L0–L4，不可把「寫好」說成「驗證過」（UpstreamServer / AI 推論即案例）
 
 ---

@@ -233,3 +233,8 @@ static_assert(sizeof(FrameHeader)==256,"");
     的 GPU Bus ID 非標準 PCIe 空間 → `nvidia_peermem` 載入 EINVAL。正式 IP RDMA 接收用 pinned host memory
     （`cudaHostAlloc` Portable|Mapped）註冊 MR，GPU 經 `cudaHostGetDevicePointer` 透過 NVLink-C2C(~900GB/s)
     讀寫；`t40_e2e_server` 已採此法。詳見 grab/CLAUDE.md 不變式 6。
+12. **跨架構一致性（x86 sm_75 ↔ ARM GB10 sm_121）**（2026-06-15 GB10 實機驗證，見
+    `docs/verification/verification_report_arm_20260615.md`）：x86(off-line 調參)與 ARM(on-line 生產)跑**同一份 `ip/`**，
+    **整數/幾何欄位完全一致**；唯**浮點閾值邊界像素可能 ULP 翻面**（單像素級、方向偏保守＝寧抓勿漏），
+    缺陷預設 `待人工複核` 進 DefectSort 人工確認 → 可接受。**結論：off-line(x86)調的參數對 on-line(ARM)有效。**
+    一致性/決定性只用未觸頂負載比對（觸頂 cap=10000 截斷為 race-dependent，非 bit-exact，僅供 perf）。
