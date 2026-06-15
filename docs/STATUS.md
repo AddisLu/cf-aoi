@@ -136,7 +136,8 @@
 - **缺陷檔名 IpName 取自 panel 前綴**：與資料夾一致（修正 Defect_IP01 vs 夾 IP02）
 - **TCP 整行 UTF-8 解碼**：`IpClient` 累積 bytes 整行解 UTF-8（修中文亂碼，不可逐 byte→char）
 - **跨架構一致性（x86↔ARM）**：整數/幾何欄位完全一致；浮點閾值邊界像素可能單像素 ULP 翻面，方向偏保守（**寧抓勿漏**）→ 可接受，進 DefectSort 人工複核。案例：IP04_028 單像素 dark @(1852,2372)，DTH 0.60→0.58 即消失（2026-06-15 GB10 實測）
-- **GB10 容量：1 台 Spark 足夠**：實測正常面板 ~7.4ms/張（cudaEvent），1110×7.4ms=8.2s/面板 < 30s 節拍（餘裕 ~73%）。block_dim 16×16 vs 32×32 無差異。vs reference 4.9ms 慢 1.5× 屬 CCL 收斂迴圈+zero-copy+canonical 排序的決定性代價，非 bug
+- **GB10 容量：1 台 Spark 足夠**：實測正常面板 ~7.4ms/張（cudaEvent，於固定 block_dim 16×16），1110×7.4ms=8.2s/面板 < 30s 節拍（餘裕 ~73%）。vs reference 4.9ms 慢 1.5× 屬 CCL 收斂迴圈+zero-copy+canonical 排序的決定性代價，非 bug
+- **block_dim 固定 16×16**：`zone_config_adapter::from_ini` 硬寫死 16×16，INI 的 `[GPU] block_dim`（32×32）為死設定從未生效；RAG 建議的 16×16 已是現狀，改 INI 不影響 GPU block 維度（勘誤：原「16 vs 32 無差異」實為同一設定的重跑）
 - **誠實分級（meta #0）**：功能狀態須分 L0–L4，不可把「寫好」說成「驗證過」（UpstreamServer / AI 推論即案例）
 
 ---

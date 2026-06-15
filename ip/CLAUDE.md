@@ -316,9 +316,10 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     新面板務必先用 **FFT 估算**（`scripts/estimate_pitch.py` 或 Control Step1 的「FFT 估算」鈕）確認 Pitch，
     **不可沿用舊面板值或用猜的**。缺陷數異常暴增（接近 10000 觸頂）時，第一個要懷疑的就是 Pitch 設錯。
 15. **GB10 效能基準與 block_dim（gb10-perf-baseline）**（2026-06-15 實機 bench，見
-    `docs/verification/verification_report_arm_20260615.md`）：GB10/sm_121 上 `block_dim` **16×16 vs 32×32 無差異**
-    （7.37 vs 7.41ms；爆量 14.34 vs 14.19ms）→ **不需為 RAG_TRAINING.md 建議的 16×16 改 ini**。
-    GB10 正常面板（個位數缺陷）**~7.4ms/張**（cudaEvent median；乾淨 0 缺陷 6.95ms），
+    `docs/verification/verification_report_arm_20260615.md`）：**`block_dim` 固定 16×16** —— `zone_config_adapter.cpp`
+    `from_ini`（L69-70）硬寫死 `block_dim_x=block_dim_y=16`，**完全忽略 INI 的 `[GPU] block_dim`（32×32 為死設定）**；
+    RAG_TRAINING.md §5.2 建議的 16×16 已是現狀、32×32 從未被執行，改 INI 不影響 GPU block 維度。
+    GB10 正常面板（個位數缺陷）**~7.4ms/張**（cudaEvent median；乾淨 0 缺陷 6.95ms，皆於 16×16），
     `1110 張 × 7.4ms = 8.2s/面板 < 30s 節拍` → **1 台 Spark 足夠**（G8.5 37 相機陣列，餘裕 ~73%）。
     vs reference gpu_algo 同影像 4.9ms 慢 **1.5×**，是 **CCL 收斂迴圈（不變式 7）+ zero-copy mapped 讀 + canonical
     排序（不變式 8）的決定性代價**，非效能 bug；gpu_ms 隨缺陷量 scaling（爆量觸頂 ~14ms）證實此 kernel 記憶體頻寬綁定。
