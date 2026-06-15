@@ -1,6 +1,6 @@
 # IP 程式完整說明
 
-> 版本：2026-06-15 整理（逐檔靜態分析 + GB10 實機驗證對照）
+> 版本：2026-06-15 整理（逐檔靜態分析 + GB10 實機驗證對照）+ flight_recorder（行車紀錄）
 > 專案：`ip/CMakeLists.txt`（C++17 / CUDA）→ 可執行檔 `cfaoi_ip`
 > 技術棧：C++ + CUDA（cuda_kernels.cu / ai_kernels.cu）+ OpenCV + nlohmann_json + fmt + cuBLAS
 > 平台：Linux RTX 2080 Super（sm_75，開發）/ DGX Spark GB10（sm_121，生產，ARM aarch64）
@@ -121,6 +121,17 @@ CF-AOI 分散式架構 IP 程式（本文件）
 ║   ResultInfo.json/.xml（legacy JudgeResult 相容）      ║
 ║   Defect_*.png 小圖（多緒）+ _result.png overlay       ║
 ╚═══════════════════════════════════════════════════════╝
+
+  process_image ──set_scene/record_frame（純觀測，不影響運算）──┐
+                                                              ↓
+╔═══════════════════════════════════════════════════════╗
+║ 診斷層 (diag/flight_recorder.{h,cpp})  ※行車紀錄      ║
+║  環形緩衝 64 張當下現場（平時零磁碟 I/O）             ║
+║  出事才落地 <out>/_diag/<yyyyMMdd>.jsonl（事件索引）   ║
+║            + incident_<ts>.json（完整現場 pretty）     ║
+║  atomic latest_ 跨執行緒；atexit/set_terminate 抓現場 ║
+║  收圖入口 magic/version/CRC32 驗證（§4.6/§9/§13#17）   ║
+╚═══════════════════════════════════════════════════════╝
 ```
 
 ---
@@ -134,9 +145,9 @@ main()
   ├─ parse_args()                                      失敗 → 1
   ├─ base = ZoneConfigAdapter::from_ini(--ini)         （單一全幅 zone 預設）
   ├─ 套用 bench 覆寫（--bth/--dth/--pitch-x/-y，若給）
-  ├─ zones = --recipe ? from_recipe_xml(...) : { base }  RecipeError → 2
-  ├─ GpuPipeline pipe(--ai-model-dir)                  偵測 integrated→zero-copy
-  │    set_ai_active(--use-ai)                          預設 false
+  ├─ GpuPipeline pipe(--ai-model-dir)                  偵測 integrated→zero-copy；set_ai_active(--use-ai)=false
+  ├─ FlightRecorder::begin_session(...)                pipe 後（拿 zero_copy/ai）；bench 不啟用→全 no-op（§13#16）
+  ├─ zones = --recipe ? from_recipe_xml(...) : { base }  RecipeError → record_incident("recipe_load") + 2
   └─ switch(--mode)
        ├─ offline-file → §4.2
        ├─ offline-tcp  → §4.3
@@ -174,6 +185,8 @@ TcpImageSource src(queue)
 ### 4.4 process_image：多 zone 裁切 → 合併（main.cpp:159-204）
 
 ```
+（offline-file/tcp 迴圈：process_image 前後夾行車紀錄，純觀測，bench 無此 hook）
+  FlightRecorder::set_scene(scene_params)   ← process 前：抓當下參數現場（panel/zone/BTH/DTH/pitch）
 InspectionResult agg{ panel_id, w, h, ai_used=pipe.ai_enabled(), recipe_name }
 for zone in zones:
    r = zone_rect(zone, w, h)              全幅→整張；否則夾 ROI 邊界
@@ -183,6 +196,7 @@ for zone in zones:
    （verify：跑第二次 first_determinism_diff() 比對 → verify_failed）
    agg.zones += ZoneResult{ zone_index, roi_offset=(r.x,r.y), zone, res }
 → 一個 DetectRoi = 一個 ZoneResult = 一個 RoiInfo
+  FlightRecorder::record_frame(scene+結果)  ← process 後（cudaEvent 計時區外）：補缺陷數/gpu_ms/pass
 ```
 
 ### 4.5 bench（純 GPU 量速，main.cpp:331-398）
@@ -202,8 +216,10 @@ warmup（--bench-warmup，丟棄，吸收 CUDA init/JIT）
 Control 送：{"cmd":"SEND_IMAGE_FOR_REVIEW","params":{width,height,payload_bytes,panel_id,cam_id,debug,...}}\n
             + 緊接 payload_bytes 個 raw bytes（Mono8 = width*height）
 IP：
-  ├─ 驗 payload_bytes == width*height（否則 ERR）
+  ├─ 尺寸守衛：width/height ∈ [1,16384] 且 payload_bytes==width*height（否則 record_incident("frame_validation")+ERR，擋 bogus→OOM）
   ├─ read_exact(payload_bytes)            讀完整張影像
+  ├─ make_frame_header → 驗 magic/version/headerBytes/payloadBytes + CRC32（§13#17）
+  │    + 可選 client 宣告 crc32 比對（偵測傳輸損壞）；失敗 → record_incident("frame_validation")+ERR 拒收（不 enqueue）
   ├─ results_.erase(panel)                清舊結果
   ├─ queue_.push(hdr, panel, payload)     交給 TcpImageSource → GpuPipeline
   └─ result_cv_.wait_for(60s, results_.count(panel)>0)
@@ -248,6 +264,7 @@ IP：
 | `ControlServer` | `control_server.{h,cpp}` | TCP JSON server @8200；命令分派；送圖會合 `deliver_result`；DefectSort 遠端命令 |
 | `ResultSaver` | `result_saver.{h,cpp}` | 輸出夾結構、ResultInfo.json/.xml（legacy 相容）、小圖多緒寫、overlay、清舊檔、`[Diag]` 一致性 |
 | `TensorCoreClassifier` | `ai/tensor_core_classifier.h`, `ai/ai_kernels.cu` | RF（100 樹）+ MLP 備援；TF32/FP16 Tensor Core；**預設停用** |
+| `FlightRecorder` | `diag/flight_recorder.{h,cpp}` | 行車紀錄：ring buffer 64 張當下現場 + 出事 dump incident JSON；收圖入口 CRC/magic 驗證；atomic `latest_` 跨執行緒抓現場（atexit/set_terminate）；純觀測、bench no-op |
 
 ---
 
@@ -356,7 +373,7 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 | `MAX_DEFECTS` | 10000 | gpu_pipeline.cpp:24 |
 | `MAX_UNIQUE_LABELS` | 65536 | cuda_kernels.cu:24 |
 | `MAX_CCL_ITERS` | 1000（典型 2-4） | cuda_kernels.cu:1190 |
-| `block_dim` | **16×16（from_ini 硬寫死，忽略 INI 的 32×32）** | zone_config_adapter.cpp:69-70 |
+| `block_dim` | **16×16（from_ini 硬寫死，無條件覆寫，忽略 INI 的 `[GPU] block_dim` 不論 16/32）** | zone_config_adapter.cpp:69-70 |
 | Blob 分析 block | 32×32 | cuda_kernels.cu:1219 |
 | 多尺度 dispatch | `width < 8000`（8160 全幅 → 走 texture 8-way）| cuda_kernels.cu:1110 |
 | blob 過濾 | min=1, max=300, aspect>5&density<0.3 剔除 | cuda_kernels.cu:1275/811 |
@@ -426,6 +443,7 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 | `GET_DEFECT_PATCHES_BATCH` | `date`,`folder_name`,`patch_ids`[] | `status`, `patches`[{patch_id, png_base64}] |
 | `SAVE_DEFECT_CLASSIFICATION` | `date`,`folder_name`,`classifications`[{patch_id, class}] | `status`, `TrueDefect`, `Particle`, `total`, `output_dir` |
 
+- **收圖驗證**（不變式 #17）：`SEND_IMAGE_FOR_REVIEW` 收圖先過**尺寸守衛**（width/height ∈ [1,16384]）+ **magic/version/headerBytes/payloadBytes + CRC32** 驗證（offline-tcp 另可帶 `crc32` 宣告值比對偵測傳輸損壞）；任一失敗 → 回 `ERR` 並記 `frame_validation` incident、**拒收不 enqueue**。
 - **network-clean**（不變式 #11）：`LOAD_RECIPE` 傳 **XML 內容**（非路徑）；缺陷小圖以 **base64 PNG** 經 TCP 回傳；IP 不讀寫對方硬碟。
 - **送圖會合**：SEND_IMAGE 推進 FrameQueue → 主迴圈算完 `deliver_result(panel, json)` → `result_cv_` 喚醒回傳（60s timeout）。
 - **DefectSort 命令**就地操作 `output_dir`（IP 端硬碟），對應 Control 的缺陷整理 UI 兩層（panel 夾列表 / 小圖人工分類）。
@@ -501,7 +519,7 @@ DefectInfo: RunIndex, GlobalPosX/Y, Size, Width, Height, Type, Filter(NoFilter),
 
 ## 13. 關鍵不變式
 
-> 完整 15 條見 [ip/CLAUDE.md §9](../ip/CLAUDE.md)。重點：
+> 完整 17 條見 [ip/CLAUDE.md §9](../ip/CLAUDE.md)。重點：
 
 1. `cuda_kernels.cu` / `ai_kernels.cu` **禁改任何 `__global__` kernel 本體**（host 編排可改）。
 5. 同影像兩跑 **bit-exact**（`--verify-deterministic` 驗）。
@@ -513,6 +531,8 @@ DefectInfo: RunIndex, GlobalPosX/Y, Size, Width, Height, Type, Filter(NoFilter),
 13. **AI 預設停用**（`待人工複核`）。
 14. **Pitch 正確性**：偏差 1~4px 就爆量（26→30 → 561→10000 觸頂）；新面板先 FFT 估算。
 15. **GB10 block_dim 固定 16×16、效能基準 ~7.4ms/張、1 台 Spark 足夠**（見 §16 與驗證報告）。
+16. **行車紀錄純觀測，不得擾動運算**：`record_frame` 在 cudaEvent 計時區外、`set_scene` 寫 ring 只鎖極短 → 不影響 gpu_ms/bit-exact；bench 不 `begin_session`→全 no-op（process_image 路徑無 scene hook）。跨執行緒抓現場用全域 `atomic<const FrameScene*> latest_`（非 thread_local）：`atexit`+`cudaPeekAtLastError`→`cuda_fatal`、`set_terminate`→`uncaught_exception`。incident kind：cuda_fatal/frame_validation/recipe_load/bad_json/uncaught_exception。
+17. **收圖入口驗證**：control_server 收圖驗 magic/version/headerBytes/payloadBytes + CRC32（`shared/FrameHeader.h::crc32_ieee`）+ 尺寸守衛（width/height ∈ [1,16384]，擋 bogus→OOM）；offline-tcp 另支援 client 宣告 `crc32` 比對。失敗 → 記 `frame_validation` + ERR 拒收。（offline-tcp header 本地建構故 magic 恆對，wire 驗證主擋未來 RDMA 收圖；該分支待 `rdma_source` 實作後生效。）
 
 ---
 
@@ -564,6 +584,7 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 | **ARM/GB10 運算 + 跨架構一致性** | **L4** | [verification_report_arm_20260615.md](verification/verification_report_arm_20260615.md)：26 張真實面板 25/26 一致；正常面板 ~7.4ms/張 → 1 台 Spark |
 | RDMA 收圖主程式（rdma-validate/image-capture/online）| L0 | `modes/` 空、無 RdmaImageSource |
 | AI 推論 | L1 | 模型載入但預設停用 |
+| **行車紀錄（flight_recorder）** | **L3**（RDMA-wire CRC 分支 L1）| RTX2080 6 項驗證全過（5 種 incident kind + 決定性不破 + bench 無 `_diag`/gpu_ms 不變 + JSON 全可解析）；**GB10 待補驗**（atexit/atomic 在 ARM 記憶體模型）；RDMA-wire magic/CRC 分支待 `rdma_source` |
 
 詳見 [docs/STATUS.md](STATUS.md)。
 
@@ -584,10 +605,11 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 | TCP server | [src/control_server.cpp](../ip/src/control_server.cpp) / [.h](../ip/src/control_server.h) |
 | 結果輸出 | [src/result_saver.cpp](../ip/src/result_saver.cpp) / [.h](../ip/src/result_saver.h) |
 | AI 分類器 | [src/ai/tensor_core_classifier.h](../ip/src/ai/tensor_core_classifier.h) / [ai_kernels.cu](../ip/src/ai/ai_kernels.cu) |
+| 行車紀錄 | [src/diag/flight_recorder.cpp](../ip/src/diag/flight_recorder.cpp) / [.h](../ip/src/diag/flight_recorder.h) |
 | 建置 | [CMakeLists.txt](../ip/CMakeLists.txt) |
 | 預設參數 | [config/default_zone.ini](../ip/config/default_zone.ini) |
 | 不變式 | [ip/CLAUDE.md](../ip/CLAUDE.md) |
 
 ---
 
-*本文件由原始碼逐檔靜態分析整理（3 個並行 reader agent 全讀 ~5600 行），對照 GB10 實機驗證（2026-06-15）。格式對齊 [control_程式完整說明.md](control_程式完整說明.md)。*
+*本文件由原始碼逐檔靜態分析整理（3 個並行 reader agent 全讀 ~5600 行），對照 GB10 實機驗證（2026-06-15）。2026-06-15 補 flight_recorder（行車紀錄）章節 + block_dim 三處一致性。格式對齊 [control_程式完整說明.md](control_程式完整說明.md)。*
