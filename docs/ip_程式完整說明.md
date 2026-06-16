@@ -529,10 +529,63 @@ DefectInfo: RunIndex, GlobalPosX/Y, Size, Width, Height, Type, Filter(NoFilter),
 ### 10.3 存圖行為
 
 - **重測先清舊**（不變式 #9）：存圖前**無條件**刪本層舊 `Defect_*` 與 `.bmp`（不動 `TrueDefect/`、`Particle/`、`classification.json`）→ 避免換 IpName/換參數堆疊成 N 倍（曾見 1122=561×2）。
-- 小圖：`patch_size=100`（半徑 50），邊緣補零；多緒平行 `cv::imwrite`（PNG 壓縮等級 1）；`--max-patches` 上限；`debug`/`--no-save-images` 控制。
+- 小圖：`save_width/save_height`（預設 100×100），邊緣補零（對應 legacy `SaveDefectWidth/Height`）；多緒平行 `cv::imwrite`（PNG 壓縮等級 1）；`max_patches`（= `RecipeSaving.max_save_defect_count`）上限；`debug`/`--no-save-images` 控制。
 - overlay：灰→BGR，每缺陷畫框（亮=紅、暗=藍），PNG 低壓縮。
 - **`[Diag]` 三數一致**：`DetectionResult 缺陷數 == JSON DefectInfo 筆數 == 寫出 patch 數`（單次乾淨偵測恆 1:1）。
 - `[T.T]` log：GPU運算 / crop / patch存圖 / overlay存圖 各階段 ms。
+
+### 10.4 RecipeSaving 閥門（LOAD_RECIPE recipe_saving，2026-06-16）
+
+由 Control 在 `LOAD_RECIPE` 的 `recipe_saving` JSON 欄位傳入，IP 端 `ControlServer` 解析後存入 `RecipeSavingConfig`（`config/recipe_saving_config.h`）：
+
+| 欄位 | 預設 | 說明 |
+|------|------|------|
+| `max_save_defect_count` | -1（無上限） | 最多存 N 張缺陷小圖（= legacy `MaxSaveDefectCount`）；映射到 `SaveOptions.max_patches` |
+| `save_defect_width` | 100 | 小圖寬 px（= legacy `SaveDefectWidth`）；映射到 `SaveOptions.save_width` |
+| `save_defect_height` | 100 | 小圖高 px（= legacy `SaveDefectHeight`）；映射到 `SaveOptions.save_height` |
+| `max_defect_count_pass` | -1（不截斷） | 累計缺陷超過 N 停止後續 zone（= legacy `MaxDefectCountPass`）；整數比較，zone 完成後才 break（不破壞決定性） |
+
+- **-1 = 向下相容**：不帶 `recipe_saving` 欄位 → 保留預設，行為與舊版相同。
+- `MaxDefectCountPass` 截斷在 `process_image` zone 迴圈層（host 端），`process_frame()` 已完成後 break → 決定性不變式 #5/21 保持。
+
+### 10.5 FrameQueue 背壓 + Buffer 安全計算器（2026-06-16）
+
+```
+啟動序：GPU pipeline 建立（device RAM 配完）→ sysinfo().freeram → 計算器 → FrameQueue.set_max_size()
+         → SourceImageWriter.init()
+
+[BufferCalc] host可用RAM=xxxx MB  幀大小~40MB  FrameQueue上限=N幀  SourceRing上限=M幀
+```
+
+- **FrameQueue 上限** = `floor(host_free * 50% / frame_bytes)`，最多 8 幀、至少 1 幀。
+- `push()` 返回 bool：滿 → ERR 回 Control + `queue_overflow` incident（不阻塞、不 OOM）。
+- **水位監控**（control_server.cpp，push 成功後）：70% → `[WaterLevel] WARN` console；90% → `queue_high_watermark` incident（磁碟）。
+- `sysinfo().freeram` = host RAM；`cudaMemGetInfo` = device RAM；**兩者不混用**（不變式 #18）。
+
+### 10.6 TuningRecipe（量速/調參模式，share_flags.tuning_recipe）
+
+`LOAD_RECIPE share_flags.tuning_recipe=true`：
+- GPU 正常執行（計時準確）
+- `deliver_result()` 仍把 JSON 結果經 TCP 回傳 Control
+- `ResultSaver::save()` 完全跳過（零磁碟 I/O）
+- log 印 `[TuningRecipe] 跳過存圖（結果仍回傳）`
+
+> 每次 `LOAD_RECIPE` 重置旗標（per-recipe 語意）；`tuning_recipe=false` 或無 `share_flags` → 恢復正常存圖。
+
+### 10.7 SaveSourceImage（原始影像非同步存檔，share_flags.save_source_image）
+
+`LOAD_RECIPE share_flags.save_source_image=true`：
+
+```
+主路徑：next_frame(payload) → copy → SourceImageWriter.submit() → 立即返回
+                                                    ↓（獨立 writer thread）
+                                    output/source/{panel}_source.bin（raw Mono8）
+```
+
+- **固定 N_src ring slots**（`floor(host_free * 30% / frame_bytes)`，最多 4 幀）；啟動一次配置，不動態增大（不變式 #19）。
+- ring 滿 → drop + `[SourceWriter] WARN` + `source_ring_full` incident；主路徑繼續、不阻塞。
+- 格式：raw `.bin`（width × height bytes Mono8），比 PNG 快 5–10×；`output/source/` 子夾。
+- **舊版教訓**（`Reference/CamProc.cs`）：per-frame 配 MIL buffer → List 囤積 → 同步 MbufSave → OOM + 阻塞。新版固定 slots 根治此問題。
 
 ---
 

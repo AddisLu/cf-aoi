@@ -50,15 +50,26 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
         => SendCommandAsync("GET_STATUS", null, ct);
 
     // recipeXml 為配方 XML 內容（跨機器免共用檔案系統）；recipePathOrName 為同機路徑/名稱備用。
+    // recipeSaving 選填：若非 null，附加 recipe_saving 欄位（MaxSaveDefectCount/SaveDefectWidth/Height/MaxDefectCountPass）。
+    // shareFlags   選填：若非 null，附加 share_flags 欄位（tuning_recipe / save_source_image 等）。
     public Task<JsonNode?> LoadRecipeAsync(string recipePathOrName, string panelId,
-                                           string? recipeXml = null, CancellationToken ct = default)
-        => SendCommandAsync("LOAD_RECIPE",
-            new JsonObject
-            {
-                ["recipe"] = recipePathOrName,
-                ["recipe_xml"] = recipeXml ?? "",
-                ["panel_id"] = panelId,
-            }, ct);
+                                           string? recipeXml = null,
+                                           JsonObject? recipeSaving = null,
+                                           JsonObject? shareFlags = null,
+                                           CancellationToken ct = default)
+    {
+        var prms = new JsonObject
+        {
+            ["recipe"] = recipePathOrName,
+            ["recipe_xml"] = recipeXml ?? "",
+            ["panel_id"] = panelId,
+        };
+        if (recipeSaving is not null)
+            prms["recipe_saving"] = recipeSaving;
+        if (shareFlags is not null)
+            prms["share_flags"] = shareFlags;
+        return SendCommandAsync("LOAD_RECIPE", prms, ct);
+    }
 
     public Task<JsonNode?> SendImageStreamBeginAsync(string panelId, CancellationToken ct = default)
         => SendCommandAsync("SEND_IMAGE_STREAM_BEGIN", new JsonObject { ["panel_id"] = panelId }, ct);

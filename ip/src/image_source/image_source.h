@@ -25,6 +25,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <utility>
+#include <cstddef>
 
 #include "FrameHeader.h"
 
@@ -49,12 +50,16 @@ public:
         std::vector<uint8_t> payload;
     };
 
-    void push(FrameHeader hdr, std::string panel_id, std::vector<uint8_t> payload) {
+    // 推入幀。若 max_size_ > 0 且 queue 已滿，返回 false（背壓：呼叫方應回 ERR 拒收此幀）。
+    // max_size_ == 0 = 舊行為（無上限），向下相容。
+    bool push(FrameHeader hdr, std::string panel_id, std::vector<uint8_t> payload) {
         {
             std::lock_guard<std::mutex> lk(mtx_);
+            if (max_size_ > 0 && q_.size() >= max_size_) return false;
             q_.push(Item{hdr, std::move(panel_id), std::move(payload)});
         }
         cv_.notify_one();
+        return true;
     }
 
     // 阻塞直到有資料或被 close()。回傳 false 代表已關閉且佇列清空。
@@ -80,11 +85,16 @@ public:
         return q_.size();
     }
 
+    // 啟動時由 buffer 計算器設置；0 = 無上限。啟動後不可動態增大（不變式）。
+    void set_max_size(size_t n) { max_size_ = n; }
+    size_t max_size() const { return max_size_; }
+
 private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     std::queue<Item> q_;
     bool closed_ = false;
+    size_t max_size_ = 0;  // 0 = 無上限（向下相容）；set_max_size 後固定
 };
 
 #endif // CFAOI_IMAGE_SOURCE_H

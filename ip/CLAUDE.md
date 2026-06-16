@@ -339,3 +339,22 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     （width/height ∈ [1, 16384]，擋 bogus 尺寸→巨量配置→OOM）；offline-tcp 另支援 client 在 `SEND_IMAGE_FOR_REVIEW`
     可選帶 `crc32` 宣告值比對偵測傳輸損壞。**任一失敗 → 記 `frame_validation` incident + 回 ERR 拒收（不 enqueue）**。
     （offline-tcp header 為本地建構故 magic 等恆對，wire 驗證主擋未來 RDMA 收圖路徑；該 RDMA 分支待 `rdma_source` 實作後才實際生效。）
+18. **FrameQueue / SourceRing 固定上限，啟動後不可動態增大**：`max_size_` 由 buffer 計算器（`sysinfo().freeram` 在 GPU 持久
+    buffer 配完後才查）設置一次；push() 返回 bool，滿則背壓/拒收/drop + `queue_overflow` incident，
+    **絕不動態配更多記憶體**（根治舊版 OOM 炸彈：legacy CamProc per-frame 配 List → 累積 → OOM）。
+    FrameQueue 上限 = 50% 可用 host RAM / 幀大小（最多 8 幀）；SourceRing 上限 = 30% / 幀大小（最多 4 幀）。
+    `cudaMemGetInfo` = device RAM；`sysinfo().freeram` = host RAM；**兩者絕不混用**。
+19. **SaveSourceImage async writer，絕不同步阻塞主路徑、絕不囤 List**：原始 payload 非同步寫磁碟用
+    `SourceImageWriter`（`image_source/source_image_writer.h`）：固定 N_src ring slots（啟動一次配置）+ 獨立 writer thread；
+    ring 滿 → drop + `source_ring_full` incident，主路徑繼續不阻塞。格式：raw `.bin`（Mono8，比 PNG 快 5-10×）。
+    由 `LOAD_RECIPE share_flags.save_source_image=true` 啟用。
+20. **TuningRecipe 不寫磁碟但 deliver_result 不變**：`LOAD_RECIPE share_flags.tuning_recipe=true` →
+    GPU 正常跑、`deliver_result()` 結果仍經 TCP 回傳 Control，但 `ResultSaver::save()` 完全跳過（零磁碟寫入）。
+    log 印 `[TuningRecipe] 跳過存圖（結果仍回傳）`。**不可把 TuningRecipe 當 bench**（bench 無 TCP server，是另一模式）。
+21. **MaxDefectCountPass 截斷不破壞決定性（不變式 5）**：`LOAD_RECIPE recipe_saving.max_defect_count_pass` 設上限。
+    截斷只在整個 zone 的 `process_frame()` 完成後（GPU CCL 已收斂 + canonical 排序完）用整數比較；
+    `break` 在 zone 迴圈層（host 端）。兩跑累積缺陷數相同 → break 在同一 zone → 輸出 bit-exact。
+    `--verify-deterministic` 須涵蓋「缺陷數剛好等於上限」與「剛好超過」兩種邊界 case。
+22. **RecipeSaving 欄位 -1 = 向下相容**：`max_save_defect_count=-1` 等同現行 `max_patches=-1`（無上限）；
+    `save_defect_width/height` 預設 100px；`max_defect_count_pass=-1` = 不截斷。
+    LOAD_RECIPE 若無 `recipe_saving` 欄位，IP 保留前次設定（session 初始值為全 -1 預設）。

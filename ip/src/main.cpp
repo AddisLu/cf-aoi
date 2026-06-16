@@ -22,14 +22,18 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <sys/sysinfo.h>
 
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
 
+#include "config/recipe_saving_config.h"
+#include "config/share_flags.h"
 #include "config/zone_config_adapter.h"
 #include "diag/flight_recorder.h"
 #include "gpu/gpu_pipeline.h"
 #include "image_source/file_source.h"
+#include "image_source/source_image_writer.h"
 #include "image_source/tcp_source.h"
 #include "control_server.h"
 #include "result_saver.h"
@@ -157,9 +161,11 @@ std::string first_determinism_diff(const DetectionResult& a, const DetectionResu
 
 // 對一張影像跑所有 zone，回傳聚合結果。
 // verify=true 時每個 zone 跑兩次比對 bit-exact，不一致則把 verify_failed 設 true 並印第一個差異。
+// saving_cfg.max_defect_count_pass >= 0 時：累計缺陷超過上限後停止後續 zone（整數比較，zone 完成後才 break）。
 InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>& zones,
                                const cv::Mat& gray, const std::string& panel_id,
-                               bool verify, bool& verify_failed) {
+                               bool verify, bool& verify_failed,
+                               const RecipeSavingConfig& saving_cfg = {}) {
     InspectionResult agg;
     agg.panel_id = panel_id;
     agg.image_width = gray.cols;
@@ -167,6 +173,7 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
     agg.ai_used = pipe.ai_enabled();   // 有效 AI 狀態（停用時缺陷標待人工複核）
     if (!zones.empty()) agg.recipe_name = zones.front().recipe_name;
 
+    int total_defects_so_far = 0;
     for (const auto& z : zones) {
         cv::Rect r = zone_rect(z, gray.cols, gray.rows);
         cv::Mat sub = gray(r);
@@ -192,6 +199,7 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
             }
         }
 
+        total_defects_so_far += dr.num_defects;
         ZoneResult zr;
         zr.zone_index = z.zone_index;
         zr.roi_offset_x = r.x;
@@ -200,6 +208,15 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zr.result = std::move(dr);
         agg.total_time_ms += zr.result.process_time_ms;
         agg.zones.push_back(std::move(zr));
+
+        // MaxDefectCountPass：整數比較，zone GPU 完成後才 break（決定性不變式 #5）
+        if (saving_cfg.max_defect_count_pass >= 0 &&
+            total_defects_so_far > saving_cfg.max_defect_count_pass) {
+            std::cout << "[MaxDefectCountPass] 累計缺陷=" << total_defects_so_far
+                      << " > 上限=" << saving_cfg.max_defect_count_pass
+                      << "，跳過剩餘 zone（panel=" << panel_id << "）\n";
+            break;
+        }
     }
     return agg;
 }
@@ -330,6 +347,35 @@ int main(int argc, char** argv) {
 
     } else if (args.mode == "offline-tcp") {
         FrameQueue queue;
+        SourceImageWriter src_writer;
+
+        // ── Buffer 安全計算器 ─────────────────────────────────────────────────
+        // host RAM 只算 FrameQueue payload（vector<uint8_t>）；GPU 持久 buffer
+        // 用 cudaMalloc 配 device RAM，不影響 sysinfo().freeram，兩者不混用。
+        // 保留一個 pinned slot（~幀大小）給 GPU pipeline 首幀分配（h_pinned/h_mapped_input）。
+        {
+            struct ::sysinfo si{};
+            ::sysinfo(&si);
+            const size_t frame_bytes =
+                (size_t)(base.width  > 0 ? base.width  : 8192) *
+                (size_t)(base.height > 0 ? base.height : 5000);
+            const size_t host_free  = (size_t)si.freeram * si.mem_unit;
+            const size_t host_avail = host_free > frame_bytes ? host_free - frame_bytes : 0;
+            // 用 50% 可用 host RAM 給 FrameQueue，另 30% 給 SourceImageWriter ring（各不超過 8/4 幀）
+            const size_t n_queue =
+                std::max<size_t>(1, std::min<size_t>(host_avail / 2 / frame_bytes, 8));
+            const size_t n_src =
+                std::max<size_t>(1, std::min<size_t>(host_avail / 3 / frame_bytes, 4));
+            queue.set_max_size(n_queue);
+            std::cout << "[BufferCalc] host可用RAM=" << host_free / 1024 / 1024 << "MB"
+                      << "  幀大小~" << frame_bytes / 1024 / 1024 << "MB"
+                      << "  FrameQueue上限=" << n_queue << "幀"
+                      << "  SourceRing上限=" << n_src << "幀\n";
+            // SourceImageWriter 固定上限：啟動時一次配置，save_source_image 旗標決定是否呼叫 submit
+            src_writer.init(n_src, args.output, frame_bytes);
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         ControlServer server(args.control_port, queue);
         server.set_ai_enabled(pipe.ai_enabled());
         server.set_output_dir(args.output);   // 供 LIST_DEFECT_FOLDERS / SORT_DEFECTS 掃描
@@ -378,15 +424,32 @@ int main(int argc, char** argv) {
             std::vector<ZoneConfig> z_snapshot;
             { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }
             bool vf = false;  // tcp 串流模式不做 deterministic 驗證
+            RecipeSavingConfig saving_cfg = server.saving_config();
+            ShareFlags sflags = server.share_flags();
+            // SaveSourceImage：copy payload → SourceImageWriter ring（非同步寫磁碟，主路徑不阻塞）。
+            if (sflags.save_source_image) {
+                src_writer.submit(name, hdr.width, hdr.height,
+                                  std::vector<uint8_t>(payload));  // copy（payload 仍供 gray mat 用）
+            }
             diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
+            scene.queue_depth = (int64_t)queue.size();  // 水位快照（進 ring，incident 時可查）
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
-            InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf);
+            InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg);
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
-            // 調參(review)：預設只存結果+overlay；SEND_IMAGE_FOR_REVIEW debug=true 時才存全部 patch。
-            SaveOptions review_opt = save_opt;
-            review_opt.save_patches = server.review_save_patches();
-            ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, review_opt);
+            // TuningRecipe：GPU 跑、結果仍回 TCP，但完全不寫磁碟（量速/調參模式）。
+            if (sflags.tuning_recipe) {
+                std::cout << "[TuningRecipe] 跳過存圖（結果仍回傳）panel=" << name << "\n";
+            } else {
+                // 調參(review)：預設只存結果+overlay；SEND_IMAGE_FOR_REVIEW debug=true 時才存全部 patch。
+                // save_width/height/max_patches 來自 LOAD_RECIPE recipe_saving（-1 = 向下相容無上限）。
+                SaveOptions review_opt = save_opt;
+                review_opt.save_patches  = server.review_save_patches();
+                review_opt.save_width    = saving_cfg.save_defect_width;
+                review_opt.save_height   = saving_cfg.save_defect_height;
+                review_opt.max_patches   = saving_cfg.max_save_defect_count;
+                ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, review_opt);
+            }
             // 把結果經 TCP 回傳給等待中的 Control（跨機器免共用檔案系統）
             server.deliver_result(name, ResultSaver::to_json(res));
             ++processed;

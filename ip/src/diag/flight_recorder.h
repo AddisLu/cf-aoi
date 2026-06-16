@@ -54,6 +54,7 @@ struct FrameScene {
     int                   num_defects = 0, num_bright = 0, num_dark = 0;
     bool                  pass = true;
     bool                  complete = false;  // set_scene→false(僅參數); record_frame→true(含結果)
+    int64_t               queue_depth = -1; // 收到此幀時 FrameQueue 深度（-1=不適用，如 offline-file）
 };
 
 // 啟動快照（非 CUDA 欄位；GPU name/sm/memory 由 .cpp 查詢補上）。

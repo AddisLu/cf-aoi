@@ -196,7 +196,8 @@ int save(const InspectionResult& r,
          const std::string& ip_name,
          const SaveOptions& opt,
          std::string* out_panel_dir) {
-    const int patch_size = opt.patch_size;
+    const int save_width  = opt.save_width;
+    const int save_height = opt.save_height;
     // ---- 資料夾結構：<out>/<yyyyMMdd>/<panelId>_<recipeName>/（對齊 legacy）----
     const std::string date = today_yyyymmdd();
     const std::string basename = panel_folder_name(r);   // ResultInfo 檔名前綴 = panel 夾名
@@ -261,8 +262,8 @@ int save(const InspectionResult& r,
         os << "  <DefectCnt>" << r.total_defects() << "</DefectCnt>\n";
         os << "  <AiOkCnt>0</AiOkCnt>\n";
         os << "  <RuleOkCnt>0</RuleOkCnt>\n";
-        os << "  <SaveDefectWidth>" << patch_size << "</SaveDefectWidth>\n";
-        os << "  <SaveDefectHeight>" << patch_size << "</SaveDefectHeight>\n";
+        os << "  <SaveDefectWidth>" << save_width << "</SaveDefectWidth>\n";
+        os << "  <SaveDefectHeight>" << save_height << "</SaveDefectHeight>\n";
         os << "  <RoiInfoList>\n";
         for (const auto& z : r.zones) {
             os << "    <RoiInfo>\n";
@@ -289,7 +290,8 @@ int save(const InspectionResult& r,
     cv::Mat gray(h, w, CV_8UC1, const_cast<uint8_t*>(img));
     const std::string ip_tag = ip_tag_from_panel(r.panel_id, ip_name);  // 檔名 IpName 段，與資料夾一致
     const int frame_h = r.frame_height > 0 ? r.frame_height : h;  // Slice = GlobalPosY / frame 高
-    const int half = patch_size / 2;
+    const int half_w = save_width  / 2;
+    const int half_h = save_height / 2;
     const std::vector<int> png_fast = {cv::IMWRITE_PNG_COMPRESSION, 1};  // 低壓縮 = 快
 
     // -- crop 階段：產生 (檔名, patch) 清單（受 save_patches / max_patches 限制）--
@@ -305,14 +307,15 @@ int save(const InspectionResult& r,
                 int cx = z.roi_offset_x + (int)d.center_x;
                 int cy = z.roi_offset_y + (int)d.center_y;
                 int slice = frame_h > 0 ? cy / frame_h : 0;
-                int x1 = std::max(0, cx - half), y1 = std::max(0, cy - half);
-                int x2 = std::min(w, cx + half),  y2 = std::min(h, cy + half);
+                int x1 = std::max(0, cx - half_w), y1 = std::max(0, cy - half_h);
+                int x2 = std::min(w, cx + half_w),  y2 = std::min(h, cy + half_h);
                 ++run;
                 if (x2 <= x1 || y2 <= y1) continue;
                 cv::Mat patch = gray(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
-                if (patch.cols < patch_size || patch.rows < patch_size) {
-                    cv::Mat padded = cv::Mat::zeros(patch_size, patch_size, patch.type());
-                    int ox = (patch_size - patch.cols) / 2, oy = (patch_size - patch.rows) / 2;
+                if (patch.cols < save_width || patch.rows < save_height) {
+                    cv::Mat padded = cv::Mat::zeros(save_height, save_width, patch.type());
+                    int ox = (save_width  - patch.cols) / 2;
+                    int oy = (save_height - patch.rows) / 2;
                     patch.copyTo(padded(cv::Rect(ox, oy, patch.cols, patch.rows)));
                     patch = padded;
                 }

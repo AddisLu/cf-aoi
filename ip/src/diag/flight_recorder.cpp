@@ -95,6 +95,7 @@ json scene_full_json(const FrameScene& s) {
     j["num_bright"] = s.num_bright;
     j["num_dark"] = s.num_dark;
     j["pass"] = s.pass;
+    if (s.queue_depth >= 0) j["queue_depth"] = s.queue_depth;
     return j;
 }
 

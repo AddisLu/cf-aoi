@@ -331,6 +331,22 @@ void ControlServer::handle_client(int fd) {
             std::string recipe = params.value("recipe", "");
             std::string recipe_xml = params.value("recipe_xml", "");  // 跨機：配方內容
             std::string panel = params.value("panel_id", "");
+            // recipe_saving / share_flags：選填；缺省 = 保留預設值（向下相容）
+            {
+                std::lock_guard<std::mutex> slk(saving_cfg_mtx_);
+                if (params.contains("recipe_saving")) {
+                    const auto& rs = params["recipe_saving"];
+                    saving_cfg_.max_save_defect_count = rs.value("max_save_defect_count", -1);
+                    saving_cfg_.save_defect_width     = rs.value("save_defect_width",     100);
+                    saving_cfg_.save_defect_height    = rs.value("save_defect_height",    100);
+                    saving_cfg_.max_defect_count_pass = rs.value("max_defect_count_pass", -1);
+                }
+                if (params.contains("share_flags")) {
+                    const auto& sf = params["share_flags"];
+                    share_flags_.tuning_recipe    = sf.value("tuning_recipe",    false);
+                    share_flags_.save_source_image = sf.value("save_source_image", false);
+                }
+            }
             std::string err;
             bool ok = load_recipe_ ? load_recipe_(recipe, recipe_xml, panel, err) : false;
             resp["status"] = ok ? "OK" : "ERR";
@@ -411,7 +427,36 @@ void ControlServer::handle_client(int fd) {
             }
             // 清掉同 panel 的舊結果，避免讀到上一張的；再 enqueue 並等本次結果。
             { std::lock_guard<std::mutex> lk(result_mtx_); results_.erase(panel); }
-            queue_.push(hdr, panel, std::move(payload));
+            // 背壓：queue 滿時拒收，回 ERR（不阻塞；防 OOM 鐵律）。
+            if (!queue_.push(hdr, panel, std::move(payload))) {
+                char eb[160];
+                std::snprintf(eb, sizeof(eb),
+                    "FrameQueue 滿（上限 %zu 幀）：系統繁忙，請稍後重試",
+                    queue_.max_size());
+                diag::FlightRecorder::instance().record_incident("queue_overflow",
+                    std::string("panel=") + panel +
+                    " max=" + std::to_string(queue_.max_size()));
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", eb}});
+                continue;
+            }
+            // 水位監控：push 成功後檢查深度（70% WARN console / 90% 磁碟 incident）。
+            if (queue_.max_size() > 0) {
+                size_t depth = queue_.size();
+                size_t cap   = queue_.max_size();
+                int pct = (int)(depth * 100 / cap);
+                if (pct >= 90) {
+                    char wb[160];
+                    std::snprintf(wb, sizeof(wb),
+                        "FrameQueue 水位 %d%% (%zu/%zu)：消費端嚴重落後，考慮降速",
+                        pct, depth, cap);
+                    std::cerr << "[WaterLevel] " << wb << "\n";
+                    diag::FlightRecorder::instance().record_incident("queue_high_watermark",
+                        std::string("panel=") + panel + " " + wb);
+                } else if (pct >= 70) {
+                    std::cout << "[WaterLevel] WARN " << pct << "% (" << depth << "/" << cap
+                              << " 幀) panel=" << panel << "\n";
+                }
+            }
             ++frame_seq_;
             resp["frame_seq"] = fseq;
 

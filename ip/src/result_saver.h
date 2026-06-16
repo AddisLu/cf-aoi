@@ -57,9 +57,10 @@ struct InspectionResult {
 struct SaveOptions {
     bool save_patches  = true;   // false → 只存 ResultInfo，不存任何缺陷小圖
     bool save_overlay  = true;   // false → 不存 overlay 全圖
-    int  max_patches   = -1;     // >=0 → 只存前 N 張缺陷小圖（調參用）
+    int  max_patches   = -1;     // >=0 → 只存前 N 張缺陷小圖；對應 recipe_saving.max_save_defect_count
     int  threads       = 0;      // 缺陷小圖平行寫入緒數；0 → 自動（hardware_concurrency）
-    int  patch_size    = 100;
+    int  save_width    = 100;    // 缺陷小圖寬（px）；對應 recipe_saving.save_defect_width
+    int  save_height   = 100;    // 缺陷小圖高（px）；對應 recipe_saving.save_defect_height
 };
 
 namespace ResultSaver {

@@ -32,6 +32,8 @@
 #include <unordered_map>
 
 #include "image_source/image_source.h"  // FrameQueue, FrameHeader
+#include "config/recipe_saving_config.h"
+#include "config/share_flags.h"
 
 class ControlServer {
 public:
@@ -51,6 +53,18 @@ public:
     void set_status_provider(StatusFn fn) { status_ = std::move(fn); }
     void set_ai_enabled(bool v) { ai_enabled_ = v; }
     void set_output_dir(const std::string& d) { output_dir_ = d; }   // 供 LIST/SORT_DEFECTS 掃描
+
+    // LOAD_RECIPE 解析的存圖設定（mutex 保護）；offline-tcp 迴圈快照後傳給 process_image。
+    RecipeSavingConfig saving_config() const {
+        std::lock_guard<std::mutex> lk(saving_cfg_mtx_);
+        return saving_cfg_;
+    }
+
+    // LOAD_RECIPE 解析的共用旗標（mutex 保護）；offline-tcp 迴圈快照後決定是否存圖。
+    ShareFlags share_flags() const {
+        std::lock_guard<std::mutex> lk(saving_cfg_mtx_);
+        return share_flags_;
+    }
 
     // SEND_IMAGE_FOR_REVIEW 的 debug 旗標：true → 該次存全部 patch（調參需要看小圖）；
     // false（預設）→ 只存結果+overlay 加速。由主處理迴圈讀取決定 SaveOptions。
@@ -79,6 +93,11 @@ private:
 
     LoadRecipeFn load_recipe_;
     StatusFn status_;
+
+    // 存圖設定與共用旗標（LOAD_RECIPE 更新；同一把鎖保護兩者；saving_config()/share_flags() 快照給主迴圈）
+    mutable std::mutex saving_cfg_mtx_;
+    RecipeSavingConfig saving_cfg_;
+    ShareFlags share_flags_;
 
     // 結果回傳 rendezvous（key = panel_id；offline review 為循序單一請求）
     std::mutex result_mtx_;
