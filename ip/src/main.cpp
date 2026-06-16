@@ -64,6 +64,11 @@ struct Args {
     // 單一全幅 zone 的覆寫（bench 用來掃缺陷負載上下界；<0/<=0 = 不覆寫）
     float ov_bth = -1.f, ov_dth = -1.f;
     int  ov_pitch_x = -1, ov_pitch_y = -1;
+    // 驗證用覆寫（取代 buffer 計算器結果；-1 = 用計算器）
+    int  max_queue_size    = -1;   // --max-queue-size N：覆寫 FrameQueue 上限（壓力測試用）
+    int  max_src_ring_size = -1;   // --max-src-ring-size N：覆寫 SourceRing 上限（OOM 測試用）
+    // MaxDefectCountPass CLI 覆寫（offline-file 驗決定性用；offline-tcp 由 LOAD_RECIPE 覆蓋）
+    int  max_defect_count_pass = -1;  // --max-defect-count-pass N
 };
 
 void usage(const char* prog) {
@@ -87,7 +92,10 @@ void usage(const char* prog) {
     "  --bench-iters <n>      bench 量測張數（預設 100）\n"
     "  --bench-warmup <n>     bench 暖機張數（丟棄，預設 10；吸收 CUDA init/JIT）\n"
     "  --bth/--dth <f>        覆寫單一全幅 zone 的 BTH/DTH（bench 掃缺陷負載用）\n"
-    "  --pitch-x/--pitch-y <n> 覆寫 pitch（bench 掃缺陷負載用）\n";
+    "  --pitch-x/--pitch-y <n> 覆寫 pitch（bench 掃缺陷負載用）\n"
+    "  --max-queue-size <n>   覆寫 FrameQueue 上限（取代 buffer 計算器；驗證背壓用）\n"
+    "  --max-src-ring-size <n> 覆寫 SourceRing 上限（取代計算器；驗證 OOM 防護用）\n"
+    "  --max-defect-count-pass <n> offline-file 模式設 MaxDefectCountPass 截斷（驗決定性用）\n";
 }
 
 bool parse_args(int argc, char** argv, Args& a) {
@@ -117,6 +125,9 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--pitch-x") a.ov_pitch_x = std::stoi(next("--pitch-x"));
         else if (k == "--pitch-y") a.ov_pitch_y = std::stoi(next("--pitch-y"));
         else if (k == "--verify-deterministic") a.verify_deterministic = true;
+        else if (k == "--max-queue-size") a.max_queue_size = std::stoi(next("--max-queue-size"));
+        else if (k == "--max-src-ring-size") a.max_src_ring_size = std::stoi(next("--max-src-ring-size"));
+        else if (k == "--max-defect-count-pass") a.max_defect_count_pass = std::stoi(next("--max-defect-count-pass"));
         else if (k == "-h" || k == "--help") { usage(argv[0]); return false; }
         else { std::cerr << "未知參數: " << k << "\n"; usage(argv[0]); return false; }
     }
@@ -316,6 +327,10 @@ int main(int argc, char** argv) {
     save_opt.max_patches  = args.max_patches;
     save_opt.threads      = args.save_threads;
 
+    // CLI 覆寫 RecipeSavingConfig（offline-file 驗決定性；offline-tcp 由 LOAD_RECIPE 覆蓋）
+    RecipeSavingConfig cli_saving_cfg;
+    cli_saving_cfg.max_defect_count_pass = args.max_defect_count_pass;
+
     int processed = 0;
 
     if (args.mode == "offline-file") {
@@ -330,7 +345,8 @@ int main(int argc, char** argv) {
             diag::FrameScene scene = make_scene_params(zones, name, hdr);
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, zones, gray, name,
-                                                 args.verify_deterministic, verify_failed);
+                                                 args.verify_deterministic, verify_failed,
+                                                 cli_saving_cfg);
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
@@ -362,10 +378,13 @@ int main(int argc, char** argv) {
             const size_t host_free  = (size_t)si.freeram * si.mem_unit;
             const size_t host_avail = host_free > frame_bytes ? host_free - frame_bytes : 0;
             // 用 50% 可用 host RAM 給 FrameQueue，另 30% 給 SourceImageWriter ring（各不超過 8/4 幀）
-            const size_t n_queue =
-                std::max<size_t>(1, std::min<size_t>(host_avail / 2 / frame_bytes, 8));
-            const size_t n_src =
-                std::max<size_t>(1, std::min<size_t>(host_avail / 3 / frame_bytes, 4));
+            // --max-queue-size / --max-src-ring-size 可覆寫計算結果（驗證背壓 / OOM 防護用）。
+            const size_t n_queue = args.max_queue_size > 0
+                ? (size_t)args.max_queue_size
+                : std::max<size_t>(1, std::min<size_t>(host_avail / 2 / frame_bytes, 8));
+            const size_t n_src = args.max_src_ring_size > 0
+                ? (size_t)args.max_src_ring_size
+                : std::max<size_t>(1, std::min<size_t>(host_avail / 3 / frame_bytes, 4));
             queue.set_max_size(n_queue);
             std::cout << "[BufferCalc] host可用RAM=" << host_free / 1024 / 1024 << "MB"
                       << "  幀大小~" << frame_bytes / 1024 / 1024 << "MB"
