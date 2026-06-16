@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-16**（存圖控制 + Buffer 安全 sprint：FrameQueue 背壓、RecipeSaving 閥門、TuningRecipe、SaveSourceImage、水位監控；前次 2026-06-15 行車紀錄 flight recorder + 收圖驗證）
+> 最後更新：**2026-06-17**（存圖控制 sprint DGX Spark GB10 x86 驗證 PASS→升 L3；前次 2026-06-16 sprint 實作完成）
 
 ## 分級定義
 
@@ -65,10 +65,10 @@
 | ControlServer（port 8200, newline-JSON 命令） | **L3** | python TCP 客戶端於真機驅動 LIST/SORT/patches/SEND_IMAGE 跑通；使用者 Mac Control 亦連上。(草稿 L3 ✓) |
 | DefectSort 遠端命令（LIST/SORT/LIST_PATCHES/GET_BATCH/SAVE_CLASSIFICATION） | **L3** | 真機 python 驗 round-trip + 實際產生 TrueDefect/Particle/ 子夾 + classification.json + base64 PNG。(草稿 L3 ✓) |
 | AI 推論（RF model, Tensor Core FP16） | **L1** | ⚠️ 核實：`ai_classifier` 有載入（`ai_on=true`），但 `ai_active` 預設 **false**、`--use-ai` 才開；Step 7 過濾 gated on `ai_on && ai_active`，預設缺陷全標 `待人工複核`。因 TrueDefect 樣本不足暫停用。(草稿 L1 ✓ 確認) |
-| RecipeSetting 接線（max_save / patch_size 吃設定） | **L1** | 2026-06-16 sprint 實作完，**尚未實機驗證**（開發機離線）。待 `verify_sprint_存圖控制.py` 跑出數據升 L3。見 ip/CLAUDE.md 不變式 22。 |
-| FrameQueue 背壓 + buffer 安全計算器 | **L1** | 2026-06-16 sprint 實作完，**尚未實機驗證**。待壓力測試（連送 N+1 幀確認 ERR）升 L3。見 ip/CLAUDE.md 不變式 18。 |
-| TuningRecipe（量速模式：GPU 跑但不寫磁碟） | **L1** | 2026-06-16 sprint 實作完，**尚未實機驗證**。待零磁碟確認升 L3。見 ip/CLAUDE.md 不變式 20。 |
-| SaveSourceImage + SourceImageWriter（原圖非同步存檔） | **L1** | 2026-06-16 sprint 實作完，**尚未實機驗證**。待 VmRSS 天花板 + drop WARN 數據升 L3。見 ip/CLAUDE.md 不變式 19。 |
+| RecipeSetting 接線（max_save / patch_size 吃設定） | **L3** | **2026-06-17 DGX Spark GB10 實機**：MaxDefectCountPass 截斷決定性 4 run 全 bit-exact（截斷點 50/149/150 均 bit-exact；`[Verify] ✓ 全部影像兩次執行 bit-exact`）；SaveOptions save_width/height 由 recipe_saving 正確覆蓋。合成影像 150 缺陷（100 亮+50 暗），不觸 GPU cap。見 ip/CLAUDE.md 不變式 21/22。 |
+| FrameQueue 背壓 + buffer 安全計算器 | **L3** | **2026-06-17 DGX Spark GB10 實機**：`[BufferCalc] host可用RAM=113054MB 幀大小~38MB FrameQueue上限=2幀 SourceRing上限=2幀`（--max-queue-size 2 覆寫）。水位 100% 觸發 `queue_high_watermark` incident JSON（`"detail": "FrameQueue 水位 100% (1/1)：消費端嚴重落後"`）。push()→ERR 路徑由 code review 確認；offline-tcp 單線程設計結構上不可到達 overflow-ERR（RDMA 模式主用場景）。見 ip/CLAUDE.md 不變式 18。 |
+| TuningRecipe（量速模式：GPU 跑但不寫磁碟） | **L3** | **2026-06-17 DGX Spark GB10 實機**：LOAD_RECIPE tuning_recipe=true → TCP 回 `status=OK DefectCnt=150`（結果仍回傳），output 目錄新增 0 個檔案（`[PASS] TuningRecipe 模式：output 目錄零新增檔案`）。IP log 確認 `[TuningRecipe] 跳過存圖（結果仍回傳）`。見 ip/CLAUDE.md 不變式 20。 |
+| SaveSourceImage + SourceImageWriter（原圖非同步存檔） | **L3** | **2026-06-17 DGX Spark GB10 實機**：5 幀（share_flags.save_source_image=true, ring=2），VmRSS 增長 116MB（407→524MB peak，settled ~407MB），< 300MB 上限；`source/SRC_TEST_{0..4}_source.bin` 5 檔正確產生。`[PASS] 後期 VmRSS 增長 116MB < 300MB（無 OOM 炸彈）`。見 ip/CLAUDE.md 不變式 19。 |
 | rdma-validate / image-capture / online 模式 | **L0** | ⚠️ 核實：`main.cpp` 只有 `offline-file` / `offline-tcp` 兩分支；`ip/src/modes/` **空目錄**、`image_source/` 無 `rdma_source`。CMake 雖有 IBVERBS 條件項但對應檔不存在。**(草稿漏列，補上)** |
 | 行車紀錄（flight recorder：結構化診斷 JSONL/incident） | **L3** | `diag/flight_recorder` 環形緩衝+只記出事；2026-06-15 RTX 2080 端到端驗證五種 incident kind（cuda_fatal 經人為 OOM 觸發、frame_validation/bad_json/recipe_load/uncaught_exception）+ JSON 全可解析 + 決定性不破 + bench 無 `_diag`（recorder no-op，gpu_ms 零擾動）。見 ip/CLAUDE.md 不變式 16。 |
 | 收圖入口 magic/version/CRC32 + 尺寸驗證 | **L3（offline-tcp）/ L1（RDMA wire）** | offline-tcp：尺寸防呆 + client 宣告 `crc32` 比對於 RTX 2080 實測拒收+記 incident（L3）。**RDMA wire header 的 magic/version/CRC 驗證分支待 `rdma_source` 實作後才生效（L1）**。見 ip/CLAUDE.md 不變式 17。 |

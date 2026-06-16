@@ -107,9 +107,29 @@ def send_image_for_review(sock: socket.socket, panel_id: str,
         buf += chunk
     return json.loads(buf.split(b"\n")[0])
 
+_MINIMAL_RECIPE_XML = """\
+<?xml version="1.0" encoding="utf-8"?>
+<Recipe>
+  <DetectRoiList>
+    <DetectRoi>
+      <AlgorithmCompare>DIV</AlgorithmCompare>
+      <BrightThreshold>1.5</BrightThreshold>
+      <DarkThreshold>0.85</DarkThreshold>
+      <PitchX>26</PitchX>
+      <PitchY>19</PitchY>
+      <StartX>-1</StartX><StartY>-1</StartY>
+      <EndX>-1</EndX><EndY>-1</EndY>
+      <BlobMinSize>1</BlobMinSize>
+      <BlobMaxSize>999999</BlobMaxSize>
+      <SearchX>1</SearchX><SearchY>1</SearchY>
+    </DetectRoi>
+  </DetectRoiList>
+</Recipe>
+"""
+
 def load_recipe(sock: socket.socket, recipe_saving: dict | None = None,
                 share_flags: dict | None = None) -> dict:
-    params: dict = {"recipe": "DEFAULT", "recipe_xml": "", "panel_id": "VERIFY"}
+    params: dict = {"recipe": "DEFAULT", "recipe_xml": _MINIMAL_RECIPE_XML, "panel_id": "VERIFY"}
     if recipe_saving:
         params["recipe_saving"] = recipe_saving
     if share_flags:
