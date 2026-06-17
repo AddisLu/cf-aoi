@@ -29,5 +29,8 @@ test_images/*.bmp
 *~
 *.swp
 
+# ===== 機器/相機相關（每機本地，不版控；用 cam_config.example.json 當模板）=====
+grab/cam_config.json
+
 # ===== Misc =====
 /tmp/
