@@ -4,6 +4,7 @@
     { "name": "🔬 ip  (RTX2080/Spark)", "path": "ip"        },
     { "name": "📷 grab (Capture)",      "path": "grab"      },
     { "name": "🖥️  control (Avalonia)",  "path": "control"   },
+    { "name": "🛠️  tools",               "path": "tools"     },
     { "name": "📦 shared",              "path": "shared"    },
     { "name": "📚 Reference (唯讀)",     "path": "Reference" }
   ],

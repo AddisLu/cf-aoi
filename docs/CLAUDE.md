@@ -2,6 +2,7 @@
 
 > Claude Code 根目錄 context。各程式子目錄（ip/grab/control）有各自的 CLAUDE.md。
 > **核心策略：從 Reference/ 遷移現有程式碼，不從空白重寫。**
+> **新 session 工作流程：先讀本文件（總綱）→ 再讀目標模組 CLAUDE.md（見 §9 索引）。**
 
 ---
 
@@ -9,12 +10,13 @@
 
 ```
 ~/cf-aoi/
-├── docs/CLAUDE.md          ← 本文件
+├── docs/CLAUDE.md          ← 本文件（總綱；§9 有各模組 CLAUDE.md 索引）
 ├── ip/                     ← IP 程式（C++ CUDA）
 ├── grab/                   ← Grab 程式（C++ pylon/eBUS）
 ├── control/                ← Control 程式（C# Avalonia）
+├── tools/                  ← 小工具（golden_maker 等；見 tools/README.md）
 ├── shared/FrameHeader.h    ← RDMA wire format（兩端共用）
-├── scripts/                ← bootstrap / 測試腳本
+├── scripts/                ← 驗證腳本（verify_alignment.py、estimate_pitch.py 等）
 ├── test_images/            ← MIL 測試影像
 └── Reference/              ← 唯讀，舊版程式碼遷移來源
     ├── gpu_algo/           ← 全 GPU 演算法
@@ -238,3 +240,39 @@ static_assert(sizeof(FrameHeader)==256,"");
     **整數/幾何欄位完全一致**；唯**浮點閾值邊界像素可能 ULP 翻面**（單像素級、方向偏保守＝寧抓勿漏），
     缺陷預設 `待人工複核` 進 DefectSort 人工確認 → 可接受。**結論：off-line(x86)調的參數對 on-line(ARM)有效。**
     一致性/決定性只用未觸頂負載比對（觸頂 cap=10000 截斷為 race-dependent，非 bit-exact，僅供 perf）。
+
+---
+
+## 8. 工作流程紀律（完成的定義）
+
+### 完成 = 驗證過（L1 → L3）
+
+| 狀態 | 定義 |
+|------|------|
+| **L1** | 程式碼實作完成，尚未驗證。功能接線可能正確，但未在實機或合成測試中確認。STATUS.md 標 L1 的項目**不得合入 production 路徑**。|
+| **L3** | 在目標平台（RTX 2080S 或 DGX Spark GB10）上跑過針對性驗證，貼出數據，結果符合規格。|
+
+**規則：沒有驗證就不算完成。** 每次說「做完了」之前必須貼數據。
+
+### 驗證最低要求
+
+1. **Stage 1（合成影像）**：合成數據驗算法正確性，不依賴相機或真實面板。
+2. **Stage 2（端對端）**：offline-tcp 或 rdma-validate 模式下跑 TCP 測試，貼數據（缺陷數、幀數、CRC、ShiftX/Y 誤差等）。
+3. **Stage 3（失敗路徑）**：確認錯誤輸入 → 正確的 ERR 回傳，不 crash、不 silent fail。
+
+每階段貼數據再繼續下一階段。「缺陷數 n0 vs n_aligned」、「幀數/CRC」、「ShiftX/Y 誤差」等關鍵數據必須顯示在 STATUS.md 或 commit message 裡。
+
+---
+
+## 9. 各模組 CLAUDE.md 索引
+
+**新 session 工作流程：先讀本文件（總綱）→ 再讀目標模組 CLAUDE.md。**
+
+| 模組 | 路徑 | 各自涵蓋（不重複總綱）|
+|------|------|----------------------|
+| IP（CUDA/GPU）| `ip/CLAUDE.md` | Reference 遷移表、CUDA kernel 不變式（禁改 kernel 本體）、ZoneConfig 參數對應、各平台支援模式、24 條 IP 不變式（含決定性/爆量陷阱/對位 pipeline/RDMA 背壓）|
+| Grab（相機）| `grab/CLAUDE.md` | Reference 遷移表、pylon/eBUS SDK 嚴格分離、cam_manager、rdma_sender N-slot ring、8 條 Grab 不變式（含 GB10 cudaHostAlloc / RoCE MTU / 背壓握手）|
+| Control（UI）| `control/CLAUDE.md` | C# Avalonia 架構、MVVM 模式、Zone 參數編輯表單（手寫 32 欄資料驅動）、連線設定、13 條 Control 不變式（含 CF_ 協議實作狀態 / AI 停用 / DefectSort）|
+| tools（小工具）| `tools/README.md` | golden_maker 用途/用法（GUI 框選 Mark + CLI headless `--mark-rect`，輸出 AlignRoi XML）；未來其他小工具也記在這裡 |
+
+**本文件（docs/CLAUDE.md）涵蓋（跨模組共識）：** 系統架構全貌、5 步驟驗證流程、跨模組通訊協議（CF_/JSON/RDMA）、RecipeInfo.xml/ResultInfo.xml 格式契約、FrameHeader wire format（§5）、平台說明（§6）、12 條跨模組不變式（§7）、完成定義（§8）。
