@@ -127,3 +127,17 @@ message(STATUS "  src/main.cpp + cam_pylon + rdma_sender + control_server")
 message(STATUS "  ctrl port : 8100 (預設)")
 message(STATUS "  rdma dest : --rdma-dest IP:18515")
 message(STATUS "")
+
+# =============================================================================
+# 目標：rdma_nslot_test（Step 3 N-slot 驗證用合成幀送器，不需 pylon/eBUS）
+# =============================================================================
+add_executable(rdma_nslot_test
+    src/rdma_nslot_test.cpp
+    src/rdma_sender.cpp
+)
+target_link_libraries(rdma_nslot_test PRIVATE ${RDMA_LIBS})
+if(nlohmann_json_FOUND)
+  target_link_libraries(rdma_nslot_test PRIVATE nlohmann_json::nlohmann_json)
+endif()
+message(STATUS "==== rdma_nslot_test（Step 3 合成幀送器，無相機）====")
+message(STATUS "  用法: rdma_nslot_test <server_ip> <port> <num_frames> [width] [height] [delay_ms]")
