@@ -63,8 +63,8 @@ public partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int gainRaw = 256;
 
     // read-back actual（SET 後填入；GET 後填入）
-    [ObservableProperty] private string exposureActualText = "—";
-    [ObservableProperty] private string gainActualText = "—";
+    [ObservableProperty] private string exposureActualText = "實際：尚未讀取";
+    [ObservableProperty] private string gainActualText = "實際：尚未讀取";
 
     [ObservableProperty] private string camStatus = "";
 

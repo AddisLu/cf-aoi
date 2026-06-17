@@ -57,8 +57,8 @@
 
         <!-- Reserve（按鈕區）-->
         <HeaderedContentControl Grid.Row="1" Classes="gbx" Header="Reserve">
-          <Grid Margin="4">
-            <!-- 進階 CF 按鈕：Ctrl+F / 切換鈕顯示 -->
+          <StackPanel Margin="4" Spacing="6">
+            <!-- 進階 CF 按鈕：Ctrl+F / 切換鈕顯示（隱藏時收合，不佔位）-->
             <WrapPanel IsVisible="{Binding ShowAdvanced}">
               <Button Classes="cf" Command="{Binding CfLoadRecipeCommand}" Content="CF&#10;Load Recipe"/>
               <Button Classes="cf" IsEnabled="False" ToolTip.Tip="offline 模式不取像" Content="CF&#10;Grab Start"/>
@@ -70,8 +70,8 @@
               <Button Classes="sv" Command="{Binding CfSaveRecipeCommand}" Content="Save&#10;Recipe"/>
               <Button Classes="sv" Command="{Binding RefreshCommand}" Content="Refresh"/>
             </WrapPanel>
-            <!-- 常駐：開離線分析工具 + 顯示進階（WrapPanel 自動換行，避免按鈕被擠出畫面）-->
-            <WrapPanel VerticalAlignment="Bottom" Orientation="Horizontal">
+            <!-- 常駐：開各工具視窗（WrapPanel 自動換行，疊在進階列下方不重疊）-->
+            <WrapPanel Orientation="Horizontal">
               <Button Name="BtnOpenAlgoTest" Content="離線分析工具 (Algorithm Test)"
                       Background="{StaticResource ColLightGreen}" Padding="12,8" Margin="0,0,8,8"/>
               <Button Name="BtnOpenParamEditor" Content="配方編輯 (IP Param Editor)" Padding="12,8" Margin="0,0,8,8"/>
@@ -79,7 +79,7 @@
               <Button Name="BtnOpenSysSettings" Content="系統設定 (Settings)" Padding="12,8" Margin="0,0,8,8"/>
               <Button Command="{Binding ToggleAdvancedCommand}" Content="顯示/隱藏進階 (Ctrl+F)" Padding="12,8" Margin="0,0,8,8"/>
             </WrapPanel>
-          </Grid>
+          </StackPanel>
         </HeaderedContentControl>
 
         <!-- 系統 log（rtbSys，淡黃底）-->
