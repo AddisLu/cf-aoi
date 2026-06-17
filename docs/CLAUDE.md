@@ -103,6 +103,7 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
    Defect_<IpName>_Slice<ff>_Roi<rr>_Run<nn>_X<xxxx>_Y<yyyyyy>_Dr<Bright|Dark>.png   缺陷小圖（全域座標）
    <panelId>_<recipeName>_ResultInfo.json / .xml   結果（DefectCnt 來源）
    <panelId>_<recipeName>_result.png               overlay（PNG 低壓縮）
+<--output>/_diag/<yyyyMMdd>.jsonl + incident_<ts>.json   ← 行車紀錄（flight recorder，出事才落地；見下）
 ```
 - 簡化為 **3 層**（省略 legacy 第 4 層 `<IpName>/`，新架構每台 IP 自有 output；IpName 進檔名）。
 - `--ip-name`（預設 IP01）決定缺陷檔名；`panelId`=影像/panel 名、`recipeName`=zone 的 recipe 名。
@@ -111,6 +112,11 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
   log 顯示「N 缺陷(待人工複核)」。`--use-ai` 重新啟用。
 - **存圖效能**：overlay 用 PNG（非 BMP）、缺陷小圖多緒平行寫；調參可用 `--no-save-images`/`--no-overlay`/
   `--max-patches N` 加速。log 印 `存圖耗時: crop/patches/overlay ms`。
+- **行車紀錄（flight recorder，純觀測診斷）**：IP `diag/flight_recorder` 平時零磁碟 I/O（最近 64 張現場進記憶體
+  環形緩衝），**出事才落地** `_diag/<yyyyMMdd>.jsonl`（每事件一行 compact 索引）+ `incident_<ts>.json`（完整現場
+  pretty-print）。incident kind：`cuda_fatal`/`frame_validation`/`recipe_load`/`bad_json`/`uncaught_exception`。
+  **不擾動運算**（計時區外、bench 模式 no-op、不破 bit-exact 決定性）→ 詳見 **ip/CLAUDE.md 不變式 16**。
+  2026-06-15 RTX 2080 驗證 L3（GB10 待補驗 atexit/atomic 在 ARM 記憶體模型；RDMA-wire CRC 分支 L1）。
 
 #### 缺陷遠端歸檔（DefectSort）— 缺陷影像存在運算端 IP/Linux/Spark，不在 Control 本地
 Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統；Control 端不假設能看到 IP 的硬碟）：
@@ -266,7 +272,26 @@ static_assert(sizeof(FrameHeader)==256,"");
 
 ## 9. 各模組 CLAUDE.md 索引
 
-**新 session 工作流程：先讀本文件（總綱）→ 再讀目標模組 CLAUDE.md。**
+### 新 session onboarding 順序（依任務分層讀，勿一次全塞）
+
+**① 每次必讀（最低開機門檻）：**
+1. **`docs/CLAUDE.md`（本總綱）** — 架構全貌、5 步驟、協議契約、§7 跨模組不變式
+2. **目標模組 `CLAUDE.md`**（見下表）— 該模組不變式、遷移表、禁改項
+3. **`docs/STATUS.md`** — L0–L4 誠實分級，看清每個功能的**真實完成度**（避免把「寫好」當「驗證過」）
+
+**② 依任務加讀（不需全讀，按需取用）：**
+
+| 任務 | 加讀 |
+|------|------|
+| 改某模組程式 | `docs/<模組>_程式完整說明.md`（逐檔/函式級地圖，省去亂 grep）|
+| 碰 legacy 相容行為（協議 / 配方格式 / 缺陷欄位）| `Reference/` 對應檔考古（唯讀） |
+| 質疑或更新某個 L3/L4 結論 | `docs/verification/*.md` 實機數據報告 |
+| 實際編輯 code | 對應的 `ip/grab/control/tools/src` 真實源碼 |
+
+> **判準**：理解現況 / 回答問題 → 讀①即可；實際改 code → 加讀對應源碼；碰 legacy 相容 → 加讀 `Reference/`。
+> 不必要求「全讀」——給定任務後按上述優先序取最小必要集合即可。
+
+### 模組 CLAUDE.md 索引
 
 | 模組 | 路徑 | 各自涵蓋（不重複總綱）|
 |------|------|----------------------|
