@@ -164,10 +164,12 @@ source /opt/pleora/ebus_sdk/.../set_puregev_env.sh
    nvidia_peermem 未載入」在 GB10 上**不適用**；移植到 IP 時該註解要改成上述 cudaHostAlloc 方案。
    證據：`docs/verification/verification_report_20260611.md` §五問題1 + `t40_e2e_server.cpp`。
    （此即 `t40_e2e_server` 已採用的作法：`cudaHostAlloc(...Portable|Mapped)` 配 `gpu_buf`。）
-7. **N-slot ring buffer + MrInfoEx 握手（Step 3，2026-06-17 實作完，待硬體驗證）**：
+7. **N-slot ring buffer + MrInfoEx 握手（Step 3，2026-06-17 damac↔Spark 實機驗通 L3）**：
    `rdma_sender.cpp` 不再使用單一 `MrInfo`，改接收 IP 送來的 256B `MrInfoEx`（含 `n_slots`/`slot_size`）：
    - `connect()` 收 `MrInfoEx`，驗 `n_slots != 0 && slot_size >= frame_cap`
    - `send_frame()` 定址：`slot_id = frame_seq % n_slots`，`write_addr = addr + slot_id × slot_size`
    - `poll_one()` 完成等待 = 背壓點：credit 耗盡時 RNR（`rnr_retry_count=7=∞`）→ 此處自然阻塞
    IP 端（`rdma_source.cpp`）以 credit 補充時機保證 slot 安全：
    `memcpy → push_blocking → post_recv`（不可換序，見 ip/CLAUDE.md 不變式 23）。
+   **實測數據（2026-06-17）**：`rdma_nslot_test` 120 幀 CRC=OK；背壓 20 幀 ok=20 err=0，
+   QP 未進 error state（Grab 9.6fps vs IP 200ms 限速，確認 poll_one 阻塞非斷線）。commit `de047a3`。

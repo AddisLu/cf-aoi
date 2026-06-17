@@ -69,7 +69,8 @@
 | FrameQueue 背壓 + buffer 安全計算器 | **L3** | **2026-06-17 DGX Spark GB10 實機（no_wait 串流 20 幀）**：`[BufferCalc] host可用RAM=112488MB 幀大小~39MB FrameQueue上限=1幀 SourceRing上限=4幀`（--max-queue-size 1）。no_wait=true 快速送 20 幀（--test-consumer-delay-ms 2000 模擬慢消費端）：14/20 幀收到 `ERR "FrameQueue 滿（上限 1 幀）：系統繁忙，請稍後重試"`；6/20 幀 OK（Consumer 偶爾空閒時）；queue.size() 始終 ≤ 上限。VmRSS 增長 155MB < 778MB（20幀×38MB）。水位 100% 觸發 `queue_high_watermark` incident JSON 17 次。見 ip/CLAUDE.md 不變式 18。 |
 | TuningRecipe（量速模式：GPU 跑但不寫磁碟） | **L3** | **2026-06-17 DGX Spark GB10 實機**：LOAD_RECIPE tuning_recipe=true → TCP 回 `status=OK DefectCnt=150`（結果仍回傳），output 目錄新增 0 個檔案（`[PASS] TuningRecipe 模式：output 目錄零新增檔案`）。IP log 確認 `[TuningRecipe] 跳過存圖（結果仍回傳）`。見 ip/CLAUDE.md 不變式 20。 |
 | SaveSourceImage + SourceImageWriter（原圖非同步存檔） | **L3** | **2026-06-17 DGX Spark GB10 實機（no_wait 20 幀，ring=2，--test-source-writer-delay-ms 600ms 模擬慢碟）**：VmRSS 增長 10MB（基準 330MB，峰值 447MB，消化後 340MB），100 幀×38MB=3800MB 資料，VmRSS 完全不線性成長；穩定期抖動 29MB < 5×38=190MB。`[SourceWriter] WARN ring 滿（2 槽），drop panel=SRC_OOM_0009`（20 幀中 2 幀觸發 drop，ring 上限生效）。`source/SRC_OOM_*.bin` 按實際寫入幀數產生（非 100%=ring 固定上限，非 List 囤積）。見 ip/CLAUDE.md 不變式 19。 |
-| rdma-validate / image-capture / online 模式 | **L0** | ⚠️ 核實：`main.cpp` 只有 `offline-file` / `offline-tcp` 兩分支；`ip/src/modes/` **空目錄**、`image_source/` 無 `rdma_source`。CMake 雖有 IBVERBS 條件項但對應檔不存在。**(草稿漏列，補上)** |
+| rdma-validate 模式（N-slot ring + credit 背壓） | **L3** | **2026-06-17 damac↔Spark 實機**：Phase 1 連續 120 幀 CRC=OK（ok=120 err=0，slot 0→3 繞回正確，1375fps/86MB/s）；Phase 2 背壓（`--test-consumer-delay-ms 200`）20 幀全通（ok=20 err=0，Grab 降至 9.6fps 而非斷線，QP 未進 error state）；CM DISCONNECTED 偵測乾淨退出（commit `de047a3`）。見 ip/CLAUDE.md 不變式 23。 |
+| image-capture / online 模式 | **L0** | 未實作（`main.cpp` 無此分支；需相機陣列 + Control 完整接線）|
 | 行車紀錄（flight recorder：結構化診斷 JSONL/incident） | **L3** | `diag/flight_recorder` 環形緩衝+只記出事；2026-06-15 RTX 2080 端到端驗證五種 incident kind（cuda_fatal 經人為 OOM 觸發、frame_validation/bad_json/recipe_load/uncaught_exception）+ JSON 全可解析 + 決定性不破 + bench 無 `_diag`（recorder no-op，gpu_ms 零擾動）。見 ip/CLAUDE.md 不變式 16。 |
 | 收圖入口 magic/version/CRC32 + 尺寸驗證 | **L3（offline-tcp）/ L1（RDMA wire）** | offline-tcp：尺寸防呆 + client 宣告 `crc32` 比對於 RTX 2080 實測拒收+記 incident（L3）。**RDMA wire header 的 magic/version/CRC 驗證分支待 `rdma_source` 實作後才生效（L1）**。見 ip/CLAUDE.md 不變式 17。 |
 
@@ -85,6 +86,7 @@
 | ---- | ---- | ----------------- |
 | 正式 cfaoi_grab 單相機→RDMA→Spark（cam_pylon + rdma_sender + control_server + main） | **L4** | 2026-06-15 Step 2 實機：raL8192-12gm → pylon → FrameHeader(0xA01CF00D)+CRC32 → RDMA 18515 → Spark GB10 pinned memory → CRC 20/20，FAIL=0（見 [Step 2 報告](verification/verification_report_step2_20260615.md)）|
 | 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L0** | 未實作；Step 3 待 Switch 到貨 |
+| rdma_nslot_test（合成幀送器，驗 N-slot ring + 背壓，不需相機） | **L3** | **2026-06-17 damac↔Spark 實機**：120 幀連送 CRC=OK；背壓 20 幀（IP 200ms 延遲）ok=20 err=0；commit `de047a3` |
 | Control↔Grab 8100 完整接線 | **L1** | control_server.cpp 寫好、命令解析正確；本次以 nc hardcode 觸發，未接真正 Control UI |
 | ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端（Phase-1 測試套件） | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
 
@@ -171,9 +173,12 @@
 
 ---
 
-## Step 3 N-slot RDMA 實作（2026-06-17）
+## Step 3 N-slot RDMA 實機驗證（2026-06-17 **全通 → L3**）
 
-**已實作（code complete，待實機驗證）：**
+> 驗證環境：`damac`（Ryzen7700 + ConnectX-5）↔ `spark-c16f`（GB10/sm_121 + ConnectX-7），100G DAC，RoCE v2。
+> 最終 commit：`de047a3`（ip: rdma_source 偵測 Grab 斷線）
+
+**已實作且驗通：**
 
 | 元件 | 檔案 | 說明 |
 |------|------|------|
@@ -182,27 +187,41 @@
 | IP N-slot ring buffer | `ip/src/image_source/rdma_source.cpp` | cudaHostAlloc N×slot，初始 N post_recv，釘點 1 順序 |
 | `push_blocking` | `ip/src/image_source/image_source.h` | FrameQueue 滿時阻塞（背壓鏈） |
 | `rdma-validate` 模式 | `ip/src/main.cpp` | `#ifdef CFAOI_HAS_RDMA`，CRC 二次驗，seq 序驗 |
-| CMake | `ip/CMakeLists.txt` | ibverbs+rdmacm 條件連結，`rdma_source.cpp` 條件編譯 |
+| `rdma_nslot_test` | `grab/src/rdma_nslot_test.cpp` | 合成幀送器，不需相機 |
+| CMake | `ip/CMakeLists.txt`, `grab/CMakeLists.txt` | ibverbs+rdmacm 條件連結 |
 
 **背壓鏈**：`process_image 慢 → FrameQueue 滿 → push_blocking 阻塞 → 不 post_recv → Grab RNR（rnr_retry_count=7=∞）→ Grab poll_one 阻塞`
 
-**待驗證**（需 RDMA 硬體）：
+**驗證結果（所有項目通過）：**
 
-| 驗證項目 | 方式 |
+| 驗證項目 | 結果 |
 |---------|------|
-| 連續流 100+ 幀 CRC 全對 | `cfaoi_ip --mode rdma-validate --rdma-slots 4` + Grab 連送 |
-| 背壓：credit 耗盡 → Grab 阻塞而非斷線 | `--test-consumer-delay-ms 200` |
-| slot race：seq>N 繞回 CRC 仍正確 | 高速連送觀察 `slot=0..3` 交替 CRC=OK |
-| flight_recorder credit 水位 incident | FrameQueue 接近上限時 incident 寫磁碟 |
+| Phase 1：連續 120 幀 CRC 全對 | ✅ ok=120 err=0，1375fps/86MB/s，slot 0→3 繞回正確 |
+| Phase 1：CM DISCONNECTED 乾淨退出 | ✅ `[rdma_source] 偵測到 Grab 斷線（CM DISCONNECTED）` |
+| Phase 2：credit 耗盡 → Grab 阻塞（非斷線） | ✅ 9.6fps（200ms 延遲限速），ok=20 err=0，QP 未進 error state |
+| Phase 2：IP 消費恢復後 Grab 自然繼續 | ✅ 全 20 幀完成，無重連 |
+
+**本次 bug fix（驗證過程中修正）：**
+
+1. `d2a42b0`：`rdma_nslot_test.cpp` FrameHeader include 路徑
+2. `b7b13e3`：`recv_thread_fn` 退出後必須呼叫 `queue_->close()`
+3. `de047a3`：RoCE v2 `WR_FLUSH_ERR` 不保證立即出現 → 新增 CM event 輪詢（`check_cm_disconnect()`）
 
 ---
 
-## 下一階段：Step 3（Grab 全陣列 + Switch）
+## 下一階段：Step 3（Grab 全陣列 + Switch）→ Step 4
 
-Step 2 已完成（2026-06-15），N-slot RDMA 實作完成（2026-06-17，待硬體驗證）：
+Step 2 已完成（2026-06-15），**N-slot RDMA（合成幀路徑）實機驗通（2026-06-17 L3）**：
 
+**Step 3 剩餘（需相機陣列）：**
 1. **SN2201 交換器到貨** + 37 台 raL8192 接線
-2. `cfaoi_grab --cam-count ALL`（全陣列多相機）
-3. 實機驗收上方 4 個驗證項目
-4. Control↔Grab 8100 完整接線（目前 hardcode nc，待 Step 3 接真正 Control UI）
-5. UpstreamServer 接線（online 階段需要）：L1→（接線啟動+綁回呼）→ L4
+2. `cfaoi_grab --cam-count ALL`（cam_manager 全陣列多相機，目前 L0）
+3. Control↔Grab 8100 完整接線（目前 hardcode nc，待真 Control UI）
+
+**Step 4 前置（已具備）：**
+- N-slot RDMA ring buffer + 背壓驗通（L3）
+- IP rdma-validate 模式可直接升級為 image-capture 模式
+- 使用者有單台 Basler raL8192 相機，可做 Step 4 單相機端到端測試
+
+**需接線啟動（L1 → L4）：**
+- UpstreamServer（CF_/8787）：需 `.Start()` + 綁 On* 回呼 + 真實上位機
