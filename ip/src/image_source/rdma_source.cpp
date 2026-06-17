@@ -119,6 +119,12 @@ void RdmaImageSource::recv_thread_fn() {
         }
 
         if (!got) {
+            // RoCE v2：Grab 斷線後 WR_FLUSH_ERR 不保證立即出現。
+            // 非阻塞輪詢 CM 事件頻道，偵測 RDMA_CM_EVENT_DISCONNECTED。
+            if (conn_.check_cm_disconnect()) {
+                printf("[rdma_source] 偵測到 Grab 斷線（CM DISCONNECTED）\n");
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::microseconds(100));
             continue;
         }

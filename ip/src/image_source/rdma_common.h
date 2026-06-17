@@ -16,6 +16,7 @@
 #include <rdma/rdma_cma.h>
 #include <infiniband/verbs.h>
 #include <netdb.h>
+#include <poll.h>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
@@ -174,6 +175,23 @@ struct RcConn {
                                      ibv_wc_status_str(wc.status));
         }
         return true;
+    }
+
+    // 非阻塞偵測對端斷線（RoCE v2 不保證 WR_FLUSH_ERR 立即出現，需輪詢 CM 事件頻道）。
+    // 回傳 true = 偵測到 DISCONNECTED 或裝置移除；false = 無事件或不確定。
+    // 在 recv_thread 的 no-event 分支呼叫，避免忙等。
+    bool check_cm_disconnect() {
+        if (!ec) return false;
+        struct pollfd pfd{};
+        pfd.fd = ec->fd;
+        pfd.events = POLLIN;
+        if (::poll(&pfd, 1, 0) <= 0) return false;  // 非阻塞：無事件立即返回
+        rdma_cm_event* ev = nullptr;
+        if (rdma_get_cm_event(ec, &ev) != 0) return false;
+        bool disc = (ev->event == RDMA_CM_EVENT_DISCONNECTED ||
+                     ev->event == RDMA_CM_EVENT_DEVICE_REMOVAL);
+        rdma_ack_cm_event(ev);
+        return disc;
     }
 
     void close() {
