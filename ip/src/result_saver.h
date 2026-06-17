@@ -42,6 +42,9 @@ struct InspectionResult {
     int image_height = 0;
     int frame_height = 0;   // 單一 CCD frame 高度（多 frame 拼接時用於 Slice 計算；0 → 用 image_height）
     bool ai_used = false;   // 本次是否實際做 AI 分類（停用時缺陷標待人工複核）
+    double opt_res_x = 0.0;  // 機器光學解析度（μm/pixel）；0.0 = 未設定，GlobalPos_um 輸出 0.0
+    double opt_res_y = 0.0;
+    int ccd_index = 0;        // CCD 位置索引（預留多 CCD 拼接，值固定 0）
     double total_time_ms = 0.0;
     std::vector<ZoneResult> zones;
 

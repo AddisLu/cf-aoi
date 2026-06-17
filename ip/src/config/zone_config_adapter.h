@@ -87,6 +87,13 @@ struct ZoneConfig {
     }
 };
 
+// 機器層光學參數（不隨 recipe 換，不塞進 ZoneConfig）。
+struct OpticalParams {
+    double opt_res_x = 0.0;   // μm/pixel；0.0 = 未設定，GlobalPos_um 輸出 0.0
+    double opt_res_y = 0.0;
+    int ccd_index = 0;         // CCD 位置索引；預留多 CCD 拼接，值固定 0
+};
+
 // from_recipe_xml 遇到非 DIV 模式或解析失敗時丟出此例外。
 class RecipeError : public std::runtime_error {
 public:
@@ -97,6 +104,9 @@ namespace ZoneConfigAdapter {
 
 // 讀取 default_zone.ini，回傳單一全幅 zone（找不到檔案則用內建預設並印警告）。
 ZoneConfig from_ini(const std::string& path);
+
+// 從 INI 讀取機器層光學參數（不依賴 ZoneConfig；缺 section / 垃圾值 → 0.0，不 crash）。
+OpticalParams load_optical_params(const std::string& ini_path);
 
 // 解析 legacy RecipeInfo.xml（序列化的 Recipe），回傳 DetectRoiList 每個 DetectRoi 一個 ZoneConfig。
 // defaults 提供 recipe 未涵蓋之欄位（multiscale/LSC/block_dim 等），通常傳入 from_ini 的結果。

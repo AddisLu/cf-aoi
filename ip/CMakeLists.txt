@@ -90,3 +90,15 @@ target_include_directories(align_verify PRIVATE
 )
 target_link_libraries(align_verify PRIVATE ${OpenCV_LIBS})
 target_compile_options(align_verify PRIVATE -std=c++17)
+
+# ── coord_verify（純 CPU，不需 CUDA/OpenCV；Gap #5 pixel→μm 換算驗證）─────────
+add_executable(coord_verify
+    src/coord_verify.cpp
+    src/config/zone_config_adapter.cpp
+)
+target_include_directories(coord_verify PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/config
+)
+target_link_libraries(coord_verify PRIVATE)
+target_compile_options(coord_verify PRIVATE -std=c++17)

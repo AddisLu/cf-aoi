@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <iomanip>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -24,6 +25,8 @@ namespace {
 struct LegacyDefect {
     int RunIndex = 0;
     int GlobalPosX = 0, GlobalPosY = 0;
+    double GlobalPosX_um = 0.0, GlobalPosY_um = 0.0;  // μm（0.0 = opt_res 未設定）
+    int CcdIndex = 0;                                   // 預留多 CCD，值固定 0
     int Size = 0, Width = 0, Height = 0;
     std::string Type;     // PointBright / PointDark
     std::string Filter = "NoFilter";
@@ -39,7 +42,9 @@ struct LegacyDefect {
 };
 
 LegacyDefect to_legacy(const DefectInfo& d, int off_x, int off_y, int run_index,
-                       bool ai_used = false) {
+                       bool ai_used = false,
+                       double opt_res_x = 0.0, double opt_res_y = 0.0,
+                       int ccd_index = 0) {
     LegacyDefect L;
     L.RunIndex = run_index;
     // AI 停用時缺陷一律標待人工複核（保留架構，資料足夠後重啟 AI 才會有 AiOK/SizeNG 等）。
@@ -48,6 +53,9 @@ LegacyDefect to_legacy(const DefectInfo& d, int off_x, int off_y, int run_index,
     L.GC_Y = (int)d.center_y;
     L.GlobalPosX = off_x + (int)d.center_x;
     L.GlobalPosY = off_y + (int)d.center_y;
+    L.GlobalPosX_um = (opt_res_x > 0.0) ? L.GlobalPosX * opt_res_x : 0.0;
+    L.GlobalPosY_um = (opt_res_y > 0.0) ? L.GlobalPosY * opt_res_y : 0.0;
+    L.CcdIndex = ccd_index;
     L.Size = d.size;
     L.Width  = d.max_x - d.min_x + 1;
     L.Height = d.max_y - d.min_y + 1;
@@ -110,6 +118,12 @@ void write_defect_xml(std::ostream& os, const LegacyDefect& d) {
     os << "          <RunIndex>" << d.RunIndex << "</RunIndex>\n";
     os << "          <GlobalPosX>" << d.GlobalPosX << "</GlobalPosX>\n";
     os << "          <GlobalPosY>" << d.GlobalPosY << "</GlobalPosY>\n";
+    { char xb[32], yb[32];
+      std::snprintf(xb, sizeof(xb), "%.3f", d.GlobalPosX_um);
+      std::snprintf(yb, sizeof(yb), "%.3f", d.GlobalPosY_um);
+      os << "          <GlobalPosX_um>" << xb << "</GlobalPosX_um>\n";
+      os << "          <GlobalPosY_um>" << yb << "</GlobalPosY_um>\n"; }
+    os << "          <CcdIndex>" << d.CcdIndex << "</CcdIndex>\n";
     os << "          <Size>" << d.Size << "</Size>\n";
     os << "          <Width>" << d.Width << "</Width>\n";
     os << "          <Height>" << d.Height << "</Height>\n";
@@ -143,6 +157,8 @@ json defect_to_json(const LegacyDefect& d) {
     return json{
         {"RunIndex", d.RunIndex},
         {"GlobalPosX", d.GlobalPosX}, {"GlobalPosY", d.GlobalPosY},
+        {"GlobalPosX_um", d.GlobalPosX_um}, {"GlobalPosY_um", d.GlobalPosY_um},
+        {"CcdIndex", d.CcdIndex},
         {"Size", d.Size}, {"Width", d.Width}, {"Height", d.Height},
         {"Type", d.Type}, {"Filter", d.Filter},
         {"X_Min", d.X_Min}, {"X_Max", d.X_Max}, {"Y_Min", d.Y_Min}, {"Y_Max", d.Y_Max},
@@ -176,7 +192,8 @@ std::string to_json(const InspectionResult& r) {
         json defs = json::array();
         int ri = 0;
         for (const auto& d : z.result.defects)
-            defs.push_back(defect_to_json(to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++, r.ai_used)));
+            defs.push_back(defect_to_json(to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++, r.ai_used,
+                                                    r.opt_res_x, r.opt_res_y, r.ccd_index)));
         roi_list.push_back({
             {"RoiIndex", z.zone_index},
             {"roi_offset_x", z.roi_offset_x},
@@ -271,7 +288,8 @@ int save(const InspectionResult& r,
             os << "      <DefectInfoList>\n";
             int ri = 0;
             for (const auto& d : z.result.defects)
-                write_defect_xml(os, to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++, r.ai_used));
+                write_defect_xml(os, to_legacy(d, z.roi_offset_x, z.roi_offset_y, ri++, r.ai_used,
+                                               r.opt_res_x, r.opt_res_y, r.ccd_index));
             os << "      </DefectInfoList>\n";
             os << "    </RoiInfo>\n";
         }

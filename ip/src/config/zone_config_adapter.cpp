@@ -72,6 +72,15 @@ ZoneConfig from_ini(const std::string& path) {
     return z;
 }
 
+OpticalParams load_optical_params(const std::string& ini_path) {
+    ConfigParser::Config c = ConfigParser::loadConfig(ini_path);
+    OpticalParams p;
+    p.opt_res_x = c.opt_res_x;   // 已在 config_parser.h 解析時夾為 >0 或 0.0
+    p.opt_res_y = c.opt_res_y;
+    p.ccd_index = c.ccd_index;
+    return p;
+}
+
 std::vector<ZoneConfig> from_recipe_xml(const std::string& xml_path,
                                         const ZoneConfig& defaults) {
     std::ifstream f(xml_path);

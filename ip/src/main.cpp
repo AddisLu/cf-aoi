@@ -203,12 +203,16 @@ std::string first_determinism_diff(const DetectionResult& a, const DetectionResu
 InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>& zones,
                                const cv::Mat& gray, const std::string& panel_id,
                                bool verify, bool& verify_failed,
-                               const RecipeSavingConfig& saving_cfg = {}) {
+                               const RecipeSavingConfig& saving_cfg = {},
+                               const OpticalParams& optical = {}) {
     InspectionResult agg;
     agg.panel_id = panel_id;
     agg.image_width = gray.cols;
     agg.image_height = gray.rows;
     agg.ai_used = pipe.ai_enabled();   // 有效 AI 狀態（停用時缺陷標待人工複核）
+    agg.opt_res_x = optical.opt_res_x;
+    agg.opt_res_y = optical.opt_res_y;
+    agg.ccd_index = optical.ccd_index;
     if (!zones.empty()) agg.recipe_name = zones.front().recipe_name;
 
     int total_defects_so_far = 0;
@@ -306,6 +310,10 @@ int main(int argc, char** argv) {
 
     // ---- INI 預設參數 ----
     ZoneConfig base = ZoneConfigAdapter::from_ini(args.ini);
+    const auto machine_optical = ZoneConfigAdapter::load_optical_params(args.ini);
+    std::cout << "[Optical] opt_res=(" << machine_optical.opt_res_x
+              << "," << machine_optical.opt_res_y
+              << ") ccd_index=" << machine_optical.ccd_index << "\n";
     // bench 覆寫單一全幅 zone（掃缺陷負載上下界用；只對無 recipe 的單 zone 生效）
     if (args.ov_bth >= 0.f)  base.BTH = args.ov_bth;
     if (args.ov_dth >= 0.f)  base.DTH = args.ov_dth;
@@ -373,7 +381,7 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed,
-                                                 cli_saving_cfg);
+                                                 cli_saving_cfg, machine_optical);
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
@@ -492,7 +500,7 @@ int main(int argc, char** argv) {
             diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
             scene.queue_depth = (int64_t)queue.size();  // 水位快照（進 ring，incident 時可查）
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
-            InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg);
+            InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg, machine_optical);
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
             // TuningRecipe：GPU 跑、結果仍回 TCP，但完全不寫磁碟（量速/調參模式）。

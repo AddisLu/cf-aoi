@@ -52,6 +52,11 @@ public:
         // GPU settings
         int block_dim_x = 32;
         int block_dim_y = 32;
+
+        // Optical resolution (machine-level, not per-zone)
+        double opt_res_x = 0.0;   // μm/pixel; 0.0 = not set
+        double opt_res_y = 0.0;
+        int ccd_index = 0;
     };
 
     static Config loadConfig(const std::string& filename) {
@@ -147,6 +152,17 @@ private:
         else if (section == "GPU") {
             if (key == "block_dim_x") config.block_dim_x = std::stoi(value);
             else if (key == "block_dim_y") config.block_dim_y = std::stoi(value);
+        }
+        else if (section == "Optical") {
+            if (key == "opt_res_x") {
+                try { double v = std::stod(value); config.opt_res_x = (v > 0.0) ? v : 0.0; } catch (...) {}
+            }
+            else if (key == "opt_res_y") {
+                try { double v = std::stod(value); config.opt_res_y = (v > 0.0) ? v : 0.0; } catch (...) {}
+            }
+            else if (key == "ccd_index") {
+                try { int v = std::stoi(value); config.ccd_index = (v >= 0) ? v : 0; } catch (...) {}
+            }
         }
     }
 };
