@@ -1,7 +1,7 @@
 # IP 程式完整說明
 
-> 版本：2026-06-15 整理（逐檔靜態分析 + GB10 實機驗證對照）+ flight_recorder（行車紀錄）
-> 專案：`ip/CMakeLists.txt`（C++17 / CUDA）→ 可執行檔 `cfaoi_ip`
+> 版本：2026-06-17 整理（逐檔靜態分析 + GB10 實機驗證對照）+ flight_recorder（行車紀錄）+ Gap #5 pixel→μm + Demo 考古補充
+> 專案：`ip/CMakeLists.txt`（C++17 / CUDA）→ 可執行檔 `cfaoi_ip`（+ `align_verify` / `coord_verify` 驗證工具）
 > 技術棧：C++ + CUDA（cuda_kernels.cu / ai_kernels.cu）+ OpenCV + nlohmann_json + fmt + cuBLAS
 > 平台：Linux RTX 2080 Super（sm_75，開發）/ DGX Spark GB10（sm_121，生產，ARM aarch64）
 
@@ -79,6 +79,36 @@ CF-AOI 分散式架構 IP 程式（本文件）
         │ CONTROL │                 │  GRAB   │
         └─────────┘                 └─────────┘
 ```
+
+> **Reference 路徑正名**：本文件與 ip/CLAUDE.md 沿用舊名 `gpu_algo/`，**實際目錄為 `Reference/Demo/`**
+> （含 `RAG_TRAINING.md` 演算法真相）。`legacy_win` = `Reference/PrjCfAoi/`、`phase1_tests` = `Reference/cfaoi_phase1/`。
+
+### 2.1 Demo 考古補充：kernel 一字不改確認 + 未搬入/死碼盤點
+
+> 2026-06-17 逐行比對 `Reference/Demo/src/cuda_kernels_fast.cu`(1377行) vs `ip/src/gpu/cuda_kernels.cu`(1395行)
+> 與兩份 `ai_kernels.cu`。
+
+- **不變式 #1 屬實確認**：所有 `__global__`/`__device__` kernel 本體 **byte-exact 相同**；`cuda_kernels.h` 兩份 byte-identical。
+  唯一差異 100% 在 host launch 編排：**ip `launchFastCCLKernel`（cuda_kernels.cu:1188-1199）包了 `MAX_CCL_ITERS=1000` 收斂迴圈**，
+  Demo（cuda_kernels_fast.cu:1182）是**單趟 merge、無迴圈**。kernel call 本身一字不改。AI 11 個 kernel 全 byte-identical（無增無減）。
+
+- **複製進二進位但 ip 執行路徑未呼叫（死碼）**：
+  | kernel/功能 | Demo 位置 | ip 狀態 |
+  |---|---|---|
+  | 多尺度 `kernelDownsample2x/4x`、`kernelUpscaleBinaryMask2x/4x`、`allocateMultiScaleBuffers` | cuda_kernels_fast.cu:641-770,1347 | byte 同在 `.cu`，但 `gpu_pipeline.cpp::run()`(218-306) **全無呼叫**；`enable_multiscale` 帶進 ZoneConfig 但 run() 不讀 |
+  | LSC 自動校準 `calibrateLensShadingFromImage` | :999-1071 | byte 同，但 ip **無 caller**（`lsc_auto_calibrate` 不被讀；手動 LSC 校正 kernel 有接線但預設 off）|
+  | `inline_types.h` | Demo include | 複製進 `ip/src/config/inline_types.h` 但**全 src 無 include 引用**（孤立死碼，疑為 online 模式預留）|
+  > ⚠️ 多尺度在 Demo 本身（`batch_detector.cpp` processImage）似乎也未接 → RAG_TRAINING.md 描述多尺度生效，但**程式碼接線存疑**（兩邊皆 L0 執行路徑）。
+
+- **Demo 有、ip 刻意不搬（職責外移或測試範式）**：合成缺陷注入 `DefectGenerator`（main.cpp:58-169；ip config_parser 仍解析 `[Debug]` 欄位但不生效）、
+  auto-tune BTH/DTH 網格搜索（調參移到 Control/離線）、FFT pitch 內建（移到 Control `PitchEstimator` / `scripts/estimate_pitch.py`）、
+  6 模組 TDD 框架（ip 改用 `--verify-deterministic` + flight_recorder）、`spark_scheduler`（分散式由 Control 分派每台 IP）、
+  `gui_config`（移到 Control C# Avalonia）、Result.csv/result.bmp（改 ResultInfo.json/.xml + PNG overlay）。
+
+- **Demo 有、ip 待做（online 路徑 L0）**：`RivermaxReceiver`/`SocketReceiver`（真 ibverbs/UDP 多播收圖）、
+  `frame_assembler`（線掃 slice 逐行組裝；新架構由 Grab 組幀）、`inline_controller` 產線主迴圈、34-CCD JSON 配置（ip 改用每台一份 RecipeInfo.xml 多 DetectRoi）。對應 STATUS「image-capture / online 模式 L0」。
+
+- **ip 改寫新增、Demo 沒有**：CCL 收斂迴圈、canonical 排序、network-clean、多 ROI、flight_recorder、ZoneConfigAdapter DIV-only 強制、ResultSaver legacy JudgeResult 輸出、Gap #5 pixel→μm（§10.8）。
 
 ---
 
@@ -518,10 +548,11 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 JudgeResult/top: panel_id, recipe_name, DefectCnt, AiOkCnt(0), RuleOkCnt(0), pass,
                  total_time_ms, image_width, image_height, RoiInfoList[]
 RoiInfo:  RoiIndex(=zone_index), roi_offset_x/y, num_defects, process_time_ms, DefectInfoList[]
-DefectInfo: RunIndex, GlobalPosX/Y, Size, Width, Height, Type, Filter(NoFilter),
-            X_Min/X_Max/Y_Min/Y_Max, GC_X/GC_Y, GL_Mean, DetectReason, AiType, ...
+DefectInfo: RunIndex, GlobalPosX/Y, GlobalPosX_um/GlobalPosY_um, CcdIndex, Size, Width, Height,
+            Type, Filter(NoFilter), X_Min/X_Max/Y_Min/Y_Max, GC_X/GC_Y, GL_Mean, DetectReason, AiType, ...
 ```
 - 座標：`GC_X/GC_Y` = ROI 局部質心；`GlobalPosX/Y` 與 `X_/Y_Min/Max` = roi_offset + 局部（全域）。
+- **`GlobalPosX_um/GlobalPosY_um` + `CcdIndex`**（Gap #5，2026-06-17）= μm 座標 + CCD 索引，緊接 `GlobalPosY` 後（§10.8）。
 - GPU 無的填 0：`CV_Sigma/Mean/Min/Max`、`GL_Sigma/Min/Max`；`AiIndex=-1, AiScore=-1, MeanValue=-1`。
 - `AiType`：AI 啟用→`"NoSet"`；**停用→`"待人工複核"`**（缺陷進 DefectSort 人工標 TrueDefect/Particle）。
 - XML 多 `<SaveDefectWidth>/<SaveDefectHeight>` = patch_size(100)，`<IoiInfoList/>` 空。
@@ -586,6 +617,37 @@ DefectInfo: RunIndex, GlobalPosX/Y, Size, Width, Height, Type, Filter(NoFilter),
 - ring 滿 → drop + `[SourceWriter] WARN` + `source_ring_full` incident；主路徑繼續、不阻塞。
 - 格式：raw `.bin`（width × height bytes Mono8），比 PNG 快 5–10×；`output/source/` 子夾。
 - **舊版教訓**（`Reference/CamProc.cs`）：per-frame 配 MIL buffer → List 囤積 → 同步 MbufSave → OOM + 阻塞。新版固定 slots 根治此問題。
+
+### 10.8 缺陷座標 pixel → μm（Gap #5，OpticalParams，2026-06-17 L3）
+
+上位機需要 μm 座標做玻璃製程定位。考古確認：**legacy 從未輸出過 μm**（`Configuration.cs:69,72` 定義 `OptRes_X/Y=0.5` 但 runtime 缺陷一律存 pixel，`CamProc.cs` 未見乘 OptRes）→ 這是**全新對外契約**，無 legacy ground truth。
+
+- **公式**（純乘法，無旋轉、無原點偏移）：
+  ```
+  GlobalPosX_um = GlobalPosX_px × opt_res_x      （opt_res > 0；否則 = 0.0 sentinel）
+  GlobalPosY_um = GlobalPosY_px × opt_res_y
+  ```
+  legacy `Config.cs` 雖有 `CamToStageAngle`/原點偏移定義，但 0 references → 不實作。
+
+- **架構（opt_res 是機器層光學屬性，不在 ZoneConfig）**：
+  ```
+  INI [Optical] → load_optical_params() → OpticalParams（main.cpp 機器層變數）
+    → 作為參數傳進 process_image() → InspectionResult.opt_res_x/y + ccd_index
+    → ResultSaver::save() → to_legacy() 計算 μm
+  LOAD_RECIPE 只換 zones，不碰 OpticalParams（機器層獨立存活）
+  ```
+  - INI `[Optical]`：`opt_res_x`/`opt_res_y`（μm/pixel，0.0=未設定）+ `ccd_index`（CCD 位置索引，固定 0）。
+  - 負數/垃圾值 → `config_parser.h` try-catch 夾為 0.0/0（不 crash）；main.cpp 啟動印 `[Optical] opt_res=(..) ccd_index=..`。
+  - `CcdIndex`：**值固定 0**，schema 預留多 CCD 拼接；μm 公式**無拼接項**（多 CCD 拼接幾何 `CamToStageAngle/CcdPitch/CcdOverlap` 未實作，見 §16 缺功能）。
+
+- **精度/相容**：μm 用 `%.3f`（3 位小數，snprintf 避免污染 stream state）；pixel 欄位完全不動（向下相容，舊上位機不受影響）；double μm 不進 CCL/排序/閾值（純輸出，不影響 bit-exact 決定性）。
+
+- **驗證（coord_verify + verify_coord.py）**：
+  - Stage 1A `coord_verify` 8/8 PASS（5 unit + 3 INI 邊界含垃圾 INI smoke）。
+  - Stage 1B（offline-tcp 真實 LOAD_RECIPE inline XML, opt_res=0.5）：`GlobalPosX=1202 × 0.5 = GlobalPosX_um=601.000`、`CcdIndex=0`。
+  - Stage 2 bit-exact：7 顆缺陷 pixel+μm 兩跑完全一致。Stage 3A（opt_res=0.0）：`GlobalPosX_um=0.000` sentinel，pixel 不變。
+
+- ⚠️ **follow-up（待確認後才 L4）**：欄位名（`GlobalPosX_um`/`Y_um`）、單位（μm）、精度（3 位小數）為 **IP 端片面提議**，尚未與上位機確認；上位機是否確實從 ResultInfo.xml 讀 μm 待接真機驗證 → 與 UpstreamServer 接真實上位機屬同一條 follow-up。
 
 ---
 
@@ -707,10 +769,12 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 | 結果輸出 | [src/result_saver.cpp](../ip/src/result_saver.cpp) / [.h](../ip/src/result_saver.h) |
 | AI 分類器 | [src/ai/tensor_core_classifier.h](../ip/src/ai/tensor_core_classifier.h) / [ai_kernels.cu](../ip/src/ai/ai_kernels.cu) |
 | 行車紀錄 | [src/diag/flight_recorder.cpp](../ip/src/diag/flight_recorder.cpp) / [.h](../ip/src/diag/flight_recorder.h) |
+| 對位引擎（Gap #1）| [src/align_engine.cpp](../ip/src/align_engine.cpp) / [src/align_verify.cpp](../ip/src/align_verify.cpp) |
+| pixel→μm 驗證（Gap #5）| [src/coord_verify.cpp](../ip/src/coord_verify.cpp) / [scripts/verify_coord.py](../scripts/verify_coord.py) |
 | 建置 | [CMakeLists.txt](../ip/CMakeLists.txt) |
-| 預設參數 | [config/default_zone.ini](../ip/config/default_zone.ini) |
+| 預設參數 | [config/default_zone.ini](../ip/config/default_zone.ini)（含 `[Optical]` opt_res）|
 | 不變式 | [ip/CLAUDE.md](../ip/CLAUDE.md) |
 
 ---
 
-*本文件由原始碼逐檔靜態分析整理（3 個並行 reader agent 全讀 ~5600 行），對照 GB10 實機驗證（2026-06-15）。2026-06-15 補 flight_recorder（行車紀錄）章節 + block_dim 三處一致性。2026-06-16 補 §7.3 Local Search（局部搜尋/線掃傾斜容忍）專節，對照 Reference/Demo 確認 ip 實作完整。格式對齊 [control_程式完整說明.md](control_程式完整說明.md)。*
+*本文件由原始碼逐檔靜態分析整理（3 個並行 reader agent 全讀 ~5600 行），對照 GB10 實機驗證（2026-06-15）。2026-06-15 補 flight_recorder（行車紀錄）章節 + block_dim 三處一致性。2026-06-16 補 §7.3 Local Search（局部搜尋/線掃傾斜容忍）專節，對照 Reference/Demo 確認 ip 實作完整。2026-06-17 補 §2.1 Demo 考古（kernel byte-exact 確認 + 死碼/未搬盤點）+ §10.8 Gap #5 pixel→μm。格式對齊 [control_程式完整說明.md](control_程式完整說明.md) / [grab_程式完整說明.md](grab_程式完整說明.md)。*

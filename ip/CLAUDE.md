@@ -1,7 +1,7 @@
 # IP 程式 — CLAUDE.md
 
 > 先讀 `../CLAUDE.md` 了解遷移策略，再讀本文件。
-> **核心原則：GPU kernel 直接複製 `Reference/gpu_algo/`，只換 I/O 外殼。**
+> **核心原則：GPU kernel 直接複製 `Reference/Demo/`，只換 I/O 外殼。**
 
 ---
 
@@ -9,17 +9,17 @@
 
 | Reference 來源 | ip/src/ 目標 | 處理方式 |
 |---------------|-------------|---------|
-| `gpu_algo/src/cuda_kernels_fast.cu` | `gpu/cuda_kernels.cu` | ✅ **直接複製，不改** |
-| `gpu_algo/src/tensor_core_classifier.cu` | `ai/ai_kernels.cu` | ✅ **直接複製，不改** |
-| `gpu_algo/include/cuda_kernels.h` | `gpu/cuda_kernels.h` | ✅ 直接複製 |
-| `gpu_algo/include/tensor_core_classifier.h` | `ai/ai_classifier.h` | ✅ 直接複製 |
-| `gpu_algo/include/config_parser.h` | `config/config_parser.h` | ✅ 直接複製 |
-| `gpu_algo/include/inline_types.h` | `config/inline_types.h` | ✅ 直接複製 |
-| `gpu_algo/config/config.ini` | `config/default_zone.ini` | ✅ 直接複製（參數名稱保留）|
-| `gpu_algo/src/batch_detector.cpp` | `gpu/gpu_pipeline.cpp` | 🔧 改外殼（移除 FileReceiver，加純函式入口）|
-| `gpu_algo/src/inline_controller.cpp` | `modes/rdma_validator.cpp` | 🔧 抽出 RDMA 接收邏輯 |
-| `gpu_algo/src/tdd_runner.cpp` | `tests/tdd_runner.cpp` | 🔧 保留診斷邏輯 |
-| `phase1_tests/src/t40_e2e_server/` | `image_source/rdma_source.cpp` | 🔧 升級為生產等級 |
+| `Demo/src/cuda_kernels_fast.cu` | `gpu/cuda_kernels.cu` | ✅ **直接複製，不改** |
+| `Demo/src/tensor_core_classifier.cu` | `ai/ai_kernels.cu` | ✅ **直接複製，不改** |
+| `Demo/include/cuda_kernels.h` | `gpu/cuda_kernels.h` | ✅ 直接複製 |
+| `Demo/include/tensor_core_classifier.h` | `ai/ai_classifier.h` | ✅ 直接複製 |
+| `Demo/include/config_parser.h` | `config/config_parser.h` | ✅ 直接複製 |
+| `Demo/include/inline_types.h` | `config/inline_types.h` | ✅ 直接複製 |
+| `Demo/config/config.ini` | `config/default_zone.ini` | ✅ 直接複製（參數名稱保留）|
+| `Demo/src/batch_detector.cpp` | `gpu/gpu_pipeline.cpp` | 🔧 改外殼（移除 FileReceiver，加純函式入口）|
+| `Demo/src/inline_controller.cpp` | `modes/rdma_validator.cpp` | 🔧 抽出 RDMA 接收邏輯 |
+| `Demo/src/tdd_runner.cpp` | `tests/tdd_runner.cpp` | 🔧 保留診斷邏輯 |
+| `cfaoi_phase1/src/t40_e2e_server/` | `image_source/rdma_source.cpp` | 🔧 升級為生產等級 |
 | — | `image_source/tcp_source.cpp` | 🆕 全新（offline-tcp，Step 1）|
 | — | `image_source/file_source.cpp` | 🆕 全新（offline-file）|
 | — | `modes/image_capturer.cpp` | 🆕 全新（Step 4 存圖）|
@@ -34,30 +34,30 @@
 mkdir -p src/gpu src/ai src/config src/image_source src/modes src/tests
 
 # ★ 最重要的步驟：直接複製，不修改
-cp ../Reference/gpu_algo/src/cuda_kernels_fast.cu    src/gpu/cuda_kernels.cu
-cp ../Reference/gpu_algo/src/tensor_core_classifier.cu src/ai/ai_kernels.cu
-cp ../Reference/gpu_algo/include/cuda_kernels.h      src/gpu/cuda_kernels.h
-cp ../Reference/gpu_algo/include/tensor_core_classifier.h src/ai/ai_classifier.h
-cp ../Reference/gpu_algo/include/config_parser.h     src/config/config_parser.h
-cp ../Reference/gpu_algo/include/inline_types.h      src/config/inline_types.h
-cp ../Reference/gpu_algo/include/rf_model_config.h   src/ai/rf_model_config.h
-cp ../Reference/gpu_algo/config/config.ini            config/default_zone.ini
+cp ../Reference/Demo/src/cuda_kernels_fast.cu    src/gpu/cuda_kernels.cu
+cp ../Reference/Demo/src/tensor_core_classifier.cu src/ai/ai_kernels.cu
+cp ../Reference/Demo/include/cuda_kernels.h      src/gpu/cuda_kernels.h
+cp ../Reference/Demo/include/tensor_core_classifier.h src/ai/ai_classifier.h
+cp ../Reference/Demo/include/config_parser.h     src/config/config_parser.h
+cp ../Reference/Demo/include/inline_types.h      src/config/inline_types.h
+cp ../Reference/Demo/include/rf_model_config.h   src/ai/rf_model_config.h
+cp ../Reference/Demo/config/config.ini            config/default_zone.ini
 
 # 複製 TDD 測試基礎設施
-cp -r ../Reference/gpu_algo/src/tests/              src/tests/
-cp -r ../Reference/gpu_algo/include/tdd/            src/tests/tdd/
+cp -r ../Reference/Demo/src/tests/              src/tests/
+cp -r ../Reference/Demo/include/tdd/            src/tests/tdd/
 ```
 
 ---
 
 ## 3. 第二步：改寫 gpu_pipeline.cpp（外殼替換）
 
-`Reference/gpu_algo/src/batch_detector.cpp` 的 `GPUDetectionEngine` 是核心。
+`Reference/Demo/src/batch_detector.cpp` 的 `GPUDetectionEngine` 是核心。
 改寫目標：**保留所有演算法邏輯，只換掉輸入介面**。
 
 ```cpp
 // ip/src/gpu/gpu_pipeline.cpp
-// 遷移自 Reference/gpu_algo/src/batch_detector.cpp (GPUDetectionEngine class)
+// 遷移自 Reference/Demo/src/batch_detector.cpp (GPUDetectionEngine class)
 // 變更：移除 FileReceiver/SocketReceiver/RivermaxReceiver，改為純函式呼叫介面
 // 保留：GPU 記憶體管理、8-Way kernel 呼叫、CCL、BlobStats、AI、ResultWriter 等全部不變
 
@@ -90,7 +90,7 @@ public:
 private:
     // ★ 從 batch_detector.cpp 完整搬過來的私有成員和方法
     GPUMemoryManager mem_mgr_;
-    // ... （見 Reference/gpu_algo/src/batch_detector.cpp）
+    // ... （見 Reference/Demo/src/batch_detector.cpp）
 };
 ```
 
@@ -116,7 +116,7 @@ class TcpImageSource : public IImageSource {
 
 ```cpp
 // ip/src/modes/rdma_validator.cpp
-// 遷移自 Reference/gpu_algo/src/inline_controller.cpp 的 RDMA 接收部分
+// 遷移自 Reference/Demo/src/inline_controller.cpp 的 RDMA 接收部分
 // 移除：GPU 處理、結果寫入
 // 保留：RDMA 接收邏輯、FrameHeader 解析
 // 新增：CRC 驗證統計、per-camera FPS 計算、回報給 Control
@@ -140,7 +140,7 @@ class TcpImageSource : public IImageSource {
 > `DetectRoi` 的閾值欄位是 **`BrightThreshold`/`DarkThreshold`**，**沒有 `ThB`/`ThD`**
 > （`ThB/ThD` 只是裝置端 `CUDAZone` 內部欄位名，由 CPU 端 `ThB=(float)BrightThreshold` 直接賦值）。
 
-`DetectRoi`（legacy）→ `ZoneConfig`（gpu_algo KernelParams）對應：
+`DetectRoi`（legacy）→ `ZoneConfig`（Demo KernelParams）對應：
 
 | ZoneConfig / KernelParams | legacy DetectRoi 欄位 | 說明 |
 |----------------|-------------------------------|------|
@@ -153,7 +153,7 @@ class TcpImageSource : public IImageSource {
 | ROI 範圍 | `StartX/StartY/EndX/EndY` | -1 = 全幅；每個 DetectRoi 一個 zone |
 | `enable_multiscale`/`enable_lsc`/`block_dim` | （recipe 無）| 取 `default_zone.ini` 預設；block_dim 固定 16×16 |
 
-> `AlgorithmWay`/`PitchTime`/`ChooseAmount`/`Blob*` 在 gpu_algo kernel **無對應 → 忽略並 log**。
+> `AlgorithmWay`/`PitchTime`/`ChooseAmount`/`Blob*` 在 Demo kernel **無對應 → 忽略並 log**。
 > **SUB 模式直接拒絕**（見不變式 9）。
 
 實作見 `ip/src/config/zone_config_adapter.cpp::from_recipe_xml()`：解析每個 `<DetectRoi>`，
@@ -170,7 +170,7 @@ ip/
 └── src/
     ├── main.cpp                         ← 🆕 進入點（模式分派）
     ├── config/
-    │   ├── config_parser.h/.cpp         ← ✅ 從 gpu_algo/include/ 直接複製
+    │   ├── config_parser.h/.cpp         ← ✅ 從 Demo/include/ 直接複製
     │   ├── inline_types.h               ← ✅ 直接複製
     │   ├── zone_config_adapter.cpp      ← 🆕 XML→ZoneConfig 轉換
     │   └── default_zone.ini             ← ✅ 從 config.ini 直接複製
@@ -198,8 +198,8 @@ ip/
     ├── control_server.h/.cpp            ← 🆕 TCP JSON server
     ├── result_saver.h/.cpp              ← 🔧 改自 batch_detector ResultWriter
     └── tests/
-        ├── tdd_runner.cpp               ← 🔧 改自 gpu_algo/src/tdd_runner.cpp
-        └── tdd/                         ← ✅ 直接複製 gpu_algo/include/tdd/
+        ├── tdd_runner.cpp               ← 🔧 改自 Demo/src/tdd_runner.cpp
+        └── tdd/                         ← ✅ 直接複製 Demo/include/tdd/
 ```
 
 ---
@@ -292,7 +292,7 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
    reference 原版**只跑一次未收斂**的 lock-free union-find → 缺陷數會隨 thread-race 飄動
    （曾觀察 2761/2762/2763）且大 blob 漏合併。收斂後 atomicMin 的不動點唯一 → bit-exact + 正確合併
    （正確數為 2606）。
-   ⚠️ **若從 `Reference/gpu_algo/` 重新複製 kernel，此迴圈會被覆蓋，決定性會壞 → 必須重新加回。**
+   ⚠️ **若從 `Reference/Demo/` 重新複製 kernel，此迴圈會被覆蓋，決定性會壞 → 必須重新加回。**
    （只改 host wrapper 的編排；`__global__` kernel 本體一字不改，符合不變式 1。）
 8. **缺陷排序（bit-exact 前置條件）**：blob analysis 用 `atomicAdd` append，陣列順序隨 race 變動
    （集合相同、順序不定）。`GpuPipeline::process_frame` 下載後**必須依 canonical key
@@ -323,7 +323,7 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     RAG_TRAINING.md §5.2 建議的 16×16 已是現狀、32×32 從未被執行，改 INI 不影響 GPU block 維度。
     GB10 正常面板（個位數缺陷）**~7.4ms/張**（cudaEvent median；乾淨 0 缺陷 6.95ms，皆於 16×16），
     `1110 張 × 7.4ms = 8.2s/面板 < 30s 節拍` → **1 台 Spark 足夠**（G8.5 37 相機陣列，餘裕 ~73%）。
-    vs reference gpu_algo 同影像 4.9ms 慢 **1.5×**，是 **CCL 收斂迴圈（不變式 7）+ zero-copy mapped 讀 + canonical
+    vs reference Demo 同影像 4.9ms 慢 **1.5×**，是 **CCL 收斂迴圈（不變式 7）+ zero-copy mapped 讀 + canonical
     排序（不變式 8）的決定性代價**，非效能 bug；gpu_ms 隨缺陷量 scaling（爆量觸頂 ~14ms）證實此 kernel 記憶體頻寬綁定。
 16. **行車紀錄純觀測，不得擾動運算（flight-recorder-observe-only）**：`diag/flight_recorder.cpp` 平時零磁碟
     I/O（最近 64 張現場進記憶體環形緩衝），出事才落地 `<output>/_diag/<yyyyMMdd>.jsonl`（每事件一行 compact 索引）

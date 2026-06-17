@@ -1,7 +1,7 @@
 # Grab 程式 — CLAUDE.md
 
 > 先讀 `../CLAUDE.md` 了解遷移策略，再讀本文件。
-> **核心原則：從 `Reference/phase1_tests/` 的已驗證測試工具升級為生產等級。**
+> **核心原則：從 `Reference/cfaoi_phase1/` 的已驗證測試工具升級為生產等級。**
 
 ---
 
@@ -9,23 +9,30 @@
 
 | Reference 來源 | grab/src/ 目標 | 處理方式 |
 |---------------|--------------|---------|
-| `phase1_tests/shared/FrameHeader.h` | `../shared/FrameHeader.h` | ✅ 直接複製（唯一真相）|
-| `phase1_tests/src/t31_pylon_grab/` | `cam_pylon.cpp` | 🔧 升級：多相機陣列、MAC 綁定、cam_count 控制 |
-| `phase1_tests/src/t31_ebus_grab/` | `cam_ebus.cpp` | 🔧 升級：多 iPORT 管理 |
-| `phase1_tests/src/t30_pylon_probe/` | `cam_pylon.cpp` init 部分 | 🔧 整合 |
-| `phase1_tests/src/t30_ebus_probe/` | `cam_ebus.cpp` init 部分 | 🔧 整合 |
-| `phase1_tests/src/t40_e2e_client_pylon/` | `rdma_sender.cpp` | 🔧 升級：async、多幀、生產等級 |
-| `phase1_tests/src/t01_pylon_mac_setup/` | `mac_ip_binder.cpp` | 🔧 整合 |
+| `cfaoi_phase1/shared/FrameHeader.h` | `../shared/FrameHeader.h` | ✅ 直接複製（唯一真相）|
+| `cfaoi_phase1/src/t31_pylon_grab/` | `cam_pylon.cpp` | 🔧 升級：多相機陣列、MAC 綁定、cam_count 控制 |
+| `cfaoi_phase1/src/t31_ebus_grab/` | `cam_ebus.cpp` | 🔧 升級：多 iPORT 管理 |
+| `cfaoi_phase1/src/t30_pylon_probe/` | `cam_pylon.cpp` init 部分 | 🔧 整合 |
+| `cfaoi_phase1/src/t30_ebus_probe/` | `cam_ebus.cpp` init 部分 | 🔧 整合 |
+| `cfaoi_phase1/src/t40_e2e_client_pylon/` | `rdma_sender.cpp` | 🔧 升級：async、多幀、生產等級 |
+| `cfaoi_phase1/src/t01_pylon_mac_setup/` | `mac_ip_binder.cpp` | 🔧 整合 |
 | — | `cam_manager.cpp` | 🆕 全新（統一管理 pylon/eBUS）|
 | — | `control_client.cpp` | 🆕 全新（TCP client to Control）|
 | — | `frame_assembler.cpp` | 🔧 從 t40_e2e_client 抽出 |
+
+> ⚠️ **實作現況（2026-06-17 考古更新）**：本表為**原始遷移規劃**，多數尚未建檔。grab/src 現有：
+> `main.cpp` / `cam_pylon.cpp` / `rdma_sender.cpp` / `control_server.cpp`（非 client）/ `rdma_common.h` / `rdma_nslot_test.cpp`。
+> **未建檔**：`cam_ebus`（eBUS 整路徑）、`cam_manager`（多相機）、`frame_assembler`、`control_client`。
+> **`t01_pylon_mac_setup` 是懸空引用**——`Reference/cfaoi_phase1/` 與整個 Reference 樹下**無此原始檔**，
+> MAC Persistent IP 綁定能力從未存在於程式碼（`mac_ip_binder` 雙缺）。
+> phase1 來源實為**扁平單檔**（`t31_pylon_grab.cpp`，非 `t31_pylon_grab/` 子目錄）。詳見 [docs/grab_程式完整說明.md](../docs/grab_程式完整說明.md) §10。
 
 ---
 
 ## 2. 第一步：複製 FrameHeader
 
 ```bash
-cp ../Reference/phase1_tests/shared/FrameHeader.h ../shared/FrameHeader.h
+cp ../Reference/cfaoi_phase1/shared/FrameHeader.h ../shared/FrameHeader.h
 ```
 
 這份 FrameHeader.h 已在 Phase-1 測試中驗證，Grab 和 IP 兩端必須使用同一份。
@@ -160,7 +167,7 @@ source /opt/pleora/ebus_sdk/.../set_puregev_env.sh
    `cudaHostAlloc(cudaHostAllocPortable | cudaHostAllocMapped)` 配 pinned host memory →
    `ibv_reg_mr` 註冊給 RDMA NIC 直接 DMA → GPU 經 `cudaHostGetDevicePointer` 透過
    NVLink-C2C(~900GB/s) 讀寫（等效甚至優於 PCIe P2P）。
-   ⚠️ `Reference/phase1_tests/rdma_common.h::RcConn::reg()` 的註解「GPU 記憶體失敗多半是
+   ⚠️ `Reference/cfaoi_phase1/rdma_common.h::RcConn::reg()` 的註解「GPU 記憶體失敗多半是
    nvidia_peermem 未載入」在 GB10 上**不適用**；移植到 IP 時該註解要改成上述 cudaHostAlloc 方案。
    證據：`docs/verification/verification_report_20260611.md` §五問題1 + `t40_e2e_server.cpp`。
    （此即 `t40_e2e_server` 已採用的作法：`cudaHostAlloc(...Portable|Mapped)` 配 `gpu_buf`。）

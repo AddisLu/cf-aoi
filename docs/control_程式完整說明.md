@@ -1,6 +1,6 @@
 # Control 程式完整說明
 
-> 版本：2026-06-15 整理（對齊 Reference/PrjCfAoi 考古）
+> 版本：2026-06-17 整理（對齊 Reference/PrjCfAoi 考古 + 補 §12.1 legacy 細項缺口）
 > 專案：`control/src/CfAoiControl.csproj`（.NET 8 / Avalonia UI）
 > 技術棧：C# + Avalonia + CommunityToolkit.Mvvm + SixLabors.ImageSharp
 
@@ -599,6 +599,27 @@ MainWindowViewModel DispatcherTimer(1s) → 更新 IsIpConnected 顯示燈
 | SelfTest 無頭驗證 | --selftest 多模式（parse/recipe/send/fft/store/heartbeat/sort/patches/settings）|
 | 跨平台 | Avalonia .NET 8（Linux/Windows/macOS 共一份程式）|
 
+### 12.1 考古補充（2026-06-17）：§12 未涵蓋 / 細項缺口（legacy 有、Control 缺）
+
+> Reference 路徑正名：`legacy_win` = **`Reference/PrjCfAoi/`**。以下為 2026-06-17 逐檔考古（含 MainProc/CamProc/Common/Configuration）補出、§12 未列或敘述不足者，file:line 為實際讀到。
+
+| legacy 功能 | legacy 位置(file:line) | Control 現狀 | 評估 |
+|------------|----------------------|-------------|------|
+| **Rule 改判**（ImageRuleEnable / MeanLowThreshold / HdivWThreshold / NgSizeThreshold）| `CamProc.cs:816-847` | **完全缺** | AI 又停用 → 現行**無任何自動 OK 改判**，缺陷全進人工複核。生產若要降過殺需補（**新缺口**）|
+| **多通道 log**（7 通道：Sys/Err/NetRec/NetSend/Prc/Msk/GetImg）| `LogMgr.vb:11-17` | LogService 只 3 通道（Sys/Err/Warn）| NetRec/NetSend/Prc/Msk/GetImg 5 通道缺；網路收發/處理診斷能力降低（**新缺口，次要**）|
+| **配方 SaveAs / Align / 多 IP 同步** | `frmAoiSettingEditor.cs:358-690` | RecipeStore 只處理單 IP0 | 跨 IP 配方同步 / SaveAs / Align 未完整遷移（**新缺口**）|
+| **AI 模型管理 UI**（掃 .onnx / 刪除 / 配方關聯）| `frmAiModelManager.cs:36-72` | 只有 AiRootPath 設定欄位 | AI 停用 → 管理 UI 未遷移（L0）|
+| **frmVariance 模糊度統計**（呼叫 Python blurring）| `frmVariance.cs:73-300` | 無 | §12 已標「未實作」，確認缺 |
+| **MaskGen 掩碼生成** | `LibAoiSetting/frmMaskGen.cs` | 無 | 掩碼 ROI 繪製無對應（**新缺口**）|
+| **離線工具滑鼠繪製 ROI**（增刪/拖矩形）| `frmAlgorithmTestTools.cs:474-643` | ZoneParamEditor 只有數值位移 x±/y± | 滑鼠繪製 ROI 缺；只能改數值（**新缺口，次要**）|
+| Interest ROI（IOI）存圖 | `CamProc.cs:1547-1614`（DetectIoiList）| 無 | IOI 興趣區存圖無對應（IP 端 `<IoiInfoList/>` 也空）|
+| AutoFlash 待機閃頻 / 登入權限（frmLogin）/ Basler 串口控制 | `AutoFlash.cs` / `frmAoiSettingEditor.cs:1487-1577` / `frmBaslerCom.cs` | 無 | 確認缺（多為產線/硬體周邊，多數可不補）|
+| CF_STOP（中斷取像）/ BypassAlignment review | `MainProc.cs:999-1015` / `CamProc.cs:1688-1812` | UpstreamServer 無 CF_STOP；BypassAlignment 旗標存在但停用 | 確認缺（offline 無停止對象；review_offset 機制無對應）|
+
+> ⚠️ **legacy 三處根目錄常數不一致**（考古發現）：`Common.cs`=`D:\Cf_Aoi`、`Configuration.cs`=`D:\Transfer_Aoi`、`BootConfig.vb`=`D:\uLedInspAOI`——疑為跨產品線（CF/Transfer/uLed AOI）共用碼庫殘留，非單一真相。新架構用 appsettings.json `Paths`（`~` 展開），無此問題。
+>
+> ⚠️ **μm 座標契約 follow-up（與 Gap #5 同條）**：legacy runtime 缺陷一律 pixel（`CamProc.cs` 未乘 OptRes），CF_GET_RESULT 只回 ResultInfo.xml 路徑+缺陷數。IP 端 Gap #5 新增 `GlobalPosX_um` 為**片面提議**，上位機是否讀 μm 待接真機確認——與 **UpstreamServer 接真實上位機**（§13）屬同一條 follow-up。
+
 ---
 
 ## 13. 待接線 / 待驗證清單
@@ -708,4 +729,4 @@ settings              ShareSetting/RecipeSetting round-trip + Step1 初值
 
 ---
 
-*本文件由原始碼逐檔靜態分析整理，對照 Reference/PrjCfAoi/程式完整說明.md 交叉驗證。*
+*本文件由原始碼逐檔靜態分析整理，對照 Reference/PrjCfAoi/程式完整說明.md 交叉驗證。2026-06-17 補 §12.1 legacy 細項缺口（逐檔考古 MainProc/CamProc/Common/Configuration，file:line 為實際讀到）。格式對齊 [ip_程式完整說明.md](ip_程式完整說明.md) / [grab_程式完整說明.md](grab_程式完整說明.md)。*

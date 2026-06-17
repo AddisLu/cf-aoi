@@ -19,9 +19,9 @@
 ├── scripts/                ← 驗證腳本（verify_alignment.py、estimate_pitch.py 等）
 ├── test_images/            ← MIL 測試影像
 └── Reference/              ← 唯讀，舊版程式碼遷移來源
-    ├── gpu_algo/           ← 全 GPU 演算法
-    ├── legacy_win/         ← 舊版 Windows（PrjCfAoi）
-    └── phase1_tests/       ← Phase-1 測試套件
+    ├── Demo/           ← 全 GPU 演算法
+    ├── PrjCfAoi/         ← 舊版 Windows（PrjCfAoi）
+    └── cfaoi_phase1/       ← Phase-1 測試套件
 ```
 
 ---
@@ -57,13 +57,13 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 
 | Reference 來源 | 目標 | 方式 |
 |---------------|------|------|
-| `gpu_algo/src/cuda_kernels_fast.cu` | `ip/src/gpu/cuda_kernels.cu` | ✅ 直接複製不改 |
-| `gpu_algo/src/tensor_core_classifier.cu` | `ip/src/ai/ai_kernels.cu` | ✅ 直接複製不改 |
-| `gpu_algo/src/batch_detector.cpp` | `ip/src/gpu/gpu_pipeline.cpp` | 🔧 換 I/O 外殼 |
-| `gpu_algo/config.ini` | `ip/config/default_zone.ini` | ✅ 參數對應 ZoneConfig（非「ZoneSetting」）|
-| `phase1_tests/shared/FrameHeader.h` | `shared/FrameHeader.h` | ✅ 直接複製 |
-| `phase1_tests/src/t31_*` | `grab/src/cam_*.cpp` | 🔧 升級多相機 |
-| `legacy_win/PrjCfAoi/MainProc.cs` | `control/src/Controllers/UpstreamServer.cs` | 🔧 移除 MIL |
+| `Demo/src/cuda_kernels_fast.cu` | `ip/src/gpu/cuda_kernels.cu` | ✅ 直接複製不改 |
+| `Demo/src/tensor_core_classifier.cu` | `ip/src/ai/ai_kernels.cu` | ✅ 直接複製不改 |
+| `Demo/src/batch_detector.cpp` | `ip/src/gpu/gpu_pipeline.cpp` | 🔧 換 I/O 外殼 |
+| `Demo/config.ini` | `ip/config/default_zone.ini` | ✅ 參數對應 ZoneConfig（非「ZoneSetting」）|
+| `cfaoi_phase1/shared/FrameHeader.h` | `shared/FrameHeader.h` | ✅ 直接複製 |
+| `cfaoi_phase1/src/t31_*` | `grab/src/cam_*.cpp` | 🔧 升級多相機 |
+| `PrjCfAoi/PrjCfAoi/Class/MainProc.cs` | `control/src/Controllers/UpstreamServer.cs` | 🔧 移除 MIL |
 | MIL / FrameGrabber / CamProc | — | ❌ 完全移除 |
 
 ---
@@ -71,7 +71,7 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 ## 5. 通訊協議
 
 ### 上位機 → Control（文字命令）
-> ⚠️ **考古確認（取代舊敘述）**：舊版 `Reference/legacy_win/PrjCfAoi`（`Common.cs` / `MainProc.cs` /
+> ⚠️ **考古確認（取代舊敘述）**：舊版 `Reference/PrjCfAoi/PrjCfAoi`（`Common.cs` / `MainProc.cs` /
 > `Configuration.cs`）實際使用 **port 8787**、命令前綴 **`CF_`**、`|` 分隔、`\r\n` 結尾，回應走
 > 9 參數 `ReturnResponse`（`OK|p1|…|p9` / `ERR`）。命令常數：
 > `CF_LOAD_RECIPE` / `CF_GRAB_START` / `CF_CHECK_ALIGN` / `CF_SET_ALIGN` / `CF_GET_RESULT`。
@@ -97,7 +97,7 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 ```
 
 #### IP output 資料夾結構（考古對齊 legacy，result_saver 產生）
-> 來源：`Reference/legacy_win/PrjCfAoi/Class/MainProc.cs`(L412) + `CamProc.cs`(L915) + `PrjAoiSettingEditor/frmSortDefect.cs`。
+> 來源：`Reference/PrjCfAoi/PrjCfAoi/Class/MainProc.cs`(L412) + `CamProc.cs`(L915) + `PrjAoiSettingEditor/frmSortDefect.cs`。
 ```
 <--output>/<yyyyMMdd>/<panelId>_<recipeName>/      ← ① 日期夾（無分隔線）② 一塊 panel/批一夾
    Defect_<IpName>_Slice<ff>_Roi<rr>_Run<nn>_X<xxxx>_Y<yyyyyy>_Dr<Bright|Dark>.png   缺陷小圖（全域座標）
@@ -153,7 +153,7 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 > IP log `[T.T]`：GPU運算 / crop / patch存圖 / overlay存圖 / 收圖傳輸 各階段 ms。
 
 ### 配方（RecipeInfo.xml）與結果（ResultInfo.xml）格式 — 考古確認（取代舊「ZoneSetting/ThB/ThD」敘述）
-> 來源已逐檔驗證：`Reference/legacy_win/ClibCf/Recipe.cs`、`JudgeResult.cs`、`CudaCore/CUDA_Func.h`。
+> 來源已逐檔驗證：`Reference/PrjCfAoi/ClibCf/Recipe.cs`、`JudgeResult.cs`、`CudaCore/CUDA_Func.h`。
 
 - **配方 `RecipeInfo.xml` = 序列化 `Recipe`，每台 IP 一份**：
   `Recipe → M_AlignRoi + DetectRoiList(List<DetectRoi>) + DetectIoiList`。
@@ -161,7 +161,7 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
   （**不是** `ThB`/`ThD`）；幾何 `PitchX/PitchY/SearchX/SearchY`；模式 `AlgorithmWay` + **`AlgorithmCompare`("SUB"|"DIV")**；
   Blob 過濾 `BlobMaxSize/BlobMinSize/...`。
   - 裝置端 `CUDAZone` 結構內部欄位才叫 `float ThB/ThD`，由 `ThB=(float)BrightThreshold` 直接賦值。
-- **只支援 `AlgorithmCompare="DIV"`**：gpu_algo kernel 是比例式（`center/mean₈(neighbors) vs BTH/DTH`），
+- **只支援 `AlgorithmCompare="DIV"`**：Demo kernel 是比例式（`center/mean₈(neighbors) vs BTH/DTH`），
   legacy DIV 同定義域 → `BTH=BrightThreshold`、`DTH=DarkThreshold` 嚴格相等對應。
   **SUB（灰階差）無法不依賴背景灰階精確轉成比例 → IP 直接拒絕載入並報錯。**
 - **幾何欄位對應**（`DetectRoi`→ZoneConfig，見 ip/CLAUDE.md §5）：`PitchX→pitch_x`、`PitchY→pitch_y`、
@@ -174,7 +174,7 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 - **缺陷欄位一律用 legacy 名稱**（IP 輸出 JSON 與 XML 皆然）：
   `GC_X/GC_Y`、`Size`、`Width/Height`、`X_Min/X_Max/Y_Min/Y_Max`、`Type`(PointBright/PointDark)、
   `GL_Mean`、`GlobalPosX/GlobalPosY`、`Filter`(GPU 端已過濾 → `NoFilter`)。GPU 無的欄位（`CV_*`、`*_Sigma`）填 0。
-- **多 ROI**：gpu_algo kernel 一次只吃單一參數組（無 zone 邊界），故 IP 對 `DetectRoiList` 每個
+- **多 ROI**：Demo kernel 一次只吃單一參數組（無 zone 邊界），故 IP 對 `DetectRoiList` 每個
   `DetectRoi` 各裁切子影像跑一次，再合併（一個 zone = 一個 `RoiInfo`）。
 
 ### shared/FrameHeader.h（256 bytes）— = Phase-1 實機驗證版（magic 0xA01CF00D）

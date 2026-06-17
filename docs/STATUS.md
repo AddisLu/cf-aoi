@@ -211,6 +211,81 @@
 
 ---
 
+## 權威 Gap 表（2026-06-17）：舊版 Reference → 現狀 → gap#
+
+> 來源：2026-06-17 三套 Reference 逐功能考古（`Reference/PrjCfAoi`=legacy 單體、`Reference/Demo`=GPU 核心、
+> `Reference/cfaoi_phase1`=取像套件）+ 對源碼核實。file:line 為實際讀到。詳見各模組「程式完整說明.md」。
+>
+> **編號原則**：既有有意義編號（#1/#2/#5/#6/#7/#8/#9）不重編、不換意義；幽靈號（交接僅記「已做/工具」無具體定義）
+> 標「無對應」不留空槽；真正全新自 **#16** 起；完整性掃描漏網項自 **#22** 起。L-level 對齊本檔分級。
+
+### 表一：既有編號 #1–#15（含幽靈號標註）
+
+| # | 意義（既有定義）| 現狀 / L-level | 證據（file:line）|
+|---|---|---|---|
+| **#1** | 對位 pipeline（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 對位 **L0（預留）**| IP `align_engine`+`golden_maker`+CHECK/SET_ALIGN（取代 MIL `CamProc.cs:307-485`）；多 CCD 對位未實作 |
+| **#2** | CCD 參數 UI（曝光/增益，跨 Control+Grab）| **L0（未做）**| legacy 串口控制 `frmBaslerCom`/`PrjTestBaslerCom/Form1.cs:39-182`；grab `cam_pylon.cpp:32-33` 只設 `GevSCPSPacketSize`、**無 exposure/gain**；control 無相機參數 UI（核實 grab/control 源碼 0 命中）|
+| **#3** | （交接僅記「已做」，無具體定義）| **無對應** | 考古查無對應功能；不留幽靈號，僅記錄此編號存在但定義缺失 |
+| **#4** | （交接僅記「已做」，無具體定義）| **無對應** | 同 #3 |
+| **#5** | 座標換算 pixel→μm（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 座標 **L0（預留）**| IP `GlobalPosX_um/Y_um`+`CcdIndex`（INI [Optical]→OpticalParams）；多 CCD 拼接（`CamToStageAngle/CcdPitch/CcdOverlap`, `Configuration.cs:80-88`）未實作、公式分歧待確認 |
+| **#6** | 多 IP 配方編輯（per-CCD tab）| **L0/部分（未做）**| legacy `frmAoiSettingEditor.cs:358-690`（多 IP/Align/SaveAs）；Control `RecipeStore` 只處理單 IP0 |
+| **#7** | 配方批次複製 | **L0（未做）**| legacy `frmCopyRecipeParamToRecipe.cs`（跨配方複製參數）；Control 只「找不到自動生成預設」，無批次複製 |
+| **#8** | 互動 ROI 繪製 | **L0（未做）**| legacy `frmAlgorithmTestTools.cs:474-643`（滑鼠增刪/拖矩形）；Control `ZoneParamEditor` 只數值位移 x±/y± |
+| **#9** | 2/4-way kernel | **L0（未做）**| ip `zone_config_adapter.cpp:162` `AlgorithmWay` 忽略；Demo `cuda_kernels_fast.cu` 只有 8-way（`kernelFast8Way{Texture,Comparison,Shared}` @123/239/346），無 2/4-way 變體 |
+| **#10–#15** | （交接僅記「工具 6 個」，未逐項定義）| **無對應（未逐一定位）**| 考古無法逐一對位 6 個工具；不逐個留幽靈號。候選工具見表二註（`mac_ip_binder`/多通道 log 可能屬此範圍但無定義佐證）|
+
+### 表二：新增編號 #16–#21（考古確認的真正全新缺口）
+
+| # | 缺功能 | 舊版位置(file:line) | 現狀 / L-level | 備註 |
+|---|---|---|---|---|
+| **#16** | **Rule 改判**（ImageRuleEnable/MeanLowThreshold/HdivWThreshold/NgSizeThreshold）| `CamProc.cs:816-847` | **L0（完全缺）**| AI 又停用 → 現行**無任何自動 OK 改判**，全進人工複核（風險：過殺）|
+| **#17** | **online / image-capture 模式**（線上收圖主迴圈）| Demo `rivermax_receiver.h` / `inline_controller.cpp` / `frame_assembler.h` | **L0**| = Step 4/5 里程碑；GB10 須改 cudaHostAlloc（不變式 11）；STATUS 已列 L0 但無 gap# |
+| **#18** | **多尺度 + LSC auto-calibrate 接線**（kernel 複製進 ip 但無 caller）| Demo `cuda_kernels_fast.cu:641-770,999`；ip 同 kernel 但 `gpu_pipeline.cpp::run()`(218-306) 不呼叫 | **L0（死碼/執行路徑）**| 接線缺非演算法缺；`enable_multiscale` 帶入 ZoneConfig 但不讀；**Demo 本身亦未接**（RAG 文件 > 程式碼）|
+| **#19** | **Sobel 二次檢測**（vSobel DetectReason）| `CamProc.cs:668-725` | **L0（缺）**〔已釐清〕| Control 有欄位（SobelEnable/Dark/Bright）；**ip 主檢測路徑 `gpu/` 無 Sobel**（`ai_kernels.cu:128-160` 的 sobel 是 AI 特徵抽取，非缺陷二次檢測）→ 由「待確認」確認為**缺** |
+| **#20** | **多通道 log**（7→3，NetRec/NetSend/Prc/Msk/GetImg 缺）| `LogMgr.vb:11-17` | **L2（部分）**| Control `LogService` 3 通道；IP 另有 flight_recorder。**可能屬原 #10–#15「工具」之一**（無定義佐證，暫給新號）|
+| **#21** | **MAC Persistent IP 綁定**（mac_ip_binder）| grab/CLAUDE.md 列 `t01_pylon_mac_setup`，但 Reference 樹下**無此原始檔** | **L0（雙缺）**| 來源懸空引用、grab 未建檔。**可能屬原 #10–#15「工具」之一**（無定義佐證，暫給新號）|
+
+### 表三：完整性掃描 #22–#28（NEW①–⑩ 之外的漏網項）
+
+> 規則：legacy 有、新系統零/部分覆蓋、且**既不在 #1–#15 也不在前述 NEW①–⑩**。寧多列勿漏。
+
+| # | 漏網缺功能 | 舊版位置(file:line) | 現狀 / L-level | 備註 |
+|---|---|---|---|---|
+| **#22** | **MaskGen 掩碼生成** | `LibAoiSetting/frmMaskGen.cs` | **L0（缺）**| 掩碼 ROI 繪製/遮罩無對應（與 #8 互動繪製相關但功能獨立）|
+| **#23** | **Interest ROI（IOI）存圖** | `CamProc.cs:1547-1614`（DetectIoiList）| **L0（缺）**| ip 輸出 `<IoiInfoList/>` 為空殼；興趣區存圖無對應 |
+| **#24** | **AI 模型管理 UI**（掃 .onnx/刪除/配方關聯）| `frmAiModelManager.cs:36-72` | **L0（缺）**| AI 停用 → 管理 UI 未遷移；Control 只有 AiRootPath 設定欄 |
+| **#25** | **CF_STOP**（上位機中斷取像命令）| `MainProc.cs:999-1015` | **缺**| Control `UpstreamServer` 無 CF_STOP 分支（offline 無停止對象）|
+| **#26** | **BypassAlignment review**（review_offset 機制）| `CamProc.cs:1688-1812` | **L0**| ShareSetting 旗標存在但停用；review_offset 寫檔機制無對應 |
+| **#27** | **file replay（檔案→RDMA 送器）** | phase1 `t40_e2e_client_file.cpp:35-168` | **缺（grab）**| grab 無檔案 RDMA 送器（ip `file_source` 是 offline-tcp 非 RDMA 回放，不等價）|
+| **#28** | AutoFlash 待機閃頻 / 登入權限（frmLogin）| `LibAoiSetting/AutoFlash.cs` / `frmAoiSettingEditor.cs:1487-1577` | **缺（次要）**| 產線/操作周邊；多數場景可不補（與 won't-do 邊界）|
+
+### 里程碑（非 gap，已在 STATUS 模組表追蹤）
+
+- **多相機匯聚（cam_manager / cam_ebus / --cam-count ALL）**：`grab` 多相機全陣列 **L0**（Step 3，待 SN2201 Switch + 相機陣列）。
+  legacy `CamProc[]`(`MainProc.cs:238-258`) + phase1 `t31_ebus_grab.cpp`。依使用者裁示**併入既有多相機里程碑，不單列 gap#**。
+
+### 刻意不搬 / won't-do（記錄，不追蹤為 gap）
+
+- **Demo 測試/單機範式**：合成缺陷注入 `DefectGenerator`、auto-tune BTH/DTH、6 模組 TDD 框架、`spark_scheduler`（分散式由 Control 分派）、`gui_config`、Result.csv/result.bmp（已改 JSON/XML+PNG）。
+- **legacy 硬體/產線周邊**：FrameGrabber 7 後端（Matrox/Dalsa/Silicon → pylon/eBUS+RDMA）、frmVariance 模糊度統計（呼叫 Python）、多工位部署 .bat。
+  （註：Basler 串口「曝光/增益」功能本身 = **#2**，非 won't-do；won't-do 的是其「MIL 串口」實作機制。）
+- **phase1 機況腳本**：00/10/11/20/30（保留為機況確認 Agent；10/11 L4，20/30 在 GB10 有效性存疑）。
+
+### 本次與「建議對位」的分歧（依考古信實調整）
+
+1. **#2（CCD 參數 UI 曝光/增益）**：上一輪暫放「won't-do」，本輪改列**正式 gap #2**——核實 grab/control 源碼 0 命中 exposure/gain，功能確為「未做 tracked gap」。
+2. **#19 Sobel（原 NEW⑤「待確認」）**：核實 ip `gpu/` 主檢測路徑無 Sobel（`ai_kernels.cu` 的 sobel 僅 AI 特徵）→ 由「待確認」**確認為缺**。
+3. **#20/#21（原 NEW⑧多通道log/⑨mac_ip_binder）**：建議「對映進 #10–#15 工具」；但 #10–#15 **無任何定義**可佐證該對映 → 依「不留幽靈號」改給新號 #20/#21，並註明可能即原工具清單之二（待日後若查出 #10–#15 定義再回填）。
+4. **NEW① 多 CCD 拼接**：併入 **#5（座標）+ #1（對位）的多 CCD 預留**，不單列。
+5. **NEW⑩ 三合一拆分**：ROI 繪製→**#8**、MaskGen→**#22**、IOI→**#23**（三者功能獨立，分列）。
+
+> **殘留考古缺口（誠實列出）**：
+> ① **μm 契約**：legacy 缺陷一律 pixel、CF_GET_RESULT 只回 XML 路徑+缺陷數 → 無法確認舊上位機要不要 μm（#5 為片面提議，與 UpstreamServer 接真機同一條 follow-up）。
+> ② **#10–#15「工具」定義**：交接無逐項清單，考古無法逐一還原；#20/#21 可能屬此但無佐證。
+> ③ **#18 多尺度**：RAG_TRAINING.md 稱生效，但 Demo `batch_detector` 與 ip `run()` 皆無 launch 呼叫 → 文件 > 程式碼接線（兩邊 L0）。
+
+---
+
 ## 下一階段：Step 3（Grab 全陣列 + Switch）→ Step 4
 
 Step 2 已完成（2026-06-15），**N-slot RDMA（合成幀路徑）實機驗通（2026-06-17 L3）**：

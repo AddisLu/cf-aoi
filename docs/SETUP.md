@@ -1,5 +1,10 @@
 # CF-AOI 完整建置指南（SETUP.md）
 
+> 🟢 **2026-06-17 現況**：三程式已建置（IP L4 / Grab 單相機 L4 / Control L1–L3）。本指南保留為**新機器 onboarding 參考**
+> （env 安裝 / 目錄結構 / build 指令）。原「用 Claude Code 生成程式」的 `PROMPTS.md` 已移除（程式已存在）——
+> 各程式現狀改見 `ip/CLAUDE.md`、`grab/CLAUDE.md`、`control/CLAUDE.md` 與 `docs/*_程式完整說明.md`。
+> Reference 子目錄正名：`Demo`（原 gpu_algo）/ `PrjCfAoi`（原 legacy_win）/ `cfaoi_phase1`（原 phase1_tests）。
+>
 > 圖例：`[手動]` 你要做的事 ｜ `[自動]` 執行指令 ｜ `[Claude]` 用 Claude Code ｜ `[驗證]` 確認結果
 
 ---
@@ -12,8 +17,9 @@
 ├── cf-aoi.code-workspace             ← VS Code 用這個開啟
 ├── docs/                             ← 所有說明文件
 │   ├── CLAUDE.md                     ← 全域 context（給 Claude Code）
+│   ├── STATUS.md                     ← 完成度盤點（L0–L4）+ 權威 Gap 表（#1–#28）
 │   ├── SETUP.md                      ← 本文件
-│   └── PROMPTS.md                    ← Claude Code 用的 prompt 集
+│   └── *_程式完整說明.md             ← ip / control / grab / tools 各一份
 │
 ├── ip/                               ← IP 程式（RTX2080/Spark）
 │   ├── CLAUDE.md
@@ -44,14 +50,14 @@
 ├── test_images/                      ← 你的 MIL 測試影像放這裡
 │
 └── Reference/                        ← ★ 唯讀，舊版程式放這裡 ★
-    ├── gpu_algo/                     ← 全 GPU 演算法
+    ├── Demo/                     ← 全 GPU 演算法
     │   ├── src/cuda_kernels_fast.cu  ← 必須有這個檔
     │   ├── src/batch_detector.cpp
     │   ├── src/tensor_core_classifier.cu
     │   ├── include/
     │   └── config.ini
-    ├── legacy_win/                   ← 舊版 Windows（PrjCfAoi.sln 等）
-    └── phase1_tests/                 ← Phase-1 測試套件（Step 2 才需要）
+    ├── PrjCfAoi/                   ← 舊版 Windows（PrjCfAoi.sln 等）
+    └── cfaoi_phase1/                 ← Phase-1 測試套件（Step 2 才需要）
 ```
 
 **關鍵點**：
@@ -65,9 +71,9 @@
 
 | 你的舊資料夾 | 放到這裡 | 必須有的關鍵檔案 |
 |------------|---------|---------------|
-| 全 GPU 演算法（Demo/）| `~/cf-aoi/Reference/gpu_algo/` | `src/cuda_kernels_fast.cu` |
-| 舊版 Windows（PrjCfAoi）| `~/cf-aoi/Reference/legacy_win/` | `PrjCfAoi.sln` |
-| Phase-1 測試（Step 2 才需要）| `~/cf-aoi/Reference/phase1_tests/` | `shared/FrameHeader.h` |
+| 全 GPU 演算法（Demo/）| `~/cf-aoi/Reference/Demo/` | `src/cuda_kernels_fast.cu` |
+| 舊版 Windows（PrjCfAoi）| `~/cf-aoi/Reference/PrjCfAoi/` | `PrjCfAoi.sln` |
+| Phase-1 測試（Step 2 才需要）| `~/cf-aoi/Reference/cfaoi_phase1/` | `shared/FrameHeader.h` |
 | MIL 測試影像 | `~/cf-aoi/test_images/` | `*.tif` |
 
 ---
@@ -78,7 +84,7 @@
 
 `[自動]` SSH 到 Linux PC（或 VS Code terminal）：
 ```bash
-mkdir -p ~/cf-aoi/{docs,scripts,Reference/gpu_algo,Reference/legacy_win,Reference/phase1_tests,test_images}
+mkdir -p ~/cf-aoi/{docs,scripts,Reference/Demo,Reference/PrjCfAoi,Reference/cfaoi_phase1,test_images}
 ```
 
 ### 0.2 從 Mac 傳本 repo 的檔案
@@ -91,7 +97,6 @@ cd ~/Downloads
 scp cf-aoi.code-workspace addis@<LINUX_IP>:~/cf-aoi/
 scp CLAUDE_master.md      addis@<LINUX_IP>:~/cf-aoi/docs/CLAUDE.md
 scp SETUP.md              addis@<LINUX_IP>:~/cf-aoi/docs/
-scp PROMPTS.md            addis@<LINUX_IP>:~/cf-aoi/docs/
 
 # 腳本
 scp bootstrap.sh          addis@<LINUX_IP>:~/cf-aoi/scripts/
@@ -109,17 +114,17 @@ scp CLAUDE_control.md     addis@<LINUX_IP>:~/cf-aoi/control/CLAUDE.md
 
 `[手動]` 在 Mac Terminal（路徑換成你的實際路徑）：
 ```bash
-# GPU 演算法（注意結尾的 / 讓內容直接進 gpu_algo，不會多一層）
-scp -r /Users/yourulyu/Documents/Demo/*  addis@<LINUX_IP>:~/cf-aoi/Reference/gpu_algo/
+# GPU 演算法（注意結尾的 / 讓內容直接進 Demo，不會多一層）
+scp -r /Users/yourulyu/Documents/Demo/*  addis@<LINUX_IP>:~/cf-aoi/Reference/Demo/
 
 # 舊版 Windows 程式
-scp -r /你的路徑/PrjCfAoi/*  addis@<LINUX_IP>:~/cf-aoi/Reference/legacy_win/
+scp -r /你的路徑/PrjCfAoi/*  addis@<LINUX_IP>:~/cf-aoi/Reference/PrjCfAoi/
 
 # MIL 測試影像
 scp /你的路徑/*.tif  addis@<LINUX_IP>:~/cf-aoi/test_images/
 ```
 
-> 💡 也可以用 VS Code：左側 Reference/gpu_algo 右鍵 → Upload，直接拖檔案。
+> 💡 也可以用 VS Code：左側 Reference/Demo 右鍵 → Upload，直接拖檔案。
 
 ### 0.4 執行 bootstrap（自動建結構 + 複製 kernel）
 
@@ -164,7 +169,7 @@ claude --version
 
 ### 1.3 用 Claude Code 生成 IP 程式
 
-`[Claude]` 開啟 VS Code 的 Claude Code 面板，貼上 `docs/PROMPTS.md` 的 **「Prompt 1: IP 程式」**。
+`[Claude]` IP 程式**已建置**（見 `ip/CLAUDE.md` + `docs/ip_程式完整說明.md`）。若需在新機器從頭重建，參考該兩份文件的遷移對照表（`Reference/Demo/` → `ip/src/`）。
 
 ### 1.4 Build IP
 
@@ -212,14 +217,14 @@ python3 ~/cf-aoi/scripts/control_test.py \
 
 ### 2.1 放 Phase-1 測試套件
 ```bash
-scp -r /你的路徑/phase1_tests/*  addis@<LINUX_IP>:~/cf-aoi/Reference/phase1_tests/
+scp -r /你的路徑/cfaoi_phase1/*  addis@<LINUX_IP>:~/cf-aoi/Reference/cfaoi_phase1/
 ```
 
 ### 2.2 安裝 pylon / eBUS SDK
 `[手動]` 從 Basler / Pleora 官網下載安裝。
 
 ### 2.3 用 Claude Code 生成 Grab
-`[Claude]` 貼上 PROMPTS.md 的「Prompt 2: Grab 程式」。
+`[Claude]` Grab 程式**已建置**（單相機 pylon 路徑 L4）。見 `grab/CLAUDE.md` + `docs/grab_程式完整說明.md`。
 
 ---
 
@@ -234,7 +239,7 @@ dotnet new install Avalonia.Templates
 ```
 
 ### 3.2 用 Claude Code 生成 Control
-`[Claude]` 貼上 PROMPTS.md 的「Prompt 3: Control 程式」。
+`[Claude]` Control 程式**已建置**（Avalonia .NET 8）。見 `control/CLAUDE.md` + `docs/control_程式完整說明.md`。
 
 ---
 
