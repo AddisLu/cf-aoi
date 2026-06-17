@@ -3,33 +3,112 @@
              xmlns:vm="using:CfAoiControl.ViewModels"
              x:Class="CfAoiControl.Views.SystemSettingsView"
              x:DataType="vm:SystemSettingsViewModel">
-  <ScrollViewer>
-    <StackPanel Margin="16" Spacing="10" MaxWidth="560" HorizontalAlignment="Left">
-      <TextBlock Text="系統設定" FontSize="18" FontWeight="Bold"/>
-      <TextBlock Text="（值來自 appsettings.json，無 hardcode）" Foreground="#888" FontSize="11"/>
+  <TabControl>
 
-      <Grid ColumnDefinitions="140,*">
-        <Grid.RowDefinitions>
-          <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
-        </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="IP Host" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding IpHost}"/>
-        <TextBlock Grid.Row="1" Text="IP Port" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding IpPort}"/>
-        <TextBlock Grid.Row="2" Text="上位機 Port" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding UpstreamPort}"/>
-        <TextBlock Grid.Row="3" Text="RecipeDir" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="3" Grid.Column="1" Text="{Binding RecipeDir}"/>
-        <TextBlock Grid.Row="4" Text="OutputDir" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="4" Grid.Column="1" Text="{Binding OutputDir}"/>
-        <TextBlock Grid.Row="5" Text="ImageDir" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="5" Grid.Column="1" Text="{Binding ImageDir}"/>
-      </Grid>
+    <!-- ── 連線設定 tab（原有內容搬入；待 Mac 目視確認版面無誤）─── -->
+    <TabItem Header="連線設定">
+      <ScrollViewer>
+        <StackPanel Margin="16" Spacing="10" MaxWidth="560" HorizontalAlignment="Left">
+          <TextBlock Text="系統設定" FontSize="18" FontWeight="Bold"/>
+          <TextBlock Text="（值來自 appsettings.json，無 hardcode）" Foreground="#888" FontSize="11"/>
 
-      <StackPanel Orientation="Horizontal" Spacing="10">
-        <Button Content="測試 IP 連線" Command="{Binding TestConnectionCommand}"/>
-        <TextBlock Text="{Binding TestResult}" VerticalAlignment="Center"/>
-      </StackPanel>
-    </StackPanel>
-  </ScrollViewer>
+          <Grid ColumnDefinitions="140,*">
+            <Grid.RowDefinitions>
+              <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="IP Host" VerticalAlignment="Center"/>
+            <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding IpHost}"/>
+            <TextBlock Grid.Row="1" Text="IP Port" VerticalAlignment="Center"/>
+            <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding IpPort}"/>
+            <TextBlock Grid.Row="2" Text="上位機 Port" VerticalAlignment="Center"/>
+            <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding UpstreamPort}"/>
+            <TextBlock Grid.Row="3" Text="RecipeDir" VerticalAlignment="Center"/>
+            <TextBox  Grid.Row="3" Grid.Column="1" Text="{Binding RecipeDir}"/>
+            <TextBlock Grid.Row="4" Text="OutputDir" VerticalAlignment="Center"/>
+            <TextBox  Grid.Row="4" Grid.Column="1" Text="{Binding OutputDir}"/>
+            <TextBlock Grid.Row="5" Text="ImageDir" VerticalAlignment="Center"/>
+            <TextBox  Grid.Row="5" Grid.Column="1" Text="{Binding ImageDir}"/>
+          </Grid>
+
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Content="測試 IP 連線" Command="{Binding TestConnectionCommand}"/>
+            <TextBlock Text="{Binding TestResult}" VerticalAlignment="Center"/>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+
+    <!-- ── 相機 tab（Gap #2：曝光/增益設定）───────────────────────── -->
+    <TabItem Header="相機">
+      <ScrollViewer>
+        <StackPanel Margin="16" Spacing="10" MaxWidth="480" HorizontalAlignment="Left">
+          <TextBlock Text="相機參數" FontSize="18" FontWeight="Bold"/>
+
+          <!-- Grab 連線狀態（MainWindow 只有 IP 指示器，此 tab 另列）-->
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Ellipse Width="11" Height="11" VerticalAlignment="Center"
+                     Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
+            <TextBlock FontSize="13" Text="Grab 連線" VerticalAlignment="Center"/>
+          </StackPanel>
+
+          <Grid ColumnDefinitions="120,*,140">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- cam_id（唯讀，固定 0）-->
+            <TextBlock Grid.Row="0" Text="CCD" VerticalAlignment="Center" Margin="0,2,6,2"/>
+            <TextBox Grid.Row="0" Grid.Column="1" Text="0" IsEnabled="False" Margin="0,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="（固定 cam_id=0）"
+                       VerticalAlignment="Center" Foreground="#888" FontSize="11" Margin="6,2,0,2"/>
+
+            <!-- 曝光 -->
+            <TextBlock Grid.Row="1" Text="曝光 (µs)" VerticalAlignment="Center" Margin="0,2,6,2"/>
+            <NumericUpDown Grid.Row="1" Grid.Column="1" Margin="0,2"
+                           Value="{Binding ExposureUs}"
+                           Minimum="2" Maximum="10000" Increment="10"
+                           FormatString="F1"/>
+            <TextBlock Grid.Row="1" Grid.Column="2" Text="2 ~ 10000 µs"
+                       VerticalAlignment="Center" Foreground="#888" FontSize="11" Margin="6,2,0,2"/>
+
+            <!-- 曝光 actual -->
+            <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
+                       Text="{Binding ExposureActualText}" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+
+            <!-- 增益 -->
+            <TextBlock Grid.Row="3" Text="增益 raw" VerticalAlignment="Center" Margin="0,2,6,2"/>
+            <NumericUpDown Grid.Row="3" Grid.Column="1" Margin="0,2"
+                           Value="{Binding GainRaw}"
+                           Minimum="256" Maximum="2047" Increment="64"
+                           FormatString="0"/>
+            <TextBlock Grid.Row="3" Grid.Column="2" Text="256 ~ 2047"
+                       VerticalAlignment="Center" Foreground="#888" FontSize="11" Margin="6,2,0,2"/>
+
+            <!-- 增益 actual -->
+            <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                       Text="{Binding GainActualText}" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+
+          </Grid>
+
+          <!-- 操作按鈕 -->
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="套用" Command="{Binding ApplyCamParamsCommand}"
+                    IsEnabled="{Binding IsGrabConnected}"/>
+            <Button Content="讀取目前值" Command="{Binding RefreshCamParamsCommand}"
+                    IsEnabled="{Binding IsGrabConnected}"/>
+            <TextBlock Text="{Binding CamStatus}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+          </StackPanel>
+
+          <TextBlock Text="⚠ 曝光/增益為機器層設定（cam_config.json），套用後持久化。"
+                     FontSize="11" Foreground="#888" TextWrapping="Wrap"/>
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+
+  </TabControl>
 </UserControl>
