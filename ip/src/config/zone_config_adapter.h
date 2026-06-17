@@ -68,9 +68,22 @@ struct ZoneConfig {
     std::string recipe_name = "DEFAULT";
     std::string panel_id;
 
-    // ROI 是否為全幅（任一邊界 < 0 視為全幅）。
+    // === 對位套回欄位（-1 = 尚未對位，eff_* 自動 fallback 到 roi_*）===
+    // SET_ALIGN 命令套回後填入；LOAD_RECIPE 時重設為 -1。
+    int aligned_start_x = -1;
+    int aligned_start_y = -1;
+    int aligned_end_x   = -1;
+    int aligned_end_y   = -1;
+
+    // 偵測路徑統一使用 eff_*（對位前後均正確）
+    int eff_start_x() const { return aligned_start_x >= 0 ? aligned_start_x : roi_start_x; }
+    int eff_start_y() const { return aligned_start_y >= 0 ? aligned_start_y : roi_start_y; }
+    int eff_end_x()   const { return aligned_end_x   >= 0 ? aligned_end_x   : roi_end_x;   }
+    int eff_end_y()   const { return aligned_end_y   >= 0 ? aligned_end_y   : roi_end_y;   }
+
+    // ROI 是否為全幅（任一邊界 < 0 視為全幅）。使用 eff_* 考慮對位後結果。
     bool is_full_frame() const {
-        return roi_start_x < 0 || roi_start_y < 0 || roi_end_x < 0 || roi_end_y < 0;
+        return eff_start_x() < 0 || eff_start_y() < 0 || eff_end_x() < 0 || eff_end_y() < 0;
     }
 };
 

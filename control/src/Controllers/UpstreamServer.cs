@@ -35,10 +35,17 @@ public sealed class UpstreamServer : IDisposable
 
     public sealed record GetResultPayload(string FilePaths, string DefectCounts);
 
+    // CHECK_ALIGN 回應：ok=false 代表對位失敗（score 過低），由上位機決策（釘點 3）
+    public sealed record CheckAlignPayload(bool Ok, double ShiftX, double ShiftY, string Error = "");
+
     // (recipe, panelId, detectMode) → 成功與否
     public Func<string, string, string, Task<bool>>? OnLoadRecipe { get; set; }
     public Func<string, Task<bool>>? OnGrabStart { get; set; }   // (timeoutMs)
     public Func<Task<GetResultPayload>>? OnGetResult { get; set; }
+    // CHECK_ALIGN：裁搜尋 ROI → IP → 回 ShiftX/Y（失敗 ok=false，由上位機決策，釘點 3）
+    public Func<Task<CheckAlignPayload>>? OnCheckAlign { get; set; }
+    // SET_ALIGN：把上位機傳來的 shiftX/Y 轉給 IP 套回 zones
+    public Func<double, double, Task>? OnSetAlign { get; set; }
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -105,12 +112,39 @@ public sealed class UpstreamServer : IDisposable
                             break;
                         }
                         case CF_CHECK_ALIGN:
-                            // 新流程無 MIL 對位：回 OK + 0 位移（p1=camStatus, p2=shiftX, p3=shiftY）
-                            await writer.WriteLineAsync(Resp(true, p1: "Cs_AlignSet", p2: "0", p3: "0"));
+                        {
+                            if (OnCheckAlign is null)
+                            {
+                                // 未接線（Step 1 以前）：回 OK + 0 偏移
+                                await writer.WriteLineAsync(Resp(true, p1: "Cs_AlignSet", p2: "0", p3: "0"));
+                                break;
+                            }
+                            var ar = await OnCheckAlign();
+                            if (!ar.Ok)
+                            {
+                                // 釘點 3：失敗回 ERR，讓上位機決策
+                                await writer.WriteLineAsync(Resp(false, errMsg: ar.Error));
+                            }
+                            else
+                            {
+                                // p1=camStatus, p2=shiftX, p3=shiftY（對齊 legacy）
+                                await writer.WriteLineAsync(
+                                    Resp(true, p1: "Cs_AlignSet",
+                                         p2: ar.ShiftX.ToString("F2"),
+                                         p3: ar.ShiftY.ToString("F2")));
+                            }
                             break;
+                        }
                         case CF_SET_ALIGN:
+                        {
+                            // p2=shiftX, p3=shiftY（由上位機在 CF_CHECK_ALIGN 回應後決定是否套回）
+                            double sx = 0, sy = 0;
+                            double.TryParse(P(2), out sx);
+                            double.TryParse(P(3), out sy);
+                            if (OnSetAlign is not null) await OnSetAlign(sx, sy);
                             await writer.WriteLineAsync(Resp(true));
                             break;
+                        }
                         case CF_GET_RESULT:
                         {
                             var r = OnGetResult is null ? new GetResultPayload("", "0") : await OnGetResult();

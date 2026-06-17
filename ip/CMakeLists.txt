@@ -49,6 +49,7 @@ add_executable(cfaoi_ip
     src/image_source/tcp_source.cpp
     src/result_saver.cpp
     src/control_server.cpp
+    src/align_engine.cpp
     $<$<BOOL:${IBVERBS_LIB}>:src/image_source/rdma_source.cpp>
 )
 
@@ -76,3 +77,16 @@ target_link_libraries(cfaoi_ip PRIVATE
 )
 
 set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+
+# ── align_verify（純 OpenCV，不需 CUDA；Gap #1 精度驗證）──────────────────
+add_executable(align_verify
+    src/align_verify.cpp
+    src/align_engine.cpp
+)
+target_include_directories(align_verify PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/config
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(align_verify PRIVATE ${OpenCV_LIBS})
+target_compile_options(align_verify PRIVATE -std=c++17)

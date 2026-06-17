@@ -29,6 +29,7 @@
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
 
+#include "align_engine.h"
 #include "config/recipe_saving_config.h"
 #include "config/share_flags.h"
 #include "config/zone_config_adapter.h"
@@ -160,13 +161,13 @@ bool parse_args(int argc, char** argv, Args& a) {
     return true;
 }
 
-// 計算 zone 在影像內的有效 ROI rect（全幅或夾在影像範圍內）。
+// 計算 zone 在影像內的有效 ROI rect（對位後用 eff_*，全幅或夾在影像範圍內）。
 cv::Rect zone_rect(const ZoneConfig& z, int w, int h) {
     if (z.is_full_frame()) return cv::Rect(0, 0, w, h);
-    int x1 = std::clamp(z.roi_start_x, 0, w - 1);
-    int y1 = std::clamp(z.roi_start_y, 0, h - 1);
-    int x2 = std::clamp(z.roi_end_x, x1 + 1, w);
-    int y2 = std::clamp(z.roi_end_y, y1 + 1, h);
+    int x1 = std::clamp(z.eff_start_x(), 0, w - 1);
+    int y1 = std::clamp(z.eff_start_y(), 0, h - 1);
+    int x2 = std::clamp(z.eff_end_x(), x1 + 1, w);
+    int y2 = std::clamp(z.eff_end_y(), y1 + 1, h);
     return cv::Rect(x1, y1, x2 - x1, y2 - y1);
 }
 
@@ -446,6 +447,18 @@ int main(int argc, char** argv) {
                     return false;
                 }
             });
+        // SET_ALIGN 命令：套回 ShiftX/Y 到所有 zones（aligned_* 欄位）。
+        // 每片一次：LOAD_RECIPE 清 aligned_*，SET_ALIGN 後偵測使用 eff_*。
+        server.set_set_align_handler([&](double shift_x, double shift_y) {
+            std::lock_guard<std::mutex> lk(zones_mtx);
+            for (auto& z : zones) {
+                z.aligned_start_x = z.roi_start_x + (int)std::round(shift_x);
+                z.aligned_start_y = z.roi_start_y + (int)std::round(shift_y);
+                z.aligned_end_x   = z.roi_end_x   + (int)std::round(shift_x);
+                z.aligned_end_y   = z.roi_end_y   + (int)std::round(shift_y);
+            }
+        });
+
         server.set_status_provider([&]() -> std::string {
             json s;
             s["processed"] = processed;

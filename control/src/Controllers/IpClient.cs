@@ -52,10 +52,12 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
     // recipeXml 為配方 XML 內容（跨機器免共用檔案系統）；recipePathOrName 為同機路徑/名稱備用。
     // recipeSaving 選填：若非 null，附加 recipe_saving 欄位（MaxSaveDefectCount/SaveDefectWidth/Height/MaxDefectCountPass）。
     // shareFlags   選填：若非 null，附加 share_flags 欄位（tuning_recipe / save_source_image 等）。
+    // goldenPngBase64 選填：AlignEnable=true 時，Control 端把 golden PNG 以 base64 附加，IP 在記憶體解碼（network-clean）。
     public Task<JsonNode?> LoadRecipeAsync(string recipePathOrName, string panelId,
                                            string? recipeXml = null,
                                            JsonObject? recipeSaving = null,
                                            JsonObject? shareFlags = null,
+                                           string? goldenPngBase64 = null,
                                            CancellationToken ct = default)
     {
         var prms = new JsonObject
@@ -68,6 +70,8 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
             prms["recipe_saving"] = recipeSaving;
         if (shareFlags is not null)
             prms["share_flags"] = shareFlags;
+        if (goldenPngBase64 is not null)
+            prms["golden_png_base64"] = goldenPngBase64;
         return SendCommandAsync("LOAD_RECIPE", prms, ct);
     }
 
@@ -158,6 +162,48 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
         }
         finally { _lock.Release(); }
     }
+
+    /// <summary>送搜尋 ROI（Control 端預裁，~250KB），請 IP 跑對位，回 ShiftX/Y。
+    /// 釘點 4：只傳搜尋 ROI，非 40MB 整張影像。
+    /// 失敗（score &lt; threshold）→ IP 回 ERR（釘點 3：由上位機決策）。</summary>
+    public async Task<JsonNode?> CheckAlignAsync(
+        string panelId, int roiWidth, int roiHeight, byte[] roiPayload,
+        CancellationToken ct = default)
+    {
+        if (roiPayload.Length != (long)roiWidth * roiHeight)
+            throw new ArgumentException("roiPayload 長度必須等於 roiWidth*roiHeight (Mono8)");
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            EnsureOpen();
+            var seq = Interlocked.Increment(ref _seq);
+            var cmd = new JsonObject
+            {
+                ["cmd"] = "CHECK_ALIGN",
+                ["seq"] = seq,
+                ["params"] = new JsonObject
+                {
+                    ["panel_id"] = panelId,
+                    ["width"]    = roiWidth,
+                    ["height"]   = roiHeight,
+                    ["payload_bytes"] = roiPayload.Length,
+                },
+            };
+            var line = cmd.ToJsonString() + "\n";
+            await _stream!.WriteAsync(Encoding.UTF8.GetBytes(line), ct);
+            await _stream.WriteAsync(roiPayload, ct);
+            await _stream.FlushAsync(ct);
+            var resp = await _reader!.ReadLineAsync(ct);
+            return resp is null ? null : JsonNode.Parse(resp);
+        }
+        finally { _lock.Release(); }
+    }
+
+    /// <summary>通知 IP 對所有 zones 套回 ShiftX/Y（每片一次；LOAD_RECIPE 後再次對位時覆蓋）。</summary>
+    public Task<JsonNode?> SetAlignAsync(double shiftX, double shiftY, CancellationToken ct = default)
+        => SendCommandAsync("SET_ALIGN",
+            new JsonObject { ["shift_x"] = shiftX, ["shift_y"] = shiftY }, ct);
 
     private async Task<JsonNode?> SendCommandAsync(string cmd, JsonObject? prms, CancellationToken ct)
     {

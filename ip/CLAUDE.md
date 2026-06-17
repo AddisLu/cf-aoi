@@ -372,3 +372,18 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     **注意**：RoCE v2（非 IB）Grab 斷線後 `IBV_WC_WR_FLUSH_ERR` **不保證立即出現**；
     需在 recv_thread no-event 分支輪詢 CM event channel（`check_cm_disconnect()`），
     否則 recv_thread 永不退出，`queue_->close()` 永不呼叫，主迴圈 pop 永久阻塞（commit `de047a3` 修正）。
+24. **對位 pipeline（Gap #1）— 實作完成、待實機驗證（L1→目標 L3）**（2026-06-17）：
+    - **流程**：每片一次（CF_GRAB_START 觸發），`CHECK_ALIGN` 收搜尋 ROI（Control 端裁 500×500≈250KB）→
+      `run_align()`（13 角 × TM_CCOEFF_NORMED + 拋物線 sub-pixel）→ 回 ShiftX/Y；
+      `SET_ALIGN` 套回所有 zones（`aligned_* = roi_* + round(shift_*)`）；
+      偵測路徑統一用 `eff_*()`（aligned_* ≥ 0 則用對位值，否則 fallback roi_*）。
+    - **失敗策略**：score < threshold → `CHECK_ALIGN` 回 ERR，Control 回 CF_CHECK_ALIGN ERR 給上位機，
+      由上位機決策（停線/放行/重試），IP/Control 不自行 fallback 繼續（釘點 3）。
+    - **Golden**：Control 端讀 `PatternPath`（相對 recipe 目錄），base64 嵌入 LOAD_RECIPE `golden_png_base64`，
+      IP 在記憶體 decode（不寫磁碟，network-clean 不變式 8）；LOAD_RECIPE 覆蓋舊 golden + 重設 `aligned_* = -1`。
+    - **旋轉**：可配置（`AlignRoiConfig.angle_range_deg` 預設 ±3°, step 0.5°）。
+    - **AlignEnable=false 行為不變**：`eff_*` fallback roi_*，偵測路徑無感知。
+    - **2026-06-17 DGX Spark GB10 實機驗通（L3）**：
+      - Stage 1 `align_verify` 14/14 PASS：sub-pixel 誤差全 <0.1px（最差 L2=0.087px）；旋轉角度誤差 0.000°。
+      - Stage 2 `verify_alignment.py` 8/8 PASS：n0=7 缺陷基準；面板偏移 7px→CHECK_ALIGN ShiftX=7.001 誤差<0.001px→SET_ALIGN→偵測 n_aligned=7＝n0（對位後缺陷數不變，不爆量）。
+      - Stage 3A 空白 ROI → ok=false ERR + score=0.000；eff_* fallback/套回邏輯全 PASS。

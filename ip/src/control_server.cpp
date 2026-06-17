@@ -23,7 +23,9 @@
 #include <unistd.h>
 
 #include <nlohmann/json.hpp>
+#include <opencv2/imgcodecs.hpp>
 
+#include "align_engine.h"
 #include "diag/flight_recorder.h"
 
 using json = nlohmann::json;
@@ -212,6 +214,67 @@ std::string base64_encode(const std::vector<uint8_t>& in) {
     return out;
 }
 
+// base64 解碼（golden PNG 由 Control 傳入）。
+std::vector<uint8_t> base64_decode(const std::string& in) {
+    static const int8_t tbl[256] = {
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
+        52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,
+        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+        15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+        -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+        41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+    };
+    std::vector<uint8_t> out;
+    out.reserve((in.size() / 4) * 3);
+    uint32_t acc = 0;
+    int bits = 0;
+    for (unsigned char c : in) {
+        if (c == '=') break;
+        int v = tbl[c];
+        if (v < 0) continue;
+        acc = (acc << 6) | (uint32_t)v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(uint8_t(acc >> bits));
+            acc &= (1u << bits) - 1;
+        }
+    }
+    return out;
+}
+
+// XML tag 提取（同 zone_config_adapter.cpp 中的 extract_tag，供解析 AlignRoi 用）。
+bool cs_extract_tag(const std::string& xml, const std::string& tag, std::string& out) {
+    const std::string open = "<" + tag + ">";
+    const std::string close = "</" + tag + ">";
+    size_t s = xml.find(open);
+    if (s == std::string::npos) return false;
+    s += open.size();
+    size_t e = xml.find(close, s);
+    if (e == std::string::npos) return false;
+    out = xml.substr(s, e - s);
+    size_t a = out.find_first_not_of(" \t\r\n");
+    size_t b = out.find_last_not_of(" \t\r\n");
+    if (a == std::string::npos) { out.clear(); return true; }
+    out = out.substr(a, b - a + 1);
+    return true;
+}
+bool cs_tag_int(const std::string& xml, const std::string& tag, int& v) {
+    std::string s;
+    if (!cs_extract_tag(xml, tag, s) || s.empty()) return false;
+    try { v = std::stoi(s); return true; } catch (...) { return false; }
+}
+
 // 讀整個檔案為 bytes。
 std::vector<uint8_t> read_file_bytes(const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
@@ -331,7 +394,7 @@ void ControlServer::handle_client(int fd) {
             std::string recipe = params.value("recipe", "");
             std::string recipe_xml = params.value("recipe_xml", "");  // 跨機：配方內容
             std::string panel = params.value("panel_id", "");
-            // recipe_saving / share_flags：選填；缺省 = 保留預設值（向下相容）
+            // recipe_saving / share_flags / align_roi：選填；缺省 = 保留預設值（向下相容）
             {
                 std::lock_guard<std::mutex> slk(saving_cfg_mtx_);
                 if (params.contains("recipe_saving")) {
@@ -345,6 +408,50 @@ void ControlServer::handle_client(int fd) {
                     const auto& sf = params["share_flags"];
                     share_flags_.tuning_recipe    = sf.value("tuning_recipe",    false);
                     share_flags_.save_source_image = sf.value("save_source_image", false);
+                }
+                // 解析 AlignRoi（每次 LOAD_RECIPE 覆蓋，對位 aligned_* 由 SET_ALIGN 套回）
+                {
+                    AlignRoiConfig new_align;
+                    new_align.align_enable = false;
+                    // 從 recipe_xml 的 <M_AlignRoi> 區塊取座標
+                    if (!recipe_xml.empty()) {
+                        size_t ar_s = recipe_xml.find("<M_AlignRoi>");
+                        size_t ar_e = recipe_xml.find("</M_AlignRoi>");
+                        if (ar_s != std::string::npos && ar_e != std::string::npos) {
+                            std::string ar = recipe_xml.substr(ar_s, ar_e - ar_s + 13);
+                            std::string val;
+                            if (cs_extract_tag(ar, "AlignEnable", val))
+                                new_align.align_enable = (val == "true" || val == "True" || val == "1");
+                            int iv;
+                            if (cs_tag_int(ar, "ReferX", iv))       new_align.refer_x       = iv;
+                            if (cs_tag_int(ar, "ReferY", iv))       new_align.refer_y       = iv;
+                            if (cs_tag_int(ar, "SearchWidth", iv))  new_align.search_width  = iv;
+                            if (cs_tag_int(ar, "SearchHeight", iv)) new_align.search_height = iv;
+                        }
+                    }
+                    // 解碼 golden PNG（network-clean：Control 傳 base64，IP 在記憶體持有）
+                    if (new_align.align_enable) {
+                        std::string b64 = params.value("golden_png_base64", "");
+                        if (!b64.empty()) {
+                            auto bytes = base64_decode(b64);
+                            std::vector<uint8_t> buf(bytes.begin(), bytes.end());
+                            cv::Mat golden = cv::imdecode(buf, cv::IMREAD_GRAYSCALE);
+                            if (!golden.empty()) {
+                                new_align.golden = golden;
+                                std::cout << "[AlignRoi] golden loaded "
+                                          << golden.cols << "×" << golden.rows
+                                          << " ReferX=" << new_align.refer_x
+                                          << " SearchW=" << new_align.search_width << "\n";
+                            } else {
+                                std::cerr << "[AlignRoi] golden_png_base64 解碼失敗，對位停用\n";
+                                new_align.align_enable = false;
+                            }
+                        } else {
+                            std::cerr << "[AlignRoi] AlignEnable=true 但未收到 golden_png_base64，對位停用\n";
+                            new_align.align_enable = false;
+                        }
+                    }
+                    align_roi_cfg_ = new_align;
                 }
             }
             std::string err;
@@ -707,6 +814,76 @@ void ControlServer::handle_client(int fd) {
             resp["output_dir"] = dir.string();
             std::cout << "[ControlServer] SAVE_DEFECT_CLASSIFICATION " << folder
                       << " → TrueDefect=" << n_true << " Particle=" << n_part << "\n";
+            reply(fd, resp);
+
+        } else if (cmd == "SET_ALIGN") {
+            // SET_ALIGN：套回 ShiftX/Y 到所有 zones（由 main.cpp 註冊的 set_align_ callback 執行）。
+            // 每片一次：CF_GRAB_START → CF_CHECK_ALIGN → CF_SET_ALIGN → SEND_IMAGE（套回後偵測）。
+            double shift_x = params.value("shift_x", 0.0);
+            double shift_y = params.value("shift_y", 0.0);
+            if (set_align_) {
+                set_align_(shift_x, shift_y);
+            }
+            resp["status"] = "OK";
+            std::cout << "[SetAlign] ShiftX=" << shift_x << " ShiftY=" << shift_y << "\n";
+            reply(fd, resp);
+
+        } else if (cmd == "CHECK_ALIGN") {
+            // CHECK_ALIGN：收搜尋 ROI（Control 端預裁，~250KB），跑 align_engine，回 ShiftX/Y。
+            // 失敗（score < threshold）→ 回 ERR（釘點 3：由上位機決策，IP/Control 不自行繼續）。
+            uint32_t width        = params.value("width",        0u);
+            uint32_t height       = params.value("height",       0u);
+            uint32_t payload_bytes = params.value("payload_bytes", 0u);
+            std::string panel     = params.value("panel_id", "");
+
+            if (width == 0 || height == 0 || payload_bytes == 0 || payload_bytes != width * height) {
+                char eb[128];
+                std::snprintf(eb, sizeof(eb),
+                    "CHECK_ALIGN: invalid ROI size w=%u h=%u payload=%u", width, height, payload_bytes);
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", eb}});
+                continue;
+            }
+            std::vector<uint8_t> roi_payload;
+            if (!rd.read_exact(payload_bytes, roi_payload)) {
+                std::cerr << "[ControlServer] CHECK_ALIGN: 讀取 ROI payload 時連線中斷\n";
+                break;
+            }
+
+            AlignRoiConfig align_cfg;
+            { std::lock_guard<std::mutex> lk(saving_cfg_mtx_); align_cfg = align_roi_cfg_; }
+
+            if (!align_cfg.align_enable) {
+                // AlignEnable=false → 不對位，直接回 ShiftX=0（不計為失敗）
+                resp["status"]    = "OK";
+                resp["shift_x"]   = 0.0;
+                resp["shift_y"]   = 0.0;
+                resp["score"]     = 1.0;
+                resp["angle_deg"] = 0.0;
+                resp["skipped"]   = true;
+                reply(fd, resp);
+                continue;
+            }
+
+            // 執行對位
+            cv::Mat search_roi(height, width, CV_8UC1, roi_payload.data());
+            AlignResult ar = run_align(search_roi, align_cfg);
+
+            if (!ar.ok) {
+                // 釘點 3：失敗回 ERR + score，由上位機決策
+                resp["status"] = "ERR";
+                resp["error"]  = ar.error_msg;
+                resp["score"]  = ar.score;
+                std::cerr << "[CheckAlign] FAIL panel=" << panel << " " << ar.error_msg << "\n";
+            } else {
+                resp["status"]    = "OK";
+                resp["shift_x"]   = ar.shift_x;
+                resp["shift_y"]   = ar.shift_y;
+                resp["score"]     = ar.score;
+                resp["angle_deg"] = ar.angle_deg;
+                std::cout << "[CheckAlign] OK panel=" << panel
+                          << " ShiftX=" << ar.shift_x << " ShiftY=" << ar.shift_y
+                          << " score=" << ar.score << " angle=" << ar.angle_deg << "°\n";
+            }
             reply(fd, resp);
 
         } else {

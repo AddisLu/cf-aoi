@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-17**（存圖控制 sprint A/C 補驗完成→全項 L3：背壓 ERR 14/20 幀確認 + SaveSourceImage ring drop WARN + VmRSS 天花板 10MB/3800MB）
+> 最後更新：**2026-06-17**（存圖控制 sprint A/C 補驗完成→全項 L3；對位 pipeline Gap #1 → **L3**：2026-06-17 DGX Spark GB10 實機驗通 Stage 1（14/14 PASS：sub-pixel 誤差全 <0.1px）+ Stage 2（n0=7 缺陷基準→偏移 7px 對位後仍=7，缺陷數一致 PASS）+ Stage 3（失敗策略 ERR + eff_* 邏輯全 PASS））
 
 ## 分級定義
 
@@ -71,6 +71,7 @@
 | SaveSourceImage + SourceImageWriter（原圖非同步存檔） | **L3** | **2026-06-17 DGX Spark GB10 實機（no_wait 20 幀，ring=2，--test-source-writer-delay-ms 600ms 模擬慢碟）**：VmRSS 增長 10MB（基準 330MB，峰值 447MB，消化後 340MB），100 幀×38MB=3800MB 資料，VmRSS 完全不線性成長；穩定期抖動 29MB < 5×38=190MB。`[SourceWriter] WARN ring 滿（2 槽），drop panel=SRC_OOM_0009`（20 幀中 2 幀觸發 drop，ring 上限生效）。`source/SRC_OOM_*.bin` 按實際寫入幀數產生（非 100%=ring 固定上限，非 List 囤積）。見 ip/CLAUDE.md 不變式 19。 |
 | rdma-validate 模式（N-slot ring + credit 背壓） | **L3** | **2026-06-17 damac↔Spark 實機**：Phase 1 連續 120 幀 CRC=OK（ok=120 err=0，slot 0→3 繞回正確，1375fps/86MB/s）；Phase 2 背壓（`--test-consumer-delay-ms 200`）20 幀全通（ok=20 err=0，Grab 降至 9.6fps 而非斷線，QP 未進 error state）；CM DISCONNECTED 偵測乾淨退出（commit `de047a3`）。見 ip/CLAUDE.md 不變式 23。 |
 | image-capture / online 模式 | **L0** | 未實作（`main.cpp` 無此分支；需相機陣列 + Control 完整接線）|
+| 對位 pipeline（Gap #1：golden_maker + align_engine + CHECK/SET_ALIGN + ZoneConfig eff_*）| **L3** | **2026-06-17 DGX Spark GB10 實機驗通**：Stage 1 align_verify 14/14 PASS（sub-pixel 誤差全 <0.1px，最差 0.087px；旋轉誤差 0.000°~0.062px；空白圖 ok=false+ERR 路徑確認；eff_* fallback + SET_ALIGN 套回邏輯確認）；Stage 2 verify_alignment.py 8/8 PASS（n0=7 缺陷基準；偏移 7px 整張面板→對位 ShiftX=7.001 ShiftY=3.000 誤差 <0.001px→SET_ALIGN→偵測 n_aligned=7 = n0，缺陷數一致；Stage 3A 空白 ROI→ERR）。見 `ip/src/align_verify.cpp` + `scripts/verify_alignment.py`。 |
 | 行車紀錄（flight recorder：結構化診斷 JSONL/incident） | **L3** | `diag/flight_recorder` 環形緩衝+只記出事；2026-06-15 RTX 2080 端到端驗證五種 incident kind（cuda_fatal 經人為 OOM 觸發、frame_validation/bad_json/recipe_load/uncaught_exception）+ JSON 全可解析 + 決定性不破 + bench 無 `_diag`（recorder no-op，gpu_ms 零擾動）。見 ip/CLAUDE.md 不變式 16。 |
 | 收圖入口 magic/version/CRC32 + 尺寸驗證 | **L3（offline-tcp）/ L1（RDMA wire）** | offline-tcp：尺寸防呆 + client 宣告 `crc32` 比對於 RTX 2080 實測拒收+記 incident（L3）。**RDMA wire header 的 magic/version/CRC 驗證分支待 `rdma_source` 實作後才生效（L1）**。見 ip/CLAUDE.md 不變式 17。 |
 

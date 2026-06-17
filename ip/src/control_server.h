@@ -34,6 +34,7 @@
 #include "image_source/image_source.h"  // FrameQueue, FrameHeader
 #include "config/recipe_saving_config.h"
 #include "config/share_flags.h"
+#include "align_engine.h"               // AlignRoiConfig
 
 class ControlServer {
 public:
@@ -43,6 +44,8 @@ public:
                                             const std::string& recipe_xml,
                                             const std::string& panel_id,
                                             std::string& err)>;
+    // set_align handler：SET_ALIGN 命令到達時，對所有 zones 套回 ShiftX/Y。
+    using SetAlignFn = std::function<void(double shift_x, double shift_y)>;
     // status_provider：回傳一個 JSON 物件字串（GET_STATUS 用）。
     using StatusFn = std::function<std::string()>;
 
@@ -50,6 +53,7 @@ public:
     ~ControlServer();
 
     void set_load_recipe_handler(LoadRecipeFn fn) { load_recipe_ = std::move(fn); }
+    void set_set_align_handler(SetAlignFn fn)   { set_align_  = std::move(fn); }
     void set_status_provider(StatusFn fn) { status_ = std::move(fn); }
     void set_ai_enabled(bool v) { ai_enabled_ = v; }
     void set_output_dir(const std::string& d) { output_dir_ = d; }   // 供 LIST/SORT_DEFECTS 掃描
@@ -64,6 +68,12 @@ public:
     ShareFlags share_flags() const {
         std::lock_guard<std::mutex> lk(saving_cfg_mtx_);
         return share_flags_;
+    }
+
+    // LOAD_RECIPE 解析的對位設定（mutex 保護）；CHECK_ALIGN handler 使用。
+    AlignRoiConfig align_roi_config() const {
+        std::lock_guard<std::mutex> lk(saving_cfg_mtx_);
+        return align_roi_cfg_;
     }
 
     // SEND_IMAGE_FOR_REVIEW 的 debug 旗標：true → 該次存全部 patch（調參需要看小圖）；
@@ -92,12 +102,14 @@ private:
     std::atomic<bool> review_save_patches_{false};   // SEND_IMAGE_FOR_REVIEW debug 旗標
 
     LoadRecipeFn load_recipe_;
-    StatusFn status_;
+    SetAlignFn   set_align_;
+    StatusFn     status_;
 
-    // 存圖設定與共用旗標（LOAD_RECIPE 更新；同一把鎖保護兩者；saving_config()/share_flags() 快照給主迴圈）
+    // 存圖設定、共用旗標、對位設定（LOAD_RECIPE 更新；同一把鎖保護三者）
     mutable std::mutex saving_cfg_mtx_;
     RecipeSavingConfig saving_cfg_;
-    ShareFlags share_flags_;
+    ShareFlags         share_flags_;
+    AlignRoiConfig     align_roi_cfg_;
 
     // 結果回傳 rendezvous（key = panel_id；offline review 為循序單一請求）
     std::mutex result_mtx_;
