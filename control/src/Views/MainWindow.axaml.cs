@@ -25,6 +25,25 @@ public partial class MainWindow : Window
         if (btn2 != null) btn2.Click += OpenParamEditor;
         var btn3 = this.FindControl<Button>("BtnOpenSortDefect");
         if (btn3 != null) btn3.Click += OpenSortDefect;
+        var btn4 = this.FindControl<Button>("BtnOpenSysSettings");
+        if (btn4 != null) btn4.Click += OpenSysSettings;
+    }
+
+    private Window? _sysWin;
+    // 開「系統設定」(連線設定 + 相機參數 Gap #2)，獨立視窗
+    private void OpenSysSettings(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        if (_sysWin is { IsVisible: true } w) { w.Activate(); return; }
+        _sysWin = new Window
+        {
+            Title = "系統設定 (Settings)",
+            Width = 640, Height = 520,
+            FontFamily = new Avalonia.Media.FontFamily("Arial"),
+            Content = new SystemSettingsView { DataContext = vm.SysSettings },
+        };
+        _sysWin.Closed += (_, _) => _sysWin = null;
+        _sysWin.Show(this);
     }
 
     private Window? _sortWin;
