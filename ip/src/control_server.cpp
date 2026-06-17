@@ -379,6 +379,9 @@ void ControlServer::handle_client(int fd) {
             uint16_t fseq = (uint16_t)params.value("frame_seq", (int)frame_seq_);
             uint8_t sys_id = (uint8_t)params.value("system_id", 0);
             bool last = params.value("last", false);
+            // no_wait=true → 入隊後立即回 ACK（不等 GPU 結果）；用於壓力測試 / 串流場景。
+            // 若 queue 滿仍回 ERR（背壓路徑不變）。正常 offline-tcp 用 false（等結果）。
+            bool no_wait = params.value("no_wait", false);
             // debug=true → 本次存全部 patch（調參看小圖）；預設 false → 只存結果+overlay 加速。
             review_save_patches_ = params.value("debug", false);
 
@@ -459,6 +462,15 @@ void ControlServer::handle_client(int fd) {
             }
             ++frame_seq_;
             resp["frame_seq"] = fseq;
+
+            // no_wait 模式：入隊成功後立即回 ACK，不等 GPU 結果（壓力測試 / 串流場景）。
+            // queue 滿時仍回 ERR（背壓路徑不變）。
+            if (no_wait) {
+                resp["status"] = "OK";
+                resp["queued"] = true;
+                reply(fd, resp);
+                continue;
+            }
 
             // 等處理端 deliver_result(panel, json)，把結果經 TCP 回傳（跨機器免共用檔案系統）。
             auto t_proc0 = std::chrono::steady_clock::now();

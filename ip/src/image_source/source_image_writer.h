@@ -43,8 +43,10 @@ public:
 
     // 啟動：配置 n_slots 個 ring slot（每個 frame_bytes 大小）+ 啟動 writer thread。
     // frame_bytes = width * height；dir = 輸出目錄（與 ResultSaver 同一個 output 目錄下 source/ 子夾）。
+    // test_write_delay_ms：壓力測試用，寫完後人工延遲 N ms（模擬慢 HDD/NAS，觸發 drop WARN）。
     // 呼叫必須在 buffer 計算器之後、第一張影像之前（啟動時一次）。
-    void init(size_t n_slots, const std::string& dir, size_t frame_bytes) {
+    void init(size_t n_slots, const std::string& dir, size_t frame_bytes,
+              int test_write_delay_ms = 0) {
         if (running_.load()) return;  // 避免重複 init
         out_dir_ = dir + "/source";
         std::filesystem::create_directories(out_dir_);
@@ -53,6 +55,7 @@ public:
         slots_.resize(n_slots);
         for (auto& s : slots_) s.data.resize(frame_bytes);
         n_slots_ = n_slots;
+        test_write_delay_ms_ = test_write_delay_ms;
         running_ = true;
         thread_ = std::thread([this] { run(); });
         std::cout << "[SourceWriter] 初始化 " << n_slots << " 個 ring slot "
@@ -130,12 +133,15 @@ private:
             } else {
                 std::cerr << "[SourceWriter] 寫檔失敗: " << path << "\n";
             }
+            if (test_write_delay_ms_ > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(test_write_delay_ms_));
         }
     }
 
     std::vector<Slot>          slots_;
     size_t                     n_slots_     = 0;
     size_t                     frame_bytes_ = 0;
+    int                        test_write_delay_ms_ = 0;
     size_t                     head_        = 0;  // producer 寫的位置
     size_t                     tail_        = 0;  // consumer 讀的位置
     std::mutex                 mtx_;

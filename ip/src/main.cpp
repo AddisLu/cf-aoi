@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -69,6 +70,10 @@ struct Args {
     int  max_src_ring_size = -1;   // --max-src-ring-size N：覆寫 SourceRing 上限（OOM 測試用）
     // MaxDefectCountPass CLI 覆寫（offline-file 驗決定性用；offline-tcp 由 LOAD_RECIPE 覆蓋）
     int  max_defect_count_pass = -1;  // --max-defect-count-pass N
+    // 壓力測試用：消費端人工延遲（模擬慢 GPU/慢磁碟，讓 queue 積累到滿觸發背壓 ERR）
+    int  test_consumer_delay_ms = 0;  // --test-consumer-delay-ms N
+    // 壓力測試用：SourceWriter 寫檔後人工延遲（模擬慢 HDD/NAS，讓 ring 積累到滿觸發 drop WARN）
+    int  test_source_writer_delay_ms = 0;  // --test-source-writer-delay-ms N
 };
 
 void usage(const char* prog) {
@@ -95,7 +100,9 @@ void usage(const char* prog) {
     "  --pitch-x/--pitch-y <n> 覆寫 pitch（bench 掃缺陷負載用）\n"
     "  --max-queue-size <n>   覆寫 FrameQueue 上限（取代 buffer 計算器；驗證背壓用）\n"
     "  --max-src-ring-size <n> 覆寫 SourceRing 上限（取代計算器；驗證 OOM 防護用）\n"
-    "  --max-defect-count-pass <n> offline-file 模式設 MaxDefectCountPass 截斷（驗決定性用）\n";
+    "  --max-defect-count-pass <n> offline-file 模式設 MaxDefectCountPass 截斷（驗決定性用）\n"
+    "  --test-consumer-delay-ms <n> offline-tcp：每幀處理後人工延遲 N ms（模擬慢消費，觸發背壓 ERR 測試）\n"
+    "  --test-source-writer-delay-ms <n> SourceWriter：每幀寫完後延遲 N ms（模擬慢 HDD，觸發 ring drop WARN 測試）\n";
 }
 
 bool parse_args(int argc, char** argv, Args& a) {
@@ -128,6 +135,8 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--max-queue-size") a.max_queue_size = std::stoi(next("--max-queue-size"));
         else if (k == "--max-src-ring-size") a.max_src_ring_size = std::stoi(next("--max-src-ring-size"));
         else if (k == "--max-defect-count-pass") a.max_defect_count_pass = std::stoi(next("--max-defect-count-pass"));
+        else if (k == "--test-consumer-delay-ms") a.test_consumer_delay_ms = std::stoi(next("--test-consumer-delay-ms"));
+        else if (k == "--test-source-writer-delay-ms") a.test_source_writer_delay_ms = std::stoi(next("--test-source-writer-delay-ms"));
         else if (k == "-h" || k == "--help") { usage(argv[0]); return false; }
         else { std::cerr << "未知參數: " << k << "\n"; usage(argv[0]); return false; }
     }
@@ -391,7 +400,7 @@ int main(int argc, char** argv) {
                       << "  FrameQueue上限=" << n_queue << "幀"
                       << "  SourceRing上限=" << n_src << "幀\n";
             // SourceImageWriter 固定上限：啟動時一次配置，save_source_image 旗標決定是否呼叫 submit
-            src_writer.init(n_src, args.output, frame_bytes);
+            src_writer.init(n_src, args.output, frame_bytes, args.test_source_writer_delay_ms);
         }
         // ─────────────────────────────────────────────────────────────────────
 
@@ -471,6 +480,8 @@ int main(int argc, char** argv) {
             }
             // 把結果經 TCP 回傳給等待中的 Control（跨機器免共用檔案系統）
             server.deliver_result(name, ResultSaver::to_json(res));
+            if (args.test_consumer_delay_ms > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(args.test_consumer_delay_ms));
             ++processed;
         }
         server.stop();

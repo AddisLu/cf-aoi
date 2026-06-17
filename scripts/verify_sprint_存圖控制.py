@@ -83,8 +83,10 @@ def send_cmd_raw(sock: socket.socket, cmd: str, params: dict) -> dict:
 def send_image_for_review(sock: socket.socket, panel_id: str,
                            w: int, h: int, payload: bytes,
                            debug: bool = False,
-                           share_flags: dict | None = None) -> dict:
-    """送 SEND_IMAGE_FOR_REVIEW（命令行 + binary payload）並等回應。"""
+                           share_flags: dict | None = None,
+                           no_wait: bool = False) -> dict:
+    """送 SEND_IMAGE_FOR_REVIEW（命令行 + binary payload）並等回應。
+    no_wait=True：立即 ACK 模式（背壓壓力測試 / 串流模式）。"""
     seq = next_seq()
     cmd = {
         "cmd": "SEND_IMAGE_FOR_REVIEW",
@@ -96,6 +98,8 @@ def send_image_for_review(sock: socket.socket, panel_id: str,
             "last": True, "debug": debug,
         }
     }
+    if no_wait:
+        cmd["params"]["no_wait"] = True
     line = json.dumps(cmd) + "\n"
     sock.sendall(line.encode())
     sock.sendall(payload)
@@ -177,99 +181,71 @@ def check(cond: bool, msg: str):
 
 def test_backpressure(ip: str, port: int, image_path: str, ip_pid: int | None):
     """
-    連送 max_queue_size + 1 幀，第 max_queue_size+1 幀應回 ERR。
-    同時監控 VmRSS（若提供 pid）確認記憶體有天花板。
+    用 no_wait=True 單連線快送 20 幀（不等 GPU 結果），讓 queue 快速累積到滿。
+    IP 應以 --max-queue-size 1 --no-overlay 啟動（快速消費 + 小 queue）。
+
+    預期：前 1-2 幀 OK（成功入隊），後續幀收到 ERR（queue 滿，背壓觸發）。
+    同時確認 VmRSS 有天花板（不隨幀數線性成長）。
     """
-    section("A. FrameQueue 背壓防 OOM（Step 3）")
+    section("A. FrameQueue 背壓防 OOM（Step 3，no_wait 串流模式）")
     print(f"  目標 IP: {ip}:{port}  影像: {image_path}")
-    print(f"  （IP 應以 --max-queue-size 2 啟動）\n")
+    print(f"  （IP 應以 --max-queue-size 1 --test-consumer-delay-ms 2000 啟動）\n")
 
     w, h, payload = load_tiff_mono8(image_path)
-    print(f"  {INFO}  影像尺寸: {w}×{h}  payload={len(payload)//1024//1024}MB")
+    print(f"  {INFO}  影像尺寸: {w}×{h}  payload={len(payload)//1024//1024}MB\n")
 
     all_passed = True
+    vmrss_before = vmrss_kb(ip_pid) if ip_pid else None
 
-    # 同時從 3 條 TCP 連線送圖；queue max=2 → 第 3 條應 ERR
-    results: dict[int, dict] = {}
-    errors:  dict[int, str]  = {}
+    s = connect(ip, port)
+    r = load_recipe(s)
+    if r.get("status") != "OK":
+        print(f"  {FAIL}  LOAD_RECIPE 失敗: {r}")
+        return False
 
-    vmrss_samples: list[tuple[float, int]] = []
-    stop_monitor = threading.Event()
-
-    def monitor_vmrss():
-        if ip_pid is None:
-            return
-        t0 = time.time()
-        while not stop_monitor.is_set():
-            v = vmrss_kb(ip_pid)
-            if v is not None:
-                vmrss_samples.append((time.time() - t0, v))
-            time.sleep(0.2)
-
-    threading.Thread(target=monitor_vmrss, daemon=True).start()
-
-    def worker(idx: int):
-        try:
-            s = connect(ip, port)
-            # 先 LOAD_RECIPE（每個 client 都需要建立協議狀態）
-            r = load_recipe(s)
-            if r.get("status") != "OK":
-                errors[idx] = f"LOAD_RECIPE 失敗: {r}"
-                return
-            panel = f"BP_TEST_{idx}"
-            resp = send_image_for_review(s, panel, w, h, payload)
-            results[idx] = resp
-        except Exception as e:
-            errors[idx] = str(e)
-
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
+    responses = []
     t_start = time.time()
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=60)
+    for i in range(20):
+        panel = f"BP_NOWAIT_{i}"
+        try:
+            resp = send_image_for_review(s, panel, w, h, payload, no_wait=True)
+            responses.append((i, resp))
+        except Exception as e:
+            responses.append((i, {"status": "EXC", "error": str(e)}))
     elapsed = time.time() - t_start
-    stop_monitor.set()
-    time.sleep(0.3)  # 讓 monitor 多取幾個點
+    s.close()
 
-    print(f"\n  --- 3 條連線結果（耗時 {elapsed:.1f}s）---")
-    ok_count  = sum(1 for r in results.values() if r.get("status") == "OK")
-    err_count = sum(1 for r in results.values() if r.get("status") == "ERR")
-    exc_count = len(errors)
+    vmrss_after = vmrss_kb(ip_pid) if ip_pid else None
 
-    for i in range(3):
-        if i in results:
-            r = results[i]
-            status = r.get("status", "?")
-            err_msg = r.get("error", "")
-            print(f"  conn[{i}]  status={status}  {err_msg}")
-        elif i in errors:
-            print(f"  conn[{i}]  exception: {errors[i]}")
+    print(f"  --- 20 幀結果（耗時 {elapsed:.1f}s，平均 {elapsed/20*1000:.0f}ms/幀）---")
+    ok_list  = [i for i, r in responses if r.get("status") == "OK"]
+    err_list = [i for i, r in responses if r.get("status") == "ERR"]
+    for i, r in responses:
+        status = r.get("status", "?")
+        extra  = r.get("error", r.get("queued", ""))
+        print(f"  frame[{i:02d}]  {status}  {extra}")
 
     print()
-    # 預期：2 個 OK + 1 個 ERR（或 2 OK + 1 exception 若連線在 push 前就超時）
-    all_passed &= check(ok_count >= 1,
-                        f"至少 1 幀成功入隊（ok={ok_count}）")
-    all_passed &= check(err_count + exc_count >= 1,
-                        f"至少 1 幀被拒收（ERR={err_count} exc={exc_count}）")
+    all_passed &= check(len(ok_list) >= 1,
+                        f"至少 1 幀成功入隊（ok={len(ok_list)}: {ok_list[:5]}）")
+    all_passed &= check(len(err_list) >= 1,
+                        f"至少 1 幀觸發背壓 ERR（err={len(err_list)}: {err_list[:5]}）")
 
-    if err_count >= 1:
-        rej = next(r for r in results.values() if r.get("status") == "ERR")
-        err_msg = rej.get("error", "")
-        print(f"\n  {INFO}  ERR 回應內容: {err_msg}")
-        all_passed &= check("FrameQueue" in err_msg or "滿" in err_msg or "overflow" in err_msg.lower(),
-                            "ERR 錯誤訊息包含 queue 滿的原因")
+    if err_list:
+        # 找到第一個 ERR 的詳細訊息
+        first_err = next(r for i, r in responses if r.get("status") == "ERR")
+        err_msg = first_err.get("error", "")
+        print(f"\n  {INFO}  ERR 內容: {err_msg}")
+        all_passed &= check(
+            "FrameQueue" in err_msg or "滿" in err_msg or "overflow" in err_msg.lower(),
+            "ERR 訊息包含 queue 滿的原因")
 
-    # VmRSS 天花板
-    if vmrss_samples:
-        print(f"\n  --- VmRSS 取樣（pid={ip_pid}）---")
-        for ts, v in vmrss_samples:
-            print(f"  t+{ts:5.1f}s  VmRSS={v:,} KB  ({v//1024} MB)")
-        first_v = vmrss_samples[0][1]
-        last_v  = vmrss_samples[-1][1]
-        growth  = last_v - first_v
-        all_passed &= check(growth < 500 * 1024,
-                            f"VmRSS 增長 {growth//1024} MB（期望 <500 MB 不無限成長）")
+    if vmrss_before and vmrss_after:
+        growth = vmrss_after - vmrss_before
+        print(f"\n  {INFO}  VmRSS: {vmrss_before//1024} MB → {vmrss_after//1024} MB "
+              f"（增長 {growth//1024} MB，送了 20 幀 {20*len(payload)//1024//1024} MB 資料）")
+        all_passed &= check(growth < 20 * len(payload),  # 增長 < 20幀資料量（不囤在記憶體）
+                            f"VmRSS 增長 {growth//1024} MB < {20*len(payload)//1024//1024} MB（不囤積）")
 
     return all_passed
 
@@ -334,75 +310,125 @@ def test_determinism(ip_binary: str, image_path: str, max_pass: int):
 
 # ── C. SaveSourceImage OOM 防護 ───────────────────────────────────────────────
 
-def test_save_source_oom(ip: str, port: int, image_path: str, ip_pid: int | None):
+def test_save_source_oom(ip: str, port: int, image_path: str, ip_pid: int | None,
+                         total_frames: int = 100, log_path: str | None = None):
     """
-    開 save_source_image=true，設小 src_ring（max_src_ring_size=2），連送 5 幀。
-    確認：
-      ① VmRSS 有天花板（不線性成長）
-      ② 出現 [SourceWriter] WARN drop 訊息
+    開 save_source_image=true，用 no_wait=True 連送 100 幀（遠超 SourceRing 上限 2）。
+    每 10 幀記錄一次 VmRSS，驗證：
+      ① VmRSS 有天花板（不隨幀數線性成長）
+      ② IP log 出現 [SourceWriter] WARN ring 滿 ... drop（ring 滿 = drop，非囤 List）
+    IP 應以 --max-src-ring-size 2 --no-overlay 啟動。
     """
-    section("C. SaveSourceImage OOM 防護（Step 5）")
+    section("C. SaveSourceImage OOM 防護（Step 5，no_wait 100 幀壓力模式）")
     print(f"  目標 IP: {ip}:{port}  影像: {image_path}")
-    print(f"  （IP 應以 --max-src-ring-size 2 啟動）\n")
+    print(f"  （IP 應以 --max-src-ring-size 2 --no-overlay --test-source-writer-delay-ms 600 啟動）\n")
 
     w, h, payload = load_tiff_mono8(image_path)
-    print(f"  {INFO}  影像尺寸: {w}×{h}  payload={len(payload)//1024//1024}MB\n")
+    frame_mb = len(payload) // 1024 // 1024
+    print(f"  {INFO}  影像尺寸: {w}×{h}  payload={frame_mb} MB  "
+          f"計畫送 {total_frames} 幀 = {total_frames * frame_mb} MB\n")
 
     all_passed = True
 
-    vmrss_samples: list[tuple[float, int]] = []
-    stop_monitor = threading.Event()
+    # 啟動前記錄 VmRSS 基準
+    vmrss_base = vmrss_kb(ip_pid) if ip_pid else None
 
-    def monitor_vmrss():
-        if ip_pid is None:
-            return
-        t0 = time.time()
-        while not stop_monitor.is_set():
-            v = vmrss_kb(ip_pid)
-            if v is not None:
-                vmrss_samples.append((time.time() - t0, v))
-            time.sleep(0.3)
-
-    threading.Thread(target=monitor_vmrss, daemon=True).start()
-
+    # --- 開始連線並送圖 ---
     s = connect(ip, port)
     r = load_recipe(s, share_flags={"save_source_image": True})
-    check(r.get("status") == "OK", f"LOAD_RECIPE with save_source_image=true: {r.get('status')}")
+    if not check(r.get("status") == "OK", f"LOAD_RECIPE save_source_image=true: {r.get('status')}"):
+        s.close()
+        return False
 
-    responses = []
-    for i in range(5):
-        panel = f"SRC_TEST_{i}"
-        resp = send_image_for_review(s, panel, w, h, payload)
-        responses.append(resp)
-        rss = vmrss_kb(ip_pid) if ip_pid else None
-        rss_str = f"  VmRSS={rss:,} KB" if rss else ""
-        print(f"  frame[{i}]  status={resp.get('status','?')}{rss_str}")
-        time.sleep(0.1)
+    # 每 SAMPLE_EVERY 幀採一次 VmRSS（在主送圖迴圈中採樣，避免多執行緒）
+    SAMPLE_EVERY = 10
+    vmrss_by_frame: dict[int, int] = {}
+    ok_count = 0
+    err_count = 0
 
-    stop_monitor.set()
-    time.sleep(0.3)
+    t_start = time.time()
+    for i in range(total_frames):
+        panel = f"SRC_OOM_{i:04d}"
+        try:
+            resp = send_image_for_review(s, panel, w, h, payload,
+                                          share_flags={"save_source_image": True},
+                                          no_wait=True)
+            if resp.get("status") == "OK":
+                ok_count += 1
+            else:
+                err_count += 1
+        except Exception:
+            err_count += 1
+
+        if ip_pid and i % SAMPLE_EVERY == 0:
+            v = vmrss_kb(ip_pid)
+            if v:
+                vmrss_by_frame[i] = v
+
+    elapsed_send = time.time() - t_start
     s.close()
 
-    ok_count = sum(1 for r in responses if r.get("status") == "OK")
-    all_passed &= check(ok_count >= 1, f"至少 1 幀處理成功（ok={ok_count}）")
+    # 等 IP 消化剩餘 queue（最多等 30s）
+    print(f"\n  送完 {total_frames} 幀耗時 {elapsed_send:.1f}s，等 IP 消化中（最多 30s）…")
+    time.sleep(30)
 
-    if vmrss_samples and len(vmrss_samples) >= 3:
-        print(f"\n  --- VmRSS 取樣（pid={ip_pid}）---")
-        for ts, v in vmrss_samples:
-            print(f"  t+{ts:5.1f}s  VmRSS={v:,} KB  ({v//1024} MB)")
+    # 再採一次穩定後 VmRSS
+    vmrss_final = vmrss_kb(ip_pid) if ip_pid else None
 
-        # 過了 2 秒後的 VmRSS 不應無限成長（允許前 2 秒有 CUDA 初始化）
-        late_samples = [(t, v) for t, v in vmrss_samples if t > 2.0]
-        if len(late_samples) >= 2:
-            first_late = late_samples[0][1]
-            last_late  = late_samples[-1][1]
-            growth = last_late - first_late
-            print(f"\n  {INFO}  後期 VmRSS 增長: {growth//1024} MB  "
-                  f"({first_late//1024} → {last_late//1024} MB)")
-            all_passed &= check(growth < 300 * 1024,
-                                f"後期 VmRSS 增長 {growth//1024} MB < 300 MB（無 OOM 炸彈）")
+    # ---- 印結果 ----
+    print(f"\n  --- 送圖統計 ---")
+    print(f"  OK={ok_count}  ERR={err_count}  total={total_frames}")
+    all_passed &= check(ok_count >= 1, f"至少 1 幀成功入隊（ok={ok_count}）")
 
-    print(f"\n  {INFO}  請確認 IP 程式 log 出現：[SourceWriter] WARN ring 滿 ... drop panel=...")
+    if vmrss_by_frame:
+        print(f"\n  --- VmRSS 按幀採樣（pid={ip_pid}）---")
+        if vmrss_base:
+            print(f"  frame[ -]（基準）  VmRSS={vmrss_base:,} KB  ({vmrss_base//1024} MB)")
+        for frame_i in sorted(vmrss_by_frame.keys()):
+            v = vmrss_by_frame[frame_i]
+            print(f"  frame[{frame_i:3d}]            VmRSS={v:,} KB  ({v//1024} MB)")
+        if vmrss_final:
+            print(f"  frame[final]（消化後）VmRSS={vmrss_final:,} KB  ({vmrss_final//1024} MB)")
+
+        # 穩定期 = 第 30 幀之後（跳過初始化 ramp）
+        stable = {k: v for k, v in vmrss_by_frame.items() if k >= 30}
+        if stable:
+            min_v = min(stable.values())
+            max_v = max(stable.values())
+            growth = max_v - min_v
+            print(f"\n  {INFO}  穩定期 VmRSS 抖動: {min_v//1024} → {max_v//1024} MB  "
+                  f"（增長 {growth//1024} MB）")
+            all_passed &= check(growth < 5 * frame_mb * 1024,  # 允許 5 幀以內抖動
+                                f"穩定期 VmRSS 增長 {growth//1024} MB（期望 < {5*frame_mb} MB，無線性成長）")
+
+        if vmrss_base and vmrss_final:
+            total_growth = vmrss_final - vmrss_base
+            print(f"  {INFO}  全程 VmRSS 增長: {total_growth//1024} MB  "
+                  f"（{total_frames} 幀 × {frame_mb} MB = {total_frames*frame_mb} MB 資料）")
+            all_passed &= check(total_growth < 20 * frame_mb * 1024,  # 上限 20 幀等效 RAM
+                                f"全程 VmRSS 增長 {total_growth//1024} MB（遠小於 {total_frames*frame_mb} MB）")
+
+    # ---- 檢查 drop WARN log ----
+    drop_warn_found = False
+    if log_path:
+        try:
+            log_txt = Path(log_path).read_text(errors="replace")
+            drop_lines = [l for l in log_txt.splitlines()
+                          if "[SourceWriter]" in l and ("WARN ring 滿" in l or "drop " in l or "共 drop" in l)]
+            if drop_lines:
+                drop_warn_found = True
+                print(f"\n  --- [SourceWriter] WARN 摘要（前 5 條）---")
+                for ln in drop_lines[:5]:
+                    print(f"  {ln}")
+                if len(drop_lines) > 5:
+                    print(f"  … 共 {len(drop_lines)} 條")
+        except Exception as e:
+            print(f"  {INFO}  讀 log 失敗: {e}")
+
+    all_passed &= check(drop_warn_found or log_path is None,
+                        "[SourceWriter] ring 滿 drop WARN 出現在 log（ring=固定上限，非 List 囤積）")
+    if not drop_warn_found:
+        print(f"  {INFO}  請手動確認 IP log 含 [SourceWriter] WARN ring 滿 ... drop panel=...")
 
     return all_passed
 
@@ -520,6 +546,10 @@ def main():
     parser.add_argument("--max-defect-count-pass", type=int, default=10,
                         help="MaxDefectCountPass 截斷值（determinism 用，預設 10）")
     parser.add_argument("--output",      default="output", help="IP output 目錄（tuning_recipe 用）")
+    parser.add_argument("--log-path",    default=None,
+                        help="IP 程序 log 檔路徑（source_oom 用，自動掃 [SourceWriter] WARN）")
+    parser.add_argument("--frames",      type=int, default=100,
+                        help="source_oom 連送幀數（預設 100，建議 100-500）")
     args = parser.parse_args()
 
     results: dict[str, bool] = {}
@@ -538,8 +568,8 @@ def main():
         print(f"❌ IP 二進位不存在：{args.ip_binary}"); sys.exit(1)
 
     if run_bp:
-        print("\n📋 注意：請先以 --max-queue-size 2 啟動 IP，再跑此驗證")
-        print(f"   ./build/cfaoi_ip --mode offline-tcp --max-queue-size 2 &")
+        print("\n📋 注意：請先以下列參數啟動 IP（queue=1 + consumer delay 2000ms 確保 queue 填滿），再跑此驗證：")
+        print(f"   stdbuf -oL ./build/cfaoi_ip --mode offline-tcp --max-queue-size 1 --test-consumer-delay-ms 2000 &")
         time.sleep(1)
         results["A_backpressure"] = test_backpressure(args.ip, args.port, args.image, args.ip_pid)
 
@@ -548,11 +578,16 @@ def main():
             args.ip_binary, args.image, args.max_defect_count_pass)
 
     if run_src:
-        print("\n📋 注意：請先以 --max-src-ring-size 2 啟動 IP，再跑此驗證")
-        print(f"   ./build/cfaoi_ip --mode offline-tcp --max-src-ring-size 2 &")
+        print("\n📋 注意：請先以下列參數啟動 IP（ring=2、no-overlay、writer delay 600ms 觸發 drop），再跑此驗證：")
+        print(f"   stdbuf -oL ./build/cfaoi_ip --mode offline-tcp --max-src-ring-size 2 --no-overlay --test-source-writer-delay-ms 600 &")
+        if args.log_path:
+            print(f"   （log 自動掃 {args.log_path}）")
+        else:
+            print(f"   （加 --log-path /path/to/ip.log 可自動驗證 drop WARN）")
         time.sleep(1)
         results["C_source_oom"] = test_save_source_oom(
-            args.ip, args.port, args.image, args.ip_pid)
+            args.ip, args.port, args.image, args.ip_pid,
+            total_frames=args.frames, log_path=args.log_path)
 
     if run_tun:
         results["D_tuning_recipe"] = test_tuning_recipe(
