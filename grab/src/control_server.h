@@ -3,10 +3,12 @@
 // 協議與 IP 端（port 8200）相同格式：newline-delimited JSON，每行一個命令。
 //
 // 支援命令：
-//   CHECK_HEALTH  → {"seq":N,"status":"OK","grabbing":bool,"frames":N,"drops":N}
-//   LOAD_RECIPE   params{recipe, panel_id} → 觸發 load_recipe callback
-//   GRAB_START    params{timeout_ms?}      → 觸發 grab_start callback
-//   GRAB_STOP                              → 觸發 grab_stop callback
+//   CHECK_HEALTH      → {"seq":N,"status":"OK","grabbing":bool,"frames":N,"drops":N}
+//   LOAD_RECIPE       params{recipe, panel_id}  → load_recipe callback
+//   GRAB_START        params{timeout_ms?}        → grab_start callback
+//   GRAB_STOP                                    → grab_stop callback
+//   SET_CAM_PARAMS    params{cam_id,exposure_us,gain_raw} → set_cam callback
+//   GET_CAM_PARAMS    params{cam_id}             → get_cam callback
 
 #include <atomic>
 #include <functional>
@@ -21,13 +23,25 @@ public:
                                             const std::string& panel_id)>;
     using StatusFn     = std::function<std::string()>;  // 回傳 JSON 物件字串
 
+    // cam_id / requested values → exp_actual / gain_actual（read-back）→ true/false
+    using SetCamFn = std::function<bool(int cam_id,
+                                        float exp_us, int gain_raw,
+                                        float& exp_actual, int& gain_actual,
+                                        std::string& err)>;
+    // cam_id → exp_actual / gain_actual → true/false
+    using GetCamFn = std::function<bool(int cam_id,
+                                        float& exp_actual, int& gain_actual,
+                                        std::string& err)>;
+
     explicit ControlServer(int port);
     ~ControlServer();
 
-    void set_grab_start(GrabStartFn fn)   { start_fn_  = std::move(fn); }
-    void set_grab_stop(GrabStopFn fn)     { stop_fn_   = std::move(fn); }
-    void set_load_recipe(LoadRecipeFn fn) { recipe_fn_ = std::move(fn); }
-    void set_status_provider(StatusFn fn) { status_fn_ = std::move(fn); }
+    void set_grab_start(GrabStartFn fn)    { start_fn_   = std::move(fn); }
+    void set_grab_stop(GrabStopFn fn)      { stop_fn_    = std::move(fn); }
+    void set_load_recipe(LoadRecipeFn fn)  { recipe_fn_  = std::move(fn); }
+    void set_status_provider(StatusFn fn)  { status_fn_  = std::move(fn); }
+    void set_cam_params_handler(SetCamFn fn) { set_cam_fn_ = std::move(fn); }
+    void get_cam_params_handler(GetCamFn fn) { get_cam_fn_ = std::move(fn); }
 
     bool start();   // 建立 listener，開接受 thread
     void stop();    // 關閉 listener，join thread
@@ -45,4 +59,6 @@ private:
     GrabStopFn   stop_fn_;
     LoadRecipeFn recipe_fn_;
     StatusFn     status_fn_;
+    SetCamFn     set_cam_fn_;
+    GetCamFn     get_cam_fn_;
 };

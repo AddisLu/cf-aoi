@@ -167,6 +167,70 @@ void ControlServer::handle_client(int fd) {
                 resp["status"] = "OK";
                 printf("[ctrl] GRAB_STOP\n");
 
+            } else if (cmd == "SET_CAM_PARAMS") {
+                auto& prms   = req["params"];
+                int   cam_id  = prms.value("cam_id",      0);
+                float exp_us  = prms.value("exposure_us", 0.0f);
+                int   gain_raw= prms.value("gain_raw",    256);
+
+                if (cam_id != 0) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "unknown cam_id " + std::to_string(cam_id);
+                } else if (exp_us < 2.0f || exp_us > 10000.0f) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "exposure_us out of range [2.0, 10000.0]";
+                } else if (gain_raw < 256 || gain_raw > 2047) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "gain_raw out of range [256, 2047]";
+                } else if (!set_cam_fn_) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "no handler";
+                } else {
+                    float exp_actual; int gain_actual;
+                    std::string err;
+                    bool ok = set_cam_fn_(cam_id, exp_us, gain_raw,
+                                          exp_actual, gain_actual, err);
+                    if (ok) {
+                        resp["status"]             = "OK";
+                        resp["cam_id"]             = cam_id;
+                        resp["exposure_us"]        = exp_us;
+                        resp["gain_raw"]           = gain_raw;
+                        resp["exposure_us_actual"] = exp_actual;
+                        resp["gain_raw_actual"]    = gain_actual;
+                    } else {
+                        resp["status"] = "ERR";
+                        resp["error"]  = err;
+                    }
+                    printf("[ctrl] SET_CAM_PARAMS cam=%d exp=%.1f gain=%d → %s\n",
+                           cam_id, exp_us, gain_raw,
+                           resp["status"].get<std::string>().c_str());
+                }
+
+            } else if (cmd == "GET_CAM_PARAMS") {
+                int cam_id = req.contains("params")
+                             ? req["params"].value("cam_id", 0) : 0;
+
+                if (cam_id != 0) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "unknown cam_id " + std::to_string(cam_id);
+                } else if (!get_cam_fn_) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "no handler";
+                } else {
+                    float exp_actual; int gain_actual;
+                    std::string err;
+                    bool ok = get_cam_fn_(cam_id, exp_actual, gain_actual, err);
+                    if (ok) {
+                        resp["status"]      = "OK";
+                        resp["cam_id"]      = cam_id;
+                        resp["exposure_us"] = exp_actual;
+                        resp["gain_raw"]    = gain_actual;
+                    } else {
+                        resp["status"] = "ERR";
+                        resp["error"]  = err;
+                    }
+                }
+
             } else {
                 resp["status"] = "ERR";
                 resp["error"]  = "unknown command: " + cmd;

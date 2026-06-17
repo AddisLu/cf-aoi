@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using CfAoiControl.Models;
 
 namespace CfAoiControl.Controllers;
 
@@ -42,6 +43,45 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
 
     public Task<JsonNode?> CheckHealthAsync(CancellationToken ct = default)
         => SendCommandAsync("CHECK_HEALTH", null, ct);
+
+    // Gap #2：設定相機曝光/增益；回傳 read-back actual 值。
+    public async Task<CamParamsResult?> SetCamParamsAsync(
+        int camId, double exposureUs, int gainRaw, CancellationToken ct = default)
+    {
+        var prms = new JsonObject
+        {
+            ["cam_id"]      = camId,
+            ["exposure_us"] = exposureUs,
+            ["gain_raw"]    = gainRaw,
+        };
+        var resp = await SendCommandAsync("SET_CAM_PARAMS", prms, ct);
+        if (resp?["status"]?.GetValue<string>() != "OK") return null;
+        return new CamParamsResult
+        {
+            ExposureUs       = resp["exposure_us"]?.GetValue<double>()        ?? exposureUs,
+            GainRaw          = resp["gain_raw"]?.GetValue<int>()              ?? gainRaw,
+            ExposureUsActual = resp["exposure_us_actual"]?.GetValue<double>() ?? exposureUs,
+            GainRawActual    = resp["gain_raw_actual"]?.GetValue<int>()       ?? gainRaw,
+        };
+    }
+
+    // Gap #2：讀取相機目前曝光/增益（相機未開時回傳 cam_config.json 值）。
+    public async Task<CamParamsResult?> GetCamParamsAsync(
+        int camId = 0, CancellationToken ct = default)
+    {
+        var prms = new JsonObject { ["cam_id"] = camId };
+        var resp = await SendCommandAsync("GET_CAM_PARAMS", prms, ct);
+        if (resp?["status"]?.GetValue<string>() != "OK") return null;
+        var exp  = resp["exposure_us"]?.GetValue<double>() ?? 0;
+        var gain = resp["gain_raw"]?.GetValue<int>()       ?? 256;
+        return new CamParamsResult
+        {
+            ExposureUs       = exp,
+            GainRaw          = gain,
+            ExposureUsActual = exp,
+            GainRawActual    = gain,
+        };
+    }
 
     public async Task<JsonNode?> SendCommandAsync(string cmd, JsonObject? prms, CancellationToken ct = default)
     {

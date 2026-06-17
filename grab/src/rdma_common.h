@@ -178,12 +178,13 @@ struct RcConn {
     }
 
     // 釋放所有資源（順序：QP → CQ → PD → id → 監聽 id → 事件通道）。
+    // 注意：id->qp 可能為 null（make_qp 尚未呼叫，如 route 解析失敗時）。
     void close() {
-        if (id)  { rdma_destroy_qp(id); }
-        if (cq)  ibv_destroy_cq(cq);
-        if (pd)  ibv_dealloc_pd(pd);
-        if (id)  rdma_destroy_id(id);
-        if (lid) rdma_destroy_id(lid);
-        if (ec)  rdma_destroy_event_channel(ec);
+        if (id && id->qp) { rdma_destroy_qp(id); }
+        if (cq)  { ibv_destroy_cq(cq);  cq = nullptr; }
+        if (pd)  { ibv_dealloc_pd(pd);  pd = nullptr; }
+        if (id)  { rdma_destroy_id(id); id = nullptr; }
+        if (lid) { rdma_destroy_id(lid); lid = nullptr; }
+        if (ec)  { rdma_destroy_event_channel(ec); ec = nullptr; }
     }
 };

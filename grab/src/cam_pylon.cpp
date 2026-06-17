@@ -129,3 +129,38 @@ void CamPylon::grab_loop() {
     c->StopGrabbing();
     running_ = false;
 }
+
+// ---------------------------------------------------------------------------
+// Gap #2：曝光 / 增益 get/set
+// ---------------------------------------------------------------------------
+
+bool CamPylon::set_params(float exposure_us, int gain_raw,
+                           float& exp_actual, int& gain_actual) {
+    if (!opened_ || !camera_ptr_) return false;
+    try {
+        GenApi::INodeMap& nm = cam(camera_ptr_)->GetNodeMap();
+        CFloatParameter(nm, "ExposureTimeAbs").SetValue((double)exposure_us);
+        CIntegerParameter(nm, "GainRaw").SetValue((int64_t)gain_raw);
+        exp_actual  = (float)CFloatParameter(nm, "ExposureTimeAbs").GetValue();
+        gain_actual = (int)  CIntegerParameter(nm, "GainRaw").GetValue();
+        printf("[cam_pylon] set_params: exp %.1f→%.1fµs  gain %d→%d raw\n",
+               exposure_us, exp_actual, gain_raw, gain_actual);
+        return true;
+    } catch (const GenericException& e) {
+        fprintf(stderr, "[cam_pylon] set_params 失敗：%s\n", e.GetDescription());
+        return false;
+    }
+}
+
+bool CamPylon::get_params(float& exp_actual, int& gain_actual) {
+    if (!opened_ || !camera_ptr_) return false;
+    try {
+        GenApi::INodeMap& nm = cam(camera_ptr_)->GetNodeMap();
+        exp_actual  = (float)CFloatParameter(nm, "ExposureTimeAbs").GetValue();
+        gain_actual = (int)  CIntegerParameter(nm, "GainRaw").GetValue();
+        return true;
+    } catch (const GenericException& e) {
+        fprintf(stderr, "[cam_pylon] get_params 失敗：%s\n", e.GetDescription());
+        return false;
+    }
+}

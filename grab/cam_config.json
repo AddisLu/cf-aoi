@@ -1,0 +1,9 @@
+{
+  "cameras": [
+    {
+      "cam_id": 0,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    }
+  ]
+}

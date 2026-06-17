@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-17**（存圖控制 sprint A/C 補驗完成→全項 L3；對位 pipeline Gap #1 → **L3**：2026-06-17 DGX Spark GB10 實機驗通 Stage 1（14/14 PASS：sub-pixel 誤差全 <0.1px）+ Stage 2（n0=7 缺陷基準→偏移 7px 對位後仍=7，缺陷數一致 PASS）+ Stage 3（失敗策略 ERR + eff_* 邏輯全 PASS））
+> 最後更新：**2026-06-17**（Gap #2 CCD 參數 UI — Grab 側 Stage 0+1+4 實機驗通 → L3；Control GrabClient L1；UI tab 版面待確認）
 
 ## 分級定義
 
@@ -89,7 +89,8 @@
 | 正式 cfaoi_grab 單相機→RDMA→Spark（cam_pylon + rdma_sender + control_server + main） | **L4** | 2026-06-15 Step 2 實機：raL8192-12gm → pylon → FrameHeader(0xA01CF00D)+CRC32 → RDMA 18515 → Spark GB10 pinned memory → CRC 20/20，FAIL=0（見 [Step 2 報告](verification/verification_report_step2_20260615.md)）|
 | 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L0** | 未實作；Step 3 待 Switch 到貨 |
 | rdma_nslot_test（合成幀送器，驗 N-slot ring + 背壓，不需相機） | **L3** | **2026-06-17 damac↔Spark 實機**：120 幀連送 CRC=OK；背壓 20 幀（IP 200ms 延遲）ok=20 err=0；commit `de047a3` |
-| Control↔Grab 8100 完整接線 | **L1** | control_server.cpp 寫好、命令解析正確；本次以 nc hardcode 觸發，未接真正 Control UI |
+| Control↔Grab 8100 完整接線 | **L1** | CHECK_HEALTH/LOAD_RECIPE/GRAB_START/GRAB_STOP 命令解析正確；以 nc hardcode 觸發；未接真正 Control UI |
+| ⤷ Gap #2：SET_CAM_PARAMS / GET_CAM_PARAMS（曝光/增益）| **L3（Grab 側）/ L1（Control 側）** | **2026-06-17 damac 實機驗通（Stage 0+1+4）**：`ExposureTimeAbs` 2~10000µs 設/讀零誤差；`GainRaw` 256~2047 設/讀零誤差；cam_config.json 持久化驗通；4 條 ERR 路徑（cam_id=99/exp<2/exp>10000/gain<256）全 PASS；RdmaSender close() bug fix（空 QP segfault）。Stage 2+3（mean gray 單調性）需機台有照明，待機台整合驗證。Control 側 `GrabClient.SetCamParamsAsync/GetCamParamsAsync` + `CamParamsModel` L1（寫好，未接 UI）。⚠️ 假設標記：曝光/增益目前為「機器層」（cam_config.json 固定），若日後需隨產品調 → 補 recipe-override（機器層當預設）。|
 | ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端（Phase-1 測試套件） | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
 
 ### Phase-1 硬體路徑（2026-06-11 實機 PASS）→ 證據：[docs/verification/verification_report_20260611.md](verification/verification_report_20260611.md)
@@ -224,7 +225,7 @@
 | # | 意義（既有定義）| 現狀 / L-level | 證據（file:line）|
 |---|---|---|---|
 | **#1** | 對位 pipeline（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 對位 **L0（預留）**| IP `align_engine`+`golden_maker`+CHECK/SET_ALIGN（取代 MIL `CamProc.cs:307-485`）；多 CCD 對位未實作 |
-| **#2** | CCD 參數 UI（曝光/增益，跨 Control+Grab）| **L0（未做）**| legacy 串口控制 `frmBaslerCom`/`PrjTestBaslerCom/Form1.cs:39-182`；grab `cam_pylon.cpp:32-33` 只設 `GevSCPSPacketSize`、**無 exposure/gain**；control 無相機參數 UI（核實 grab/control 源碼 0 命中）|
+| **#2** | CCD 參數 UI（曝光/增益，跨 Control+Grab）| Grab **L3** / Control GrabClient **L1** / UI **L0**| **2026-06-17 實機驗通（Grab 側）**：Stage 0（raL8192-12gm ExposureTimeAbs 2~10000µs、GainRaw 256~2047、TLParamsLocked=0 acquisition 中可寫）；Stage 1（SET_CAM_PARAMS actual±0%）；Stage 4（4 ERR 路徑全 PASS）；cam_config.json 持久化；Control GrabClient.SetCamParamsAsync/GetCamParamsAsync L1；Control 相機 tab UI **L0**（版面待 Addis review）；Stage 2+3 photometric 待機台有照明時驗。legacy 串口控制 `frmBaslerCom` 不可遷移（新架構為 pylon GigE）。|
 | **#3** | （交接僅記「已做」，無具體定義）| **無對應** | 考古查無對應功能；不留幽靈號，僅記錄此編號存在但定義缺失 |
 | **#4** | （交接僅記「已做」，無具體定義）| **無對應** | 同 #3 |
 | **#5** | 座標換算 pixel→μm（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 座標 **L0（預留）**| IP `GlobalPosX_um/Y_um`+`CcdIndex`（INI [Optical]→OpticalParams）；多 CCD 拼接（`CamToStageAngle/CcdPitch/CcdOverlap`, `Configuration.cs:80-88`）未實作、公式分歧待確認 |

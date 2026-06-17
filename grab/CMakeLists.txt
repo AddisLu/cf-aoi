@@ -141,3 +141,39 @@ if(nlohmann_json_FOUND)
 endif()
 message(STATUS "==== rdma_nslot_test（Step 3 合成幀送器，無相機）====")
 message(STATUS "  用法: rdma_nslot_test <server_ip> <port> <num_frames> [width] [height] [delay_ms]")
+
+# =============================================================================
+# 目標：probe_cam_nodes（Gap #2 Stage 0 — GenICam 節點探測工具，僅需 pylon）
+# =============================================================================
+add_executable(probe_cam_nodes src/probe_cam_nodes.cpp)
+
+if(pylon_FOUND)
+  target_link_libraries(probe_cam_nodes PRIVATE pylon::pylon)
+elseif(DEFINED PYLON_LINK_FLAGS)
+  separate_arguments(PYLON_LINK_LIST_P NATIVE_COMMAND "${PYLON_LINK_FLAGS}")
+  target_link_options(probe_cam_nodes PRIVATE ${PYLON_LINK_LIST_P})
+else()
+  target_link_libraries(probe_cam_nodes PRIVATE
+      pylonbase GCBase_gcc_v3_1_Basler_pylon GenApi_gcc_v3_1_Basler_pylon)
+endif()
+
+message(STATUS "==== probe_cam_nodes（Gap #2 Stage 0，連相機查 GenICam 節點）====")
+message(STATUS "  用法: probe_cam_nodes [serial_number]")
+
+# =============================================================================
+# 目標：cam_mean_gray_test（Gap #2 Stage 2+3 — 曝光/增益 → mean gray 單調性驗證）
+# =============================================================================
+add_executable(cam_mean_gray_test src/cam_mean_gray_test.cpp src/cam_pylon.cpp)
+
+if(pylon_FOUND)
+  target_link_libraries(cam_mean_gray_test PRIVATE pylon::pylon)
+elseif(DEFINED PYLON_LINK_FLAGS)
+  separate_arguments(PYLON_LINK_LIST_P2 NATIVE_COMMAND "${PYLON_LINK_FLAGS}")
+  target_link_options(cam_mean_gray_test PRIVATE ${PYLON_LINK_LIST_P2})
+else()
+  target_link_libraries(cam_mean_gray_test PRIVATE
+      pylonbase GCBase_gcc_v3_1_Basler_pylon GenApi_gcc_v3_1_Basler_pylon)
+endif()
+
+message(STATUS "==== cam_mean_gray_test（Gap #2 Stage 2+3，曝光/增益 mean gray 驗證）====")
+message(STATUS "  用法: cam_mean_gray_test [serial_number]")

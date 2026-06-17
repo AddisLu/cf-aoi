@@ -12,7 +12,7 @@ public sealed class FrameHolder
     private byte[]? _frameBytes;
     private int _width;
     private int _height;
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
 
     public bool HasFrame { get { lock (_lock) return _frameBytes is not null; } }
 

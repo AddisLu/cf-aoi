@@ -61,7 +61,7 @@ public sealed class OfflineReviewService
         // 3) 送 IP（network-clean，免共用檔案系統）：
         //    LOAD_RECIPE 帶配方 XML 內容 → STREAM_BEGIN → SEND_IMAGE_FOR_REVIEW（回應內含結果）
         var recipeXml = _recipes.ToXmlString(recipe);
-        var lr = await _ip.LoadRecipeAsync(ensure.RecipeXmlPath, panel, recipeXml, ct);
+        var lr = await _ip.LoadRecipeAsync(ensure.RecipeXmlPath, panel, recipeXml, ct: ct);
         if (lr?["status"]?.GetValue<string>() != "OK")
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
 
@@ -96,7 +96,7 @@ public sealed class OfflineReviewService
         _log.Info($"送影像 {panel} ({w}×{h}) 給 IP @ {_ip.Host}:{_ip.Port}");
 
         var recipeXml = _recipes.ToXmlString(recipe);
-        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, ct);
+        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, ct: ct);
         if (lr?["status"]?.GetValue<string>() != "OK")
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
 

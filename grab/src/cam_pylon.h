@@ -31,9 +31,18 @@ public:
     void start(uint16_t cam_id);
     void stop();
 
+    bool     is_open()    const { return opened_; }
     bool     is_running() const { return running_.load(); }
     uint64_t grabbed()    const { return grabbed_; }
     uint64_t dropped()    const { return dropped_; }
+
+    // Gap #2：曝光 / 增益（Stage 0 確認：ExposureTimeAbs µs, GainRaw int 256~2047）
+    // 相機必須已 open()；acquisition 中可寫（TLParamsLocked=0）。
+    // set_params: 寫 → read-back actual → 回傳 true/false
+    // get_params: 直接從相機讀（不觸碰 JSON）
+    bool set_params(float exposure_us, int gain_raw,
+                    float& exp_actual, int& gain_actual);
+    bool get_params(float& exp_actual, int& gain_actual);
 
 private:
     void grab_loop();
