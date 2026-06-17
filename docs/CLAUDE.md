@@ -300,4 +300,41 @@ static_assert(sizeof(FrameHeader)==256,"");
 | Control（UI）| `control/CLAUDE.md` | C# Avalonia 架構、MVVM 模式、Zone 參數編輯表單（手寫 32 欄資料驅動）、連線設定、13 條 Control 不變式（含 CF_ 協議實作狀態 / AI 停用 / DefectSort）|
 | tools（小工具）| `tools/README.md` | golden_maker 用途/用法（GUI 框選 Mark + CLI headless `--mark-rect`，輸出 AlignRoi XML）；未來其他小工具也記在這裡 |
 
-**本文件（docs/CLAUDE.md）涵蓋（跨模組共識）：** 系統架構全貌、5 步驟驗證流程、跨模組通訊協議（CF_/JSON/RDMA）、RecipeInfo.xml/ResultInfo.xml 格式契約、FrameHeader wire format（§5）、平台說明（§6）、12 條跨模組不變式（§7）、完成定義（§8）。
+**本文件（docs/CLAUDE.md）涵蓋（跨模組共識）：** 系統架構全貌、5 步驟驗證流程、跨模組通訊協議（CF_/JSON/RDMA）、RecipeInfo.xml/ResultInfo.xml 格式契約、FrameHeader wire format（§5）、平台說明（§6）、12 條跨模組不變式（§7）、完成定義（§8）、各模組索引（§9）、多機開發工作流程（§10）。
+
+---
+
+## 10. 多機開發工作流程（Mac × Spark × damac）— 同步紀律
+
+> 開發者在公司用 **MacBook Air 主要編輯**，SSH 到兩台 Linux remote。三機都 clone 同一個 GitHub repo
+> （`git@github.com:AddisLu/cf-aoi.git`）。**GitHub = 唯一真相（hub-and-spoke）。**
+
+### 三台機器
+
+| 機器 | 角色 | SSH host（Tailscale）| repo 路徑 |
+|------|------|----------------------|-----------|
+| **MacBook Air** | 唯一作者（edit/commit/push）| —（本機）| `/Users/yourulyu/coding/cf-aoi` |
+| **Spark**（DGX Spark GB10）| IP 生產 / GPU 驗證 | `spark-c16f.tailffdb68.ts.net` | `/home/auo001/Addis/cf-aoi` |
+| **damac**（截取中心 Ryzen+ConnectX-5）| Grab 取像 / 相機 | `damac.tailffdb68.ts.net` | `/home/damac/Addis/cf-aoi` |
+
+> 兩台 remote 經 Tailscale 可 SSH（BatchMode 金鑰登入可用）。damac 另有不相關的 `~/下載/Grab`（別的 repo），勿混。
+
+### 角色分工（鐵則）
+- **Mac**：改 → `git commit` → `git push`（小步頻繁）。
+- **Spark / damac**：編譯/執行前先 `git sync`；若在 remote 改了 code → **立刻 commit+push**，否則視為拋棄。
+- **絕不 `scp`/`cp` 原始碼在機器間搬 —— 一律走 git**（過去的 `grab/` 根目錄散檔就是手動複製造成）。
+
+### 已裝的護欄（三機皆有，2026-06-18）
+- `git config --global pull.ff only`：`git pull` 只允許快轉；落後+本地有改 → 直接拒絕（防默默分岔）。
+- `git sync` 別名（= `~/bin/cfsync`）：安全同步。三道防線——① 工作區髒 → 拒絕；② 本機領先未 push → 拒絕並提醒 push；③ 落後 → `git pull --ff-only` 快轉。
+- 修護欄/重裝：`bash /tmp/setup_guardrails.sh`（或重建 `~/bin/cfsync` + 上述 config）。
+
+### 機器/相機相關設定檔
+- **`grab/cam_config.json`（曝光/增益）= 每機本地檔，不版控**（在 `.gitignore`）。版控的是模板 `grab/cam_config.example.json`。
+- 新機或檔案遺失：`cp grab/cam_config.example.json grab/cam_config.json` 後依該機相機調整；此後 `git sync` 不會覆蓋它。
+
+### 出問題時（落後/drift/散檔）的安全救法
+1. **先別** `reset --hard` / 「捨棄變更」/ 強制 pull —— 可能弄丟 remote 上的真實工作。
+2. 把現場整包存進備份分支：`git switch -c <host>-backup-<date> && git add -A && git commit -m "同步前快照"`。
+3. 回 main 快轉：`git switch main && git pull --ff-only`。
+4. 比對 `git diff main..<備份分支> -- <相關路徑>` 確認 remote 有無獨特工作；確認無誤再刪備份分支。
