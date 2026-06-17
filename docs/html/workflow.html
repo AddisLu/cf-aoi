@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作流程 — 人 × Claude 協作開發 | CF-AOI</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="theme-flow">
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html">總覽</a>
+    <a href="workflow.html" class="active">工作流程</a>
+    <a href="ip.html">IP</a>
+    <a href="control.html">Control</a>
+    <a href="grab.html">Grab</a>
+    <a href="tools.html">tools</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>工作流程</h4>
+    <a href="#intro">方法論一覽</a>
+    <a href="#roles">人 × Claude 分工</a>
+    <a href="#pipeline">整體開發流程</a>
+    <a href="#phase1">① 底層單體測試先行</a>
+    <a href="#phase2">② 拆解:1 單體 → 3 模塊</a>
+    <a href="#phase3">③ 考古 → 實作 → 驗證</a>
+    <a href="#phase4">④ 驗證階梯(5 步驟)</a>
+    <a href="#levels">L0–L4 誠實分級</a>
+    <a href="#principles">考古驅動遷移原則</a>
+    <a href="#loop">一次協作迭代</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>工作流程 — 人 × Claude 協作開發</h1>
+    <p class="lead">這套系統不是從空白重寫,而是<strong>從一份舊版 WinForm 單體軟體</strong>,
+    在人與 Claude 的分工協作下,經「底層測試先行 → 拆解三模塊 → 考古/實作/驗證 → 由離線讀圖逐步接上相機取像中心」
+    一路演進而成。本頁說明這個流程怎麼跑。</p>
+    <p class="muted">方法論文件 · 對應 docs/CLAUDE.md §3/§4/§8 + STATUS.md L0–L4 分級</p>
+
+    <section id="intro">
+      <h2>方法論一覽</h2>
+      <p>核心三原則:</p>
+      <div class="grid3">
+        <div class="card"><h3 style="margin-top:0">遷移,不重寫</h3><p style="margin:0">從 <code class="k">Reference/</code>(舊 WinForm + Demo GPU + phase1 測試)遷移既有程式碼,GPU kernel 本體一字不改,只換 I/O 外殼。</p></div>
+        <div class="card"><h3 style="margin-top:0">底層先驗</h3><p style="margin:0">先寫單體測試把「取像核心」「GPU 核心」「RDMA 鏈路」各自驗到綠,再往上組裝;不在未驗的地基上蓋樓。</p></div>
+        <div class="card"><h3 style="margin-top:0">誠實分級</h3><p style="margin:0">每個功能標 L0–L4,「寫好 ≠ 驗證過」。沒貼出實機數據前不算完成。</p></div>
+      </div>
+    </section>
+
+    <section id="roles">
+      <h2>人 × Claude 分工</h2>
+      <p>兩邊各做自己擅長的事,以「實機數據 + 誠實分級」為交接介面。</p>
+      <div class="card">
+        <svg viewBox="0 0 720 286" width="100%" style="max-width:720px;display:block;margin:auto" font-family="system-ui" font-size="12.5">
+          <defs><marker id="aw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#4b63d8"/></marker></defs>
+          <!-- 人 -->
+          <rect x="20" y="14" width="320" height="250" rx="11" fill="#eef1ff" stroke="#4b63d8" stroke-width="1.5"/>
+          <text x="180" y="38" text-anchor="middle" font-weight="700" fill="#3445b8" font-size="15">人(Addis)</text>
+          <text x="40" y="66" fill="#33415c">· 領域知識:AOI 製程、缺陷判準、節拍</text>
+          <text x="40" y="90" fill="#33415c">· 提供 legacy 原始碼 / 真實面板影像</text>
+          <text x="40" y="114" fill="#33415c">· 硬體:相機、Spark、RDMA 網路</text>
+          <text x="40" y="138" fill="#33415c">· 在實機跑驗證、貼數據回報</text>
+          <text x="40" y="162" fill="#33415c">· 關鍵決策裁示(won't-do / gap 取捨)</text>
+          <text x="40" y="186" fill="#33415c">· 回報 bug / 截圖 / 觀察</text>
+          <text x="40" y="222" fill="#7c8a99" font-size="11">產出:領域真相 · 硬體驗證 · 方向</text>
+          <!-- Claude -->
+          <rect x="380" y="14" width="320" height="250" rx="11" fill="#f3f0fb" stroke="#8a4fd6" stroke-width="1.5"/>
+          <text x="540" y="38" text-anchor="middle" font-weight="700" fill="#6b3fb0" font-size="15">Claude</text>
+          <text x="400" y="66" fill="#33415c">· 考古:逐檔讀 Reference,還原功能</text>
+          <text x="400" y="90" fill="#33415c">· 拆解架構、寫遷移計畫(plan)</text>
+          <text x="400" y="114" fill="#33415c">· 實作:遷移 code、接線、寫測試</text>
+          <text x="400" y="138" fill="#33415c">· 維護 CLAUDE.md / STATUS.md / 文件</text>
+          <text x="400" y="162" fill="#33415c">· gap 盤點、誠實標 L-level</text>
+          <text x="400" y="186" fill="#33415c">· 依回報數據修正、再交付</text>
+          <text x="400" y="222" fill="#7c8a99" font-size="11">產出:程式碼 · 文件 · 測試 · 分級</text>
+          <!-- 交接 -->
+          <line x1="340" y1="120" x2="380" y2="120" stroke="#4b63d8" stroke-width="2" marker-end="url(#aw)"/>
+          <line x1="380" y1="160" x2="340" y2="160" stroke="#8a4fd6" stroke-width="2" marker-end="url(#aw)"/>
+          <text x="360" y="250" text-anchor="middle" fill="#4a5a6a" font-size="11">交接介面 = 實機數據 + L0–L4</text>
+        </svg>
+      </div>
+    </section>
+
+    <section id="pipeline">
+      <h2>整體開發流程</h2>
+      <p>從舊單體到生產線,大方向是一條由下往上、由離線往實機的演進路徑:</p>
+      <div class="flow flow-v">
+        <div class="node"><div class="n-t">起點:legacy WinForm 單體</div><div class="n-d">Reference/PrjCfAoi — 單機 Windows + MIL + GPU + 相機,全部綁在一支程式</div></div>
+        <div class="arrow-v lab"><span class="al">① 底層測試先行</span></div>
+        <div class="node accent"><div class="n-t">寫單體測試:取像核心 + GPU 核心 + RDMA</div><div class="n-d">phase1 套件把「能取像」「能算對」「能傳對」各自驗到 L4,再往上組</div></div>
+        <div class="arrow-v lab"><span class="al">② 分析 + 拆解</span></div>
+        <div class="node accent"><div class="n-t">1 單體 → 3 模塊</div><div class="n-d">Control(控制+UI)/ Grab(取像+RDMA)/ IP(GPU 檢測)+ 共用 FrameHeader wire</div></div>
+        <div class="arrow-v lab"><span class="al">③ 每模塊循環</span></div>
+        <div class="node accent"><div class="n-t">考古(plan)→ 實作(coding)→ 驗證(testing)</div><div class="n-d">讀 Reference 還原功能 → 遷移/接線 → 貼數據標 L-level</div></div>
+        <div class="arrow-v lab"><span class="al">④ 驗證階梯</span></div>
+        <div class="node hot"><div class="n-t">off-line 讀圖 → 接相機取像中心 → 全陣列 → 生產</div><div class="n-d">5 步驟驗證流程:每一階段貼數據才進下一階段</div></div>
+      </div>
+    </section>
+
+    <section id="phase1">
+      <h2>① 底層單體測試先行(取像核心 + GPU 核心)</h2>
+      <p>動架構之前,先確定三塊地基各自可信。每塊用獨立的小測試程式驗到實機 L4,排除「上層出錯到底是誰的鍋」。</p>
+      <table>
+        <tr><th>地基</th><th>單體測試</th><th>驗什麼</th><th>實機結果</th></tr>
+        <tr><td>取像核心</td><td><code>t30_pylon_probe</code> / <code>t31_pylon_grab</code></td><td>相機偵測 + 500 幀零掉幀 + 真感光</td><td><span class="lbadge l4">L4</span> 0.0000% drop</td></tr>
+        <tr><td>RDMA 鏈路</td><td><code>10_rdma_linkcheck</code> / <code>ib_write_lat</code></td><td>100G PORT_ACTIVE、RoCE v2、延遲</td><td><span class="lbadge l4">L4</span> avg 1.44μs</td></tr>
+        <tr><td>取像→GPU</td><td><code>t21_rdma_gpu</code> / <code>t40_e2e</code></td><td>32MB 逐位元 CRC 兩端一致</td><td><span class="lbadge l4">L4</span> CRC 零錯</td></tr>
+        <tr><td>GPU 核心</td><td><code>--verify-deterministic</code></td><td>同影像兩跑 bit-exact</td><td><span class="lbadge l4">L4</span> x86 &amp; GB10 全 bit-exact</td></tr>
+      </table>
+      <div class="callout info"><span class="t">為何先做這個</span>取像核心(相機真的有感光、不掉幀)與 GPU 核心(演算法真的算對、可重現)是整個系統的兩根支柱。
+      支柱用 phase1 小程式單獨驗綠後,後面拆模塊、接線出問題時,可以排除「地基壞掉」這個可能。</div>
+    </section>
+
+    <section id="phase2">
+      <h2>② 分析原始軟體 → 拆解為 3 模塊</h2>
+      <p>讀懂 legacy 單體在做的事,沿「機器邊界」切成三支可獨立部署的程式;MIL/相機/GPU 不再綁在一起。</p>
+      <div class="card">
+        <svg viewBox="0 0 720 250" width="100%" style="max-width:720px;display:block;margin:auto" font-family="system-ui" font-size="12.5">
+          <defs><marker id="ap" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#4a5a6a"/></marker></defs>
+          <!-- 單體 -->
+          <rect x="250" y="14" width="220" height="56" rx="9" fill="#fff" stroke="#11203a" stroke-width="1.5"/>
+          <text x="360" y="36" text-anchor="middle" font-weight="700">legacy WinForm 單體</text>
+          <text x="360" y="55" text-anchor="middle" fill="#7c8a99" font-size="11">UI + 相機 + MIL + GPU 全綁一起</text>
+          <line x1="360" y1="70" x2="360" y2="96" stroke="#4a5a6a" stroke-width="2" marker-end="url(#ap)"/>
+          <text x="372" y="88" fill="#4a5a6a" font-size="11">沿機器邊界拆解</text>
+          <!-- 3 模塊 -->
+          <rect x="40" y="104" width="200" height="74" rx="9" fill="#e6f7f4" stroke="#0f9d8a" stroke-width="1.5"/>
+          <text x="140" y="128" text-anchor="middle" font-weight="700" fill="#0f7d6e">Control</text>
+          <text x="140" y="147" text-anchor="middle" fill="#33415c" font-size="11">控制平面 + UI</text>
+          <text x="140" y="165" text-anchor="middle" fill="#7c8a99" font-size="10.5">移除 MIL/相機/GPU</text>
+          <rect x="260" y="104" width="200" height="74" rx="9" fill="#fdf0e2" stroke="#d9700a" stroke-width="1.5"/>
+          <text x="360" y="128" text-anchor="middle" font-weight="700" fill="#a8560a">Grab</text>
+          <text x="360" y="147" text-anchor="middle" fill="#33415c" font-size="11">相機擷取 + RDMA</text>
+          <text x="360" y="165" text-anchor="middle" fill="#7c8a99" font-size="10.5">FrameGrabber → pylon</text>
+          <rect x="480" y="104" width="200" height="74" rx="9" fill="#eaf1ff" stroke="#2f6df0" stroke-width="1.5"/>
+          <text x="580" y="128" text-anchor="middle" font-weight="700" fill="#1e4fb8">IP</text>
+          <text x="580" y="147" text-anchor="middle" fill="#33415c" font-size="11">GPU 缺陷檢測</text>
+          <text x="580" y="165" text-anchor="middle" fill="#7c8a99" font-size="10.5">Demo kernel 不改</text>
+          <line x1="300" y1="70" x2="160" y2="104" stroke="#4a5a6a" stroke-width="1.5" marker-end="url(#ap)"/>
+          <line x1="360" y1="70" x2="360" y2="104" stroke="#4a5a6a" stroke-width="1.5" marker-end="url(#ap)"/>
+          <line x1="420" y1="70" x2="560" y2="104" stroke="#4a5a6a" stroke-width="1.5" marker-end="url(#ap)"/>
+          <!-- 共用 -->
+          <rect x="250" y="200" width="220" height="38" rx="9" fill="#fafbfc" stroke="#c4ccd6" stroke-width="1.5"/>
+          <text x="360" y="224" text-anchor="middle" fill="#4a5a6a" font-size="11.5">共用 shared/FrameHeader.h(256B wire)</text>
+          <line x1="360" y1="178" x2="360" y2="200" stroke="#c4ccd6" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <p class="muted">拆解後,跨機介面變成明確協議:上位機 CF_(8787)、Control↔Grab/IP JSON(8100/8200)、Grab↔IP RDMA。
+      MIL/FrameGrabber/CamProc 完全移除,改 pylon + RDMA + Avalonia。</p>
+    </section>
+
+    <section id="phase3">
+      <h2>③ 每模塊:考古(plan)→ 實作(coding)→ 驗證(testing)</h2>
+      <p>三模塊各自跑同一個三段循環。這也是每次「新功能 / 補 gap」的標準節奏。</p>
+      <div class="grid3">
+        <div class="card" style="border-top:4px solid #8a4fd6">
+          <h3 style="margin-top:0">考古 Plan</h3>
+          <ul style="margin:0">
+            <li>逐檔讀 <code class="k">Reference/</code>(WinForm / Demo / phase1)</li>
+            <li>還原 legacy 功能、協議、配方格式、缺陷欄位</li>
+            <li>盤點 gap(#1–#33)、決定遷移/won't-do</li>
+            <li>寫實作計畫 + AskUserQuestion 裁示</li>
+          </ul>
+        </div>
+        <div class="card" style="border-top:4px solid #2f6df0">
+          <h3 style="margin-top:0">實作 Coding</h3>
+          <ul style="margin:0">
+            <li>遷移 code:kernel 本體 byte-exact 不改</li>
+            <li>換 I/O 外殼、接線、補新增邏輯</li>
+            <li>守不變式(DIV-only / network-clean / CCL 收斂…)</li>
+            <li>同步寫 selftest / 驗證 CLI</li>
+          </ul>
+        </div>
+        <div class="card" style="border-top:4px solid #1f9d55">
+          <h3 style="margin-top:0">驗證 Testing</h3>
+          <ul style="margin:0">
+            <li>Stage 1 合成影像驗算法正確性</li>
+            <li>Stage 2 端到端(offline-tcp / rdma-validate)</li>
+            <li>Stage 3 失敗路徑(錯誤輸入 → ERR 不 crash)</li>
+            <li>貼數據 → 標 L-level → 更新 STATUS.md</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout inv"><span class="t">考古的鐵律:kernel 不改</span>11 個 GPU kernel 與 Demo 逐行 byte-identical。考古確認後只搬不改;
+      改 kernel 本體會破壞已驗證的 bit-exact 與跨架構一致性。</div>
+    </section>
+
+    <section id="phase4">
+      <h2>④ 驗證階梯:由 off-line 讀圖到接相機取像中心</h2>
+      <p>系統不是一次到位接生產線,而是沿 5 步驟階梯往上,每階貼數據才進下一階。前段純軟體可在桌面跑,後段才上真實硬體。</p>
+      <div class="flow">
+        <div class="stage"><div class="num">1</div><div class="node accent"><strong>off-line 讀圖驗證</strong> — Control offline + IP <code class="k">offline-tcp</code>,用 MIL 測試影像驗演算法。<span class="muted">純軟體,桌面可跑</span></div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">2</div><div class="node"><strong>單 CCD 接相機</strong> — Grab <code class="k">--cam-count 1</code> + IP <code class="k">rdma-validate</code>,驗單台相機 → RDMA 傳輸。<span class="muted">取像中心:1 台相機直連</span></div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">3</div><div class="node"><strong>全陣列 + Switch</strong> — Grab <code class="k">--cam-count ALL</code>,37 台相機 + SN2201 交換器。<span class="muted">待 Switch 到貨</span></div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">4</div><div class="node"><strong>存圖調 Recipe</strong> — full + 上位機 + IP <code class="k">image-capture</code>,存 TIFF 回 Step 1 調參。<span class="muted">閉環:offline = inline</span></div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">5</div><div class="node hot"><strong>完整生產</strong> — full + 上位機 + IP <code class="k">online</code>,接真實上位機跑線。</div></div>
+      </div>
+      <div class="callout info"><span class="t">Step 4 → Step 1 閉環</span>image-capture 存的影像回頭餵 Step 1 調 Recipe,保證「離線調的參數」= 「線上跑的結果」。
+      目前進度:Step 1–2 已驗(單相機 L4),Step 3 待 Switch,Step 4–5 為里程碑。</div>
+    </section>
+
+    <section id="levels">
+      <h2>L0–L4 誠實分級(完成的定義)</h2>
+      <p>「完成」= 驗證過,不是「寫完」。每個功能在 STATUS.md 標分級,標低不標高、有疑慮標保守。</p>
+      <table>
+        <tr><th>級別</th><th>意義</th><th>判定</th></tr>
+        <tr><td><span class="lbadge l0">L0</span></td><td>未實作</td><td>沒程式碼或僅空殼</td></tr>
+        <tr><td><span class="lbadge l1">L1</span></td><td>已寫程式碼</td><td>邏輯寫完,未執行驗證(不得合入 production 路徑)</td></tr>
+        <tr><td><span class="lbadge l2">L2</span></td><td>已單元自測</td><td>selftest / unit test 通過</td></tr>
+        <tr><td><span class="lbadge l3">L3</span></td><td>已端到端</td><td>本系統內跑通完整流程(如 Mac↔Linux offline)</td></tr>
+        <tr><td><span class="lbadge l4">L4</span></td><td>已與真實外部系統驗證</td><td>接真實上位機 / 相機 / 硬體驗證過</td></tr>
+      </table>
+      <div class="callout warn"><span class="t">L3 → L4 藏最多意外</span>真實硬體/協議的邊界條件最容易爆。例:UpstreamServer(CF_/8787)程式寫好但從未接真機 → 誠實標 <span class="lbadge l1">L1</span>,不謊報 L4。</div>
+    </section>
+
+    <section id="principles">
+      <h2>考古驅動遷移原則</h2>
+      <div class="callout inv"><span class="t">遷移,不重寫</span>從 Reference 搬現有程式碼;GPU kernel byte-exact 不改,只換 I/O 外殼。</div>
+      <div class="callout inv"><span class="t">legacy 相容</span>RecipeInfo.xml / ResultInfo.xml / 缺陷欄位沿用 legacy 名稱與格式,接舊上位機鏈相容。</div>
+      <div class="callout inv"><span class="t">network-clean</span>跨機不共用檔案系統:配方 XML 內容、結果 JSON、缺陷小圖 PNG 全 over TCP。</div>
+      <div class="callout inv"><span class="t">決定性</span>同影像兩跑 bit-exact(CCL 收斂迴圈 + canonical 排序);off-line 調的參數對 on-line 有效。</div>
+      <div class="callout inv"><span class="t">不留幽靈號</span>gap 盤點寧多列勿漏;考古無定義的舊編號標「無對應」,不硬湊。</div>
+    </section>
+
+    <section id="loop">
+      <h2>一次人 × Claude 協作迭代</h2>
+      <p>實務上,功能就是這樣一圈一圈收斂的:</p>
+      <div class="card">
+        <svg viewBox="0 0 720 230" width="100%" style="max-width:720px;display:block;margin:auto" font-family="system-ui" font-size="12">
+          <defs><marker id="al2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#4b63d8"/></marker></defs>
+          <rect x="40" y="92" width="150" height="50" rx="9" fill="#f3f0fb" stroke="#8a4fd6" stroke-width="1.5"/>
+          <text x="115" y="113" text-anchor="middle" font-weight="700" fill="#6b3fb0">Claude</text>
+          <text x="115" y="131" text-anchor="middle" fill="#4a5a6a" font-size="10.5">考古 + 實作 + 文件</text>
+          <rect x="285" y="20" width="150" height="50" rx="9" fill="#eef1ff" stroke="#4b63d8" stroke-width="1.5"/>
+          <text x="360" y="41" text-anchor="middle" font-weight="700" fill="#3445b8">人:實機驗證</text>
+          <text x="360" y="59" text-anchor="middle" fill="#4a5a6a" font-size="10.5">相機 / Spark / 上位機</text>
+          <rect x="530" y="92" width="150" height="50" rx="9" fill="#eef9f0" stroke="#1f9d55" stroke-width="1.5"/>
+          <text x="605" y="113" text-anchor="middle" font-weight="700" fill="#1a7d44">標 L-level</text>
+          <text x="605" y="131" text-anchor="middle" fill="#4a5a6a" font-size="10.5">STATUS.md 更新</text>
+          <rect x="285" y="164" width="150" height="50" rx="9" fill="#fdeeed" stroke="#d6453d" stroke-width="1.5"/>
+          <text x="360" y="185" text-anchor="middle" font-weight="700" fill="#b02d26">人:回報數據/bug</text>
+          <text x="360" y="203" text-anchor="middle" fill="#4a5a6a" font-size="10.5">缺陷數 / CRC / 截圖</text>
+          <path d="M190,108 Q240,50 285,45" fill="none" stroke="#4b63d8" stroke-width="2" marker-end="url(#al2)"/>
+          <text x="232" y="66" fill="#4b63d8" font-size="10.5">交付 code</text>
+          <path d="M435,45 Q500,55 555,92" fill="none" stroke="#4b63d8" stroke-width="2" marker-end="url(#al2)"/>
+          <text x="510" y="58" fill="#4b63d8" font-size="10.5">貼數據</text>
+          <path d="M555,142 Q500,200 435,192" fill="none" stroke="#4b63d8" stroke-width="2" marker-end="url(#al2)"/>
+          <text x="500" y="185" fill="#4b63d8" font-size="10.5">不足 → 再迭代</text>
+          <path d="M285,189 Q200,180 150,142" fill="none" stroke="#4b63d8" stroke-width="2" marker-end="url(#al2)"/>
+          <text x="195" y="178" fill="#4b63d8" font-size="10.5">回報修正</text>
+        </svg>
+      </div>
+      <p class="muted">Claude 交付 code + 文件 → 人在實機跑、貼數據 → 達標標 L3/L4 寫進 STATUS.md;不達標就帶著數據/bug 回到 Claude 再一圈。
+      多數本專案 commit(見 git log)就是這個循環的一次次落地。</p>
+    </section>
+
+    <p class="src-note">來源:<code>docs/CLAUDE.md</code>(§3 5 步驟 / §4 遷移決策 / §8 完成定義)+ <code>STATUS.md</code>(L0–L4 分級 + Gap 表)+ <code>Reference/cfaoi_phase1</code> 測試套件。</p>
+
+  </div>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -86,6 +86,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 34px 0; }
 .theme-control { --accent: #0f9d8a; }
 .theme-grab    { --accent: #d9700a; }
 .theme-tools   { --accent: #8a4fd6; }
+.theme-flow    { --accent: #4b63d8; }
 
 /* ---------- 卡片 / 區塊 ---------- */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); margin: 16px 0; }
