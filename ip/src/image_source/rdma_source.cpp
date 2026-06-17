@@ -147,7 +147,7 @@ void RdmaImageSource::recv_thread_fn() {
         if (h.magic != FRAME_MAGIC || h.version != FRAME_VERSION) {
             fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u magic/version 不符"
                     "（magic=0x%08x）\n", seq, slot_id, h.magic);
-            diag::FlightRecorder::instance().record_incident("frame_validation",
+            FR_RECORD_INCIDENT("frame_validation",
                 "rdma magic/version seq=" + std::to_string(seq) +
                 " slot=" + std::to_string(slot_id));
             ++recv_err_;
@@ -170,7 +170,7 @@ void RdmaImageSource::recv_thread_fn() {
         if (crc != h.crc32) {
             fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u CRC 不符"
                     "（got=0x%08x want=0x%08x）\n", seq, slot_id, crc, h.crc32);
-            diag::FlightRecorder::instance().record_incident("frame_validation",
+            FR_RECORD_INCIDENT("frame_validation",
                 "rdma crc seq=" + std::to_string(seq) +
                 " slot=" + std::to_string(slot_id));
             ++recv_err_;

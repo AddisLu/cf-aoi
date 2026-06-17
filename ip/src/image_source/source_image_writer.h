@@ -73,7 +73,7 @@ public:
             // ring 滿：drop + incident
             std::cout << "[SourceWriter] WARN ring 滿（" << n_slots_
                       << " 槽），drop panel=" << panel_id << "\n";
-            diag::FlightRecorder::instance().record_incident("source_ring_full",
+            FR_RECORD_INCIDENT("source_ring_full",
                 "panel=" + panel_id + " slots=" + std::to_string(n_slots_));
             drop_count_++;
             return;

@@ -84,8 +84,10 @@ public:
 
     // 出事：flush 最近 N 張 ring + 當下現場 → incident_<ts>.json + jsonl 索引一行 + console banner。
     // 可重入（recoverable incident 如 frame_validation/bad_json 可多次）。
+    // src（可選）= 出錯源碼位置 "檔名:行號"，repo 相對化後寫進 incident 的 "src" 欄位，
+    // 供 log → VS Code 跳轉（見檔尾 FR_RECORD_INCIDENT 巨集）。
     void record_incident(const std::string& kind, const std::string& detail,
-                         const std::string& stack = "");
+                         const std::string& stack = "", const std::string& src = "");
 
     bool enabled() const { return enabled_.load(std::memory_order_acquire); }
 
@@ -116,5 +118,15 @@ private:
 };
 
 }  // namespace diag
+
+// ── log → 源碼跳轉 ──────────────────────────────────────────────────────────
+// 用此巨集記 incident，自動帶入呼叫點 __FILE__:__LINE__（編譯期字串常數，零執行
+// 成本、不碰計時/缺陷陣列 → 不破 bit-exact，符合不變式 16「純觀測」）。incident
+// JSON 與當日 jsonl 會多一個 repo 相對的 "src" 欄位（如 "ip/src/control_server.cpp:503"），
+// 由 docs/html/incident-viewer.html 組成 vscode://file 連結，一鍵跳到出錯的 code。
+#define FR_RECORD_INCIDENT(kind, detail)                                   \
+    ::diag::FlightRecorder::instance().record_incident(                    \
+        (kind), (detail), "",                                              \
+        (std::string(__FILE__ ":") + std::to_string(__LINE__)))
 
 #endif  // CFAOI_FLIGHT_RECORDER_H

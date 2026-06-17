@@ -347,7 +347,7 @@ int main(int argc, char** argv) {
             zones = ZoneConfigAdapter::from_recipe_xml(args.recipe, base);
         } catch (const RecipeError& e) {
             std::cerr << "[Recipe] 載入失敗: " << e.what() << "\n";
-            diag::FlightRecorder::instance().record_incident("recipe_load", e.what());
+            FR_RECORD_INCIDENT("recipe_load", e.what());
             return 2;
         }
     } else {
@@ -451,7 +451,7 @@ int main(int argc, char** argv) {
                     return true;
                 } catch (const RecipeError& e) {
                     err = e.what();
-                    diag::FlightRecorder::instance().record_incident("recipe_load", err);
+                    FR_RECORD_INCIDENT("recipe_load", err);
                     return false;
                 }
             });
@@ -653,7 +653,7 @@ int main(int argc, char** argv) {
                         (unsigned long long)hdr.frameSeq,
                         (unsigned long long)(hdr.frameSeq % args.rdma_slots),
                         crc2, hdr.crc32);
-                diag::FlightRecorder::instance().record_incident("rdma_validate",
+                FR_RECORD_INCIDENT("rdma_validate",
                     "double-check crc seq=" + std::to_string(hdr.frameSeq));
                 ++err_count;
             } else {

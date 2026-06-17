@@ -383,7 +383,7 @@ void ControlServer::handle_client(int fd) {
             cmd = req.value("cmd", "");
             seq = req.value("seq", 0);
         } catch (const std::exception& e) {
-            diag::FlightRecorder::instance().record_incident("bad_json", e.what());
+            FR_RECORD_INCIDENT("bad_json", e.what());
             reply(fd, {{"status", "ERR"}, {"error", std::string("bad json: ") + e.what()}});
             continue;
         }
@@ -500,7 +500,7 @@ void ControlServer::handle_client(int fd) {
                 std::snprintf(eb, sizeof(eb),
                     "影像尺寸/payload 非法: width=%u height=%u payload_bytes=%u (需 1..%u 且 payload=w*h)",
                     width, height, payload_bytes, kMaxDim);
-                diag::FlightRecorder::instance().record_incident("frame_validation",
+                FR_RECORD_INCIDENT("frame_validation",
                     "panel=" + panel + " : " + eb);
                 reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", eb}});
                 continue;
@@ -530,7 +530,7 @@ void ControlServer::handle_client(int fd) {
                 }
             }
             if (!verr.empty()) {
-                diag::FlightRecorder::instance().record_incident("frame_validation",
+                FR_RECORD_INCIDENT("frame_validation",
                     "panel=" + panel + " seq=" + std::to_string(fseq) + " : " + verr);
                 reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", verr}});
                 continue;
@@ -543,7 +543,7 @@ void ControlServer::handle_client(int fd) {
                 std::snprintf(eb, sizeof(eb),
                     "FrameQueue 滿（上限 %zu 幀）：系統繁忙，請稍後重試",
                     queue_.max_size());
-                diag::FlightRecorder::instance().record_incident("queue_overflow",
+                FR_RECORD_INCIDENT("queue_overflow",
                     std::string("panel=") + panel +
                     " max=" + std::to_string(queue_.max_size()));
                 reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", eb}});
@@ -560,7 +560,7 @@ void ControlServer::handle_client(int fd) {
                         "FrameQueue 水位 %d%% (%zu/%zu)：消費端嚴重落後，考慮降速",
                         pct, depth, cap);
                     std::cerr << "[WaterLevel] " << wb << "\n";
-                    diag::FlightRecorder::instance().record_incident("queue_high_watermark",
+                    FR_RECORD_INCIDENT("queue_high_watermark",
                         std::string("panel=") + panel + " " + wb);
                 } else if (pct >= 70) {
                     std::cout << "[WaterLevel] WARN " << pct << "% (" << depth << "/" << cap

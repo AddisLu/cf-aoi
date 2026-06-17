@@ -51,6 +51,19 @@ std::string time_str(int kind) {
     return out;
 }
 
+// 把 __FILE__（可能為絕對/建置路徑）正規化成 repo 相對位置（如 "ip/src/x.cpp:503"），
+// 讓 incident 的 "src" 與機器無關；檢視器再依本機 repo 根目錄組 vscode://file 連結。
+// 依序嘗試錨點 "cf-aoi/" → "ip/src/"，皆無則退回 basename。輸入含結尾 ":行號"，原樣保留。
+std::string repo_relative(const std::string& p) {
+    if (p.empty()) return p;
+    auto pos = p.rfind("cf-aoi/");
+    if (pos != std::string::npos) return p.substr(pos + 7);
+    pos = p.find("ip/src/");
+    if (pos != std::string::npos) return p.substr(pos);
+    pos = p.find_last_of('/');
+    return (pos == std::string::npos) ? p : p.substr(pos + 1);
+}
+
 // 查詢 GPU 靜態 + 即時記憶體狀態（出事時尤其想知道是否 OOM）。失敗的欄位留預設。
 json gpu_info_json() {
     json g;
@@ -168,7 +181,7 @@ void FlightRecorder::record_frame(const FrameScene& scene) {
 }
 
 void FlightRecorder::record_incident(const std::string& kind, const std::string& detail,
-                                     const std::string& stack) {
+                                     const std::string& stack, const std::string& src) {
     if (!enabled()) return;
 
     json inc;
@@ -177,6 +190,8 @@ void FlightRecorder::record_incident(const std::string& kind, const std::string&
     inc["kind"] = kind;
     inc["detail"] = detail;
     if (!stack.empty()) inc["stack"] = stack;
+    std::string src_rel = repo_relative(src);   // repo 相對 "檔名:行號"（log → VS Code 跳轉用）
+    if (!src_rel.empty()) inc["src"] = src_rel;
 
     inc["session"] = {{"mode", session_.mode}, {"ip_name", session_.ip_name},
                       {"ini", session_.ini},
@@ -217,6 +232,7 @@ void FlightRecorder::record_incident(const std::string& kind, const std::string&
         {
             json idx{{"type", "incident"}, {"ts", inc["ts"]}, {"kind", kind},
                      {"detail", detail}, {"file", "incident_" + ts + ".json"}};
+            if (!src_rel.empty()) idx["src"] = src_rel;
             const FrameScene* c = latest_.load(std::memory_order_acquire);
             if (c) { idx["panel_id"] = c->panel_id; idx["frame_seq"] = c->frame_seq; }
             std::ofstream jf(diag_dir / (time_str(1) + ".jsonl"), std::ios::app);

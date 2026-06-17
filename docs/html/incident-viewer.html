@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>行車紀錄檢視器 — log → VS Code | CF-AOI</title>
+<link rel="stylesheet" href="assets/styles.css">
+<style>
+  .viewer-bar { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .viewer-bar .fld { display:flex; flex-direction:column; gap:4px; }
+  .viewer-bar label { font-size:12px; color:var(--ink-faint); }
+  .viewer-bar input[type=text] { font-family:var(--mono); font-size:12.5px; padding:6px 9px; border:1px solid var(--line); border-radius:7px; min-width:340px; }
+  .viewer-bar input[type=file] { font-size:12.5px; }
+  .vbtn { background:var(--accent); color:#fff; border:0; border-radius:7px; padding:7px 14px; font-size:13px; cursor:pointer; }
+  .vbtn.sec { background:#e3e9f1; color:#33475c; }
+  textarea#paste { width:100%; min-height:90px; font-family:var(--mono); font-size:12px; border:1px solid var(--line); border-radius:8px; padding:9px; }
+  .inc { border:1px solid var(--line); border-left:5px solid var(--c,#7c8a99); border-radius:10px; background:var(--panel); box-shadow:var(--shadow); padding:12px 16px; margin:12px 0; }
+  .inc .top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .inc .kind { font-family:var(--mono); font-weight:700; font-size:13px; color:var(--c,#33415c); }
+  .inc .ts { font-size:12px; color:var(--ink-faint); font-family:var(--mono); }
+  .inc .detail { margin:7px 0; color:var(--ink); font-size:13.5px; }
+  .inc .meta { font-size:12px; color:var(--ink-faint); }
+  .inc .meta code { font-family:var(--mono); color:#b13a6f; }
+  .srcjump { display:inline-flex; align-items:center; gap:5px; background:#11203a; color:#8fd0ff !important; text-decoration:none; font-family:var(--mono); font-size:12px; padding:4px 10px; border-radius:6px; margin-left:auto; }
+  .srcjump:hover { background:#1b365f; color:#bfe3ff !important; }
+  .nosrc { font-size:12px; color:var(--ink-faint); margin-left:auto; font-style:italic; }
+  #summary { font-size:13px; color:var(--ink-soft); margin:10px 0; }
+</style>
+</head>
+<body class="theme-flow">
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html">總覽</a>
+    <a href="workflow.html">工作流程</a>
+    <a href="ip.html">IP</a>
+    <a href="control.html">Control</a>
+    <a href="grab.html">Grab</a>
+    <a href="tools.html">tools</a>
+    <a href="incident-viewer.html" class="active">行車紀錄</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>行車紀錄檢視器</h4>
+    <a href="#how">怎麼用</a>
+    <a href="#load">載入 log</a>
+    <a href="#list">incident 清單</a>
+    <a href="#about">運作原理</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>行車紀錄檢視器 — log 一鍵跳到出錯的 code</h1>
+    <p class="lead">載入 IP 產生的 <code class="k">_diag/&lt;yyyyMMdd&gt;.jsonl</code> 或 <code class="k">incident_&lt;ts&gt;.json</code>,
+    每筆 incident 會依其 <code class="k">src</code> 欄位組成 <strong>VS Code 連結</strong>,點擊直接跳到出錯的源碼行。</p>
+    <p class="muted">純前端、完全離線;不上傳任何檔案。對應 IP <code>flight_recorder</code> 的 <code>src</code> 欄位(<code>FR_RECORD_INCIDENT</code> 巨集自動帶入)。</p>
+
+    <section id="how">
+      <h2>怎麼用</h2>
+      <ol>
+        <li>設定 <strong>repo 根目錄</strong>(你<u>審查 code 那台機器</u>上的 clone 路徑;預設 <code class="k">/Users/yourulyu/coding/cf-aoi</code>)。</li>
+        <li><strong>選檔</strong>載入 <code class="k">_diag/</code> 下的 <code class="k">.jsonl</code> 或 <code class="k">incident_*.json</code>(或直接貼上內容)。</li>
+        <li>每筆 incident 右側出現 <span class="srcjump" style="margin:0">↗ 開啟源碼</span> → 點它,瀏覽器詢問後以 VS Code 開到該檔該行。</li>
+      </ol>
+      <div class="callout warn"><span class="t">為何要設 repo 根目錄</span>IP 跑在 Linux/Spark,但你常在 Mac 看 code,兩邊路徑不同。
+      所以 IP 只記<strong>機器無關</strong>的相對位置(如 <code class="k">ip/src/control_server.cpp:503</code>);這裡用「你本機的根目錄」把它組成完整 <code class="k">vscode://file/…</code> 連結。換機器只要改這個欄位。</div>
+    </section>
+
+    <section id="load">
+      <h2>載入 log</h2>
+      <div class="card">
+        <div class="viewer-bar">
+          <div class="fld" style="flex:1">
+            <label>repo 根目錄(本機 clone 路徑)</label>
+            <input type="text" id="root" value="/Users/yourulyu/coding/cf-aoi">
+          </div>
+          <div class="fld">
+            <label>選擇 _diag 檔(.jsonl / .json)</label>
+            <input type="file" id="file" accept=".json,.jsonl,application/json,text/plain">
+          </div>
+          <button class="vbtn sec" id="demo">載入範例</button>
+        </div>
+        <div style="margin-top:12px">
+          <label class="muted">或直接貼上 jsonl / incident JSON 內容:</label>
+          <textarea id="paste" placeholder='貼上一行行 jsonl,或一整個 incident_*.json …'></textarea>
+          <div style="margin-top:8px"><button class="vbtn" id="parse">解析貼上內容</button></div>
+        </div>
+      </div>
+      <div id="summary"></div>
+    </section>
+
+    <section id="list">
+      <h2>incident 清單</h2>
+      <div id="incidents"><p class="muted">尚未載入。請於上方選檔、貼上,或點「載入範例」。</p></div>
+    </section>
+
+    <section id="about">
+      <h2>運作原理</h2>
+      <div class="flow flow-v">
+        <div class="node accent"><div class="n-t">IP 出錯 → <code class="k">FR_RECORD_INCIDENT(kind, detail)</code></div><div class="n-d">巨集自動帶入呼叫點 <code class="k">__FILE__:__LINE__</code>(編譯期常數,零成本)</div></div>
+        <div class="arrow-v lab"><span class="al">repo 相對化</span></div>
+        <div class="node"><div class="n-t">incident JSON / jsonl 多一個 <code class="k">"src"</code> 欄位</div><div class="n-d">如 <code class="k">"src":"ip/src/control_server.cpp:503"</code>(機器無關)</div></div>
+        <div class="arrow-v lab"><span class="al">本檢視器 + repo 根目錄</span></div>
+        <div class="node"><div class="n-t">組成 <code class="k">vscode://file/&lt;root&gt;/&lt;src&gt;</code></div><div class="n-d">點擊 → VS Code 開到該檔該行</div></div>
+      </div>
+      <p class="muted">IP 端對應修改見 <code>ip/src/diag/flight_recorder.{h,cpp}</code>(<code>src</code> 參數 + <code>FR_RECORD_INCIDENT</code> 巨集 + <code>repo_relative()</code> 正規化)。
+      此功能屬「純觀測」,不碰計時/缺陷陣列 → 不破 bit-exact(不變式 16)。<strong>IP 改動目前 L1,待 Linux/Spark 重編 + 觸發 incident 驗證升 L3。</strong></p>
+    </section>
+
+    <p class="src-note">純前端離線工具;讀取本機 _diag 檔不外傳。配合 IP flight_recorder 的 src 欄位使用。</p>
+
+  </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var KIND_COLOR = {
+    cuda_fatal:"#d6453d", uncaught_exception:"#d6453d",
+    frame_validation:"#d98a00", recipe_load:"#d98a00", bad_json:"#d98a00",
+    queue_overflow:"#2f8fd6", queue_high_watermark:"#2f8fd6",
+    source_ring_full:"#2f8fd6", rdma_validate:"#8a4fd6"
+  };
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); }
+
+  function vscodeLink(root, src){
+    if(!src) return null;
+    var r = (root||"").trim().replace(/\/+$/,"");
+    if(r && r[0] !== "/") r = "/" + r;            // 絕對路徑需以 / 開頭
+    return "vscode://file" + r + "/" + src;        // src 形如 ip/src/x.cpp:503
+  }
+
+  function parseDiag(text){
+    text = (text||"").trim();
+    if(!text) return [];
+    try { var v = JSON.parse(text); return Array.isArray(v) ? v : [v]; } catch(e){}
+    var out = [];
+    text.split(/\r?\n/).forEach(function(l){
+      l = l.trim(); if(!l) return;
+      try { out.push(JSON.parse(l)); } catch(e){ /* 跳過壞行 */ }
+    });
+    return out;
+  }
+
+  function render(items){
+    var root = document.getElementById("root").value;
+    var box = document.getElementById("incidents");
+    var sum = document.getElementById("summary");
+    var incs = items.filter(function(o){ return o && o.type === "incident"; });
+    if(!incs.length){
+      box.innerHTML = "<p class='muted'>沒有解析到 incident(type=incident)。確認檔案是 _diag 的 jsonl / incident JSON。</p>";
+      sum.textContent = ""; return;
+    }
+    var withSrc = incs.filter(function(o){ return o.src; }).length;
+    sum.innerHTML = "共 <b>" + incs.length + "</b> 筆 incident;其中 <b>" + withSrc +
+      "</b> 筆有源碼位置(可跳轉)。" + (withSrc < incs.length ?
+      " <span class='muted'>(無 src 者多為 cuda_fatal/uncaught 等全域 handler,位置非呼叫點)</span>" : "");
+    box.innerHTML = incs.map(function(o){
+      var c = KIND_COLOR[o.kind] || "#7c8a99";
+      var link = vscodeLink(root, o.src);
+      var jump = link
+        ? "<a class='srcjump' href='" + esc(link) + "' title='在 VS Code 開啟'>↗ " + esc(o.src) + "</a>"
+        : "<span class='nosrc'>無源碼位置</span>";
+      var meta = [];
+      if(o.panel_id) meta.push("panel=<code>" + esc(o.panel_id) + "</code>");
+      if(o.frame_seq != null) meta.push("seq=<code>" + esc(o.frame_seq) + "</code>");
+      if(o.session && o.session.mode) meta.push("mode=<code>" + esc(o.session.mode) + "</code>");
+      if(o.recent_frames) meta.push("近期幀=<code>" + o.recent_frames.length + "</code>");
+      if(o.file) meta.push("檔=<code>" + esc(o.file) + "</code>");
+      return "<div class='inc' style='--c:" + c + "'>" +
+        "<div class='top'><span class='kind'>" + esc(o.kind) + "</span>" +
+        "<span class='ts'>" + esc(o.ts) + "</span>" + jump + "</div>" +
+        "<div class='detail'>" + esc(o.detail) + "</div>" +
+        (meta.length ? "<div class='meta'>" + meta.join(" · ") + "</div>" : "") +
+      "</div>";
+    }).join("");
+  }
+
+  var lastItems = [];
+  function show(items){ lastItems = items; render(items); }
+
+  document.getElementById("file").addEventListener("change", function(e){
+    var f = e.target.files[0]; if(!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){ show(parseDiag(rd.result)); };
+    rd.readAsText(f);
+  });
+  document.getElementById("parse").addEventListener("click", function(){
+    show(parseDiag(document.getElementById("paste").value));
+  });
+  document.getElementById("root").addEventListener("input", function(){
+    if(lastItems.length) render(lastItems);   // 改根目錄 → 即時重組連結
+  });
+  document.getElementById("demo").addEventListener("click", function(){
+    var sample = [
+      {type:"incident", ts:"2026-06-18T09:14:22.108", kind:"frame_validation",
+       detail:"panel=IP02_panelA seq=41 : CRC32 不符 header=0x1a2b3c4d 實算=0x9f8e7d6c",
+       src:"ip/src/control_server.cpp:503", panel_id:"IP02_panelA", frame_seq:41,
+       file:"incident_20260618_091422_108.json"},
+      {type:"incident", ts:"2026-06-18T09:15:03.880", kind:"recipe_load",
+       detail:"[Recipe] 拒絕載入 DetectRoi[0]：AlgorithmCompare = \"SUB\"，本系統僅接受 DIV",
+       src:"ip/src/main.cpp:454", file:"incident_20260618_091503_880.json"},
+      {type:"incident", ts:"2026-06-18T09:16:40.012", kind:"source_ring_full",
+       detail:"panel=SRC_OOM_0009 slots=2", src:"ip/src/image_source/source_image_writer.h:76",
+       panel_id:"SRC_OOM_0009", file:"incident_20260618_091640_012.json"},
+      {type:"incident", ts:"2026-06-18T09:20:11.500", kind:"cuda_fatal",
+       detail:"cudaErrorMemoryAllocation: out of memory (人為 OOM 觸發)",
+       file:"incident_20260618_092011_500.json"}
+    ];
+    document.getElementById("paste").value = sample.map(function(o){return JSON.stringify(o);}).join("\n");
+    show(sample);
+  });
+})();
+</script>
+</body>
+</html>
