@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control — 控制平面 + UI | CF-AOI</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="theme-control">
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html">總覽</a>
+    <a href="ip.html">IP</a>
+    <a href="control.html" class="active">Control</a>
+    <a href="grab.html">Grab</a>
+    <a href="tools.html">tools</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>Control 模組</h4>
+    <a href="#overview">系統概述</a>
+    <a href="#arch">分層架構</a>
+    <a href="#ui">UI 原型(5 畫面)</a>
+    <a href="#flow">數據流</a>
+    <a href="#code">可審查程式碼</a>
+    <a href="#tcp">TCP 協議</a>
+    <a href="#pending">待接線清單</a>
+    <a href="#inv">不變式 + 驗證</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>Control — 控制平面 + 操作 UI</h1>
+    <p class="lead">CF-AOI 的中間協調器:接上位機 TCP 命令(8787),協調 Grab/IP(8100/8200 JSON),
+    提供跨平台操作 UI。C# / Avalonia,同一份程式碼跑 Mac / Windows / Linux。</p>
+    <p class="muted">control/ · C# 12 / .NET 8 / Avalonia / CommunityToolkit.Mvvm · 來源:docs/control_程式完整說明.md</p>
+
+    <section id="overview">
+      <h2>系統概述</h2>
+      <p>取代 legacy 單機(WinForms + MIL + GPU),改成分散式控制平面。MIL/相機/GPU 邏輯全移除,
+      改以 TCP 呼叫遠端 Grab/IP。影像處理用 SixLabors.ImageSharp(不用 OpenCV,跨平台)。</p>
+      <div class="callout info"><span class="t">network-clean</span>跨機不共用檔案系統:配方傳 XML 內容、結果走 JSON、缺陷小圖以 PNG bytes(base64)over TCP。
+      <code class="k">IpClient</code> 整行累積 bytes 後一次 UTF-8 解碼(不可逐 byte→char,否則中文亂碼)。</div>
+    </section>
+
+    <section id="arch">
+      <h2>分層架構</h2>
+      <div class="arch-layer"><div class="lh">① UI(Views + ViewModels,MVVM)</div><div class="lb">Avalonia .axaml + CommunityToolkit.Mvvm;<code class="k">[ObservableProperty]</code> / <code class="k">[RelayCommand]</code></div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer"><div class="lh">② Services(DI 注入)</div><div class="lb">RecipeStore / RecipeService / OfflineReviewService / PitchEstimator / LogService</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer"><div class="lh">③ Controllers(TCP,平台無關)</div><div class="lb">UpstreamServer(CF_@8787)/ IpClient(8200)/ GrabClient(8100)/ ConnectionManager(心跳)</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer dim"><div class="lh">④ Models(XML/JSON 映射 legacy)</div><div class="lb">RecipeModel / ZoneSettingModel(32 欄)/ DefectResultModel;<code class="k">[XmlElement]</code>/<code class="k">[JsonPropertyName]</code></div></div>
+    </section>
+
+    <section id="ui">
+      <h2>UI 原型(5 畫面)</h2>
+      <p class="muted">以下為 CSS 渲染的版面原型,呈現各 View 的分欄與主要控制項(非實際截圖)。</p>
+
+      <h3>① MainWindow(1424×881)— 主控視窗</h3>
+      <div class="mockup">
+        <div class="titlebar"><span class="dot"></span> CF-AOI Control</div>
+        <div class="body" style="grid-template-columns: 1.1fr 1.3fr; ">
+          <div class="mu-cols">
+            <div class="mu-panel"><div class="ph">Status</div>
+              <div class="mu-row"><span class="lbl">Cur Command</span><span class="mu-in">CF_LOAD_RECIPE</span></div>
+              <div class="mu-row"><span class="lbl">Cur Recipe</span><span class="mu-in">DEFAULT</span></div>
+              <div class="mu-row"><span class="lbl">Cur Panel ID</span><span class="mu-in">gg4mida</span></div>
+              <div class="mu-row"><span class="lbl">IP 連線</span><span class="mu-led g"></span> <span class="mu-led g"></span> Grab <span class="mu-led r"></span> 上位機</div>
+            </div>
+            <div class="mu-panel"><div class="ph">Reserve(Ctrl+F 顯示進階 CF 鈕)</div>
+              <span class="mu-btn">CF Load Recipe</span><span class="mu-btn dis">CF Grab ↓</span><span class="mu-btn dis">CF Check Align ↓</span>
+              <span class="mu-btn">CF Get Result</span><span class="mu-btn dis">CF Stop ↓</span><br>
+              <span class="mu-btn sec">離線分析工具</span><span class="mu-btn sec">配方編輯</span><span class="mu-btn sec">缺陷整理</span><span class="mu-btn sec">系統設定</span>
+            </div>
+            <div class="mu-panel"><div class="ph">SysLog / Error / Warning</div>
+              <div style="background:#fffbe6;border-radius:4px;padding:5px;font-family:monospace;font-size:10px;color:#6a5a1a">[12:03:01] LOAD_RECIPE OK · DefectCnt=0<br>[12:03:14] SEND_IMAGE → IP …</div>
+            </div>
+          </div>
+          <div class="mu-cols mu-2">
+            <div class="mu-panel"><div class="ph">Config</div>
+              <div class="mu-row"><span class="lbl">ActiveIpNode</span><span class="mu-chip">IpOffline</span></div>
+              <div class="mu-row"><span class="lbl">RecipeDir</span><span class="mu-chip">~/cf-aoi/recipes</span></div>
+              <div class="mu-row"><span class="lbl">OutputDir</span><span class="mu-chip">~/cf-aoi/output</span></div>
+            </div>
+            <div class="mu-panel"><div class="ph">Recipe(下拉 + 預覽)</div>
+              <div class="mu-row"><span class="mu-chip">DEFAULT ▾</span></div>
+              <div class="mu-row"><span class="lbl">BrightThreshold</span><span class="mu-in">1.40</span></div>
+              <div class="mu-row"><span class="lbl">DarkThreshold</span><span class="mu-in">0.60</span></div>
+              <div class="mu-row"><span class="lbl">PitchX / PitchY</span><span class="mu-in">26</span><span class="mu-in">19</span></div>
+            </div>
+            <div class="mu-panel"><div class="ph">ShareSetting(全域)</div>
+              <div class="mu-row">☑ SaveSourceImage　☑ DebugAlgorithm</div>
+              <div class="mu-row"><span class="lbl">AiRootPath</span><span class="mu-in">（留空＝RecipeDir）</span></div>
+              <div class="mu-row" style="color:#aab4c0">☐ TuningRecipe ☐ SaveFullImage ☐ BypassAlignment（停用）</div>
+              <span class="mu-btn">儲存</span>
+            </div>
+            <div class="mu-panel"><div class="ph">RecipeSetting(per-recipe 存圖)</div>
+              <div class="mu-row"><span class="lbl">MaxSaveDefectCount</span><span class="mu-in">250</span></div>
+              <div class="mu-row"><span class="lbl">SaveDefect W×H</span><span class="mu-in">64</span><span class="mu-in">64</span></div>
+              <span class="mu-btn">儲存</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="mu-cap">左欄 Status / Reserve / Log,右欄 2×2 Config / Recipe / ShareSetting / RecipeSetting。MIL 專屬 CF 鈕停用(灰)。</p>
+
+      <h3>② Step1View(1064×681)— 離線分析工具</h3>
+      <div class="mockup">
+        <div class="titlebar"><span class="dot"></span> Step 1 — 離線分析(frmAlgorithmTestTools)</div>
+        <div class="body">
+          <div class="mu-statusbar"><span>ImageSize 8192×5000</span><span>Axis 1920,1080</span><span>Value 137</span><span>Zoom 1.0x</span><span>Selected #3</span><span>Recipe DEFAULT</span><span>Region dx26 dy0</span><span style="color:#d6453d;font-weight:700">DefectCnt 561</span></div>
+          <div class="mu-panel" style="padding:6px"><span class="mu-btn sec">Browse</span><span class="mu-btn ok">▶ Test</span><span class="mu-btn sec">FFT 估算 Pitch</span><span class="mu-btn sec">套用</span><span class="mu-btn dis">Add Rect(MIL)</span><span class="mu-btn dis">Remap(MIL)</span><span class="mu-chip">☑ Debug 存全部小圖</span></div>
+          <div class="mu-cols" style="grid-template-columns: 1.4fr 1fr; gap:8px">
+            <div class="mu-img">
+              <div class="mu-circle" style="top:20px;left:60px"></div>
+              <div class="mu-circle b" style="top:55px;left:140px"></div>
+              <div class="mu-circle" style="top:80px;left:240px"></div>
+            </div>
+            <div class="mu-panel"><div class="ph">快速調參</div>
+              <div class="mu-row"><span class="lbl">BrightThreshold</span><span class="mu-in">1.40</span></div>
+              <div class="mu-row"><span class="lbl">DarkThreshold</span><span class="mu-in">0.60</span></div>
+              <div class="mu-row"><span class="lbl">PitchX / PitchY</span><span class="mu-in">26</span><span class="mu-in">19</span></div>
+              <div class="mu-cap" style="color:#1f9d55">FFT 估算:PitchX≈26(SNR 32.1)</div>
+            </div>
+          </div>
+          <div class="mu-panel" style="padding:6px"><div class="ph">缺陷縮圖牆(最多 200)</div>
+            <div class="mu-thumbwall"><div class="mu-thumb"></div><div class="mu-thumb"></div><div class="mu-thumb"></div><div class="mu-thumb"></div><div class="mu-thumb"></div><div class="mu-thumb"></div><div class="mu-thumb"></div><div class="mu-thumb"></div></div>
+          </div>
+        </div>
+      </div>
+      <p class="mu-cap">影像 viewer 支援滾輪縮放/平移/按 M 量 Pitch/←→ 切換缺陷;紅圈=亮缺陷、藍圈=暗缺陷。8 格狀態列。</p>
+
+      <h3>③ ZoneParamEditor(1280×797)— 配方參數編輯</h3>
+      <div class="mockup">
+        <div class="titlebar"><span class="dot"></span> 配方編輯(frmIpParamEditor · 27 列資料驅動表單)</div>
+        <div class="body">
+          <div class="mu-row" style="padding:2px 4px"><span class="mu-chip">DEFAULT ▾</span><span class="mu-btn">儲存配方</span><span class="mu-chip">☑ 批次更新前確認</span></div>
+          <div class="mu-cols mu-3">
+            <div class="mu-panel"><div class="ph">ROI 清單</div>
+              <div class="mu-row">☑ <span class="mu-btn sec" style="padding:2px 8px">Roi_0</span></div>
+              <div class="mu-row">☐ <span class="mu-btn sec" style="padding:2px 8px">Roi_1</span></div>
+              <div class="mu-row">☐ <span class="mu-btn sec" style="padding:2px 8px">Roi_2</span></div>
+              <div class="mu-row"><span class="mu-btn sec">全選</span><span class="mu-btn sec">清除</span></div>
+            </div>
+            <div class="mu-panel"><div class="ph">27 列參數(勾選 + 值 + Update)</div>
+              <table class="mu-grid">
+                <tr><td>☐</td><td>ImagePreProc</td><td><span class="mu-chip" style="color:#d9700a">IP待接</span></td></tr>
+                <tr><td>☑</td><td>DarkThreshold</td><td><span class="mu-in">0.60</span></td></tr>
+                <tr><td>☑</td><td>BrightThreshold</td><td><span class="mu-in">1.40</span></td></tr>
+                <tr><td>☑</td><td>PitchX</td><td><span class="mu-in">26</span></td></tr>
+                <tr><td>☑</td><td>PitchY</td><td><span class="mu-in">19</span></td></tr>
+                <tr><td>☐</td><td>SobelEnable</td><td><span class="mu-chip" style="color:#d9700a">IP待接</span></td></tr>
+                <tr><td>☐</td><td>BlobMinSize</td><td><span class="mu-chip" style="color:#d9700a">IP待接</span></td></tr>
+              </table>
+              <span class="mu-btn warnb">Update Params(批次)</span>
+            </div>
+            <div class="mu-panel"><div class="ph">ROI 位移</div>
+              <div class="mu-row"><span class="lbl">StartX/Y</span><span class="mu-in">0</span><span class="mu-in">0</span></div>
+              <div class="mu-row"><span class="mu-btn sec">X−</span><span class="mu-btn sec">X+</span><span class="mu-btn sec">Y−</span><span class="mu-btn sec">Y+</span></div>
+              <div class="mu-row"><span class="lbl">步進</span><span class="mu-in">1</span></div>
+              <span class="mu-btn">套用範圍到勾選 ROI</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="mu-cap">27 列對齊 legacy DetectRoi(32 欄);IP 未消費的參數標「IP待接」佔位。資料源綁 RecipeStore(單一資料來源)。</p>
+
+      <h3>④ DefectSortView(1103×542)— 缺陷歸檔 + 小圖人工分類(兩層)</h3>
+      <div class="mockup">
+        <div class="titlebar"><span class="dot"></span> 缺陷整理 — 第二層:小圖人工分類</div>
+        <div class="body">
+          <div class="mu-row" style="padding:2px 4px"><span class="mu-btn sec">← 返回</span><span class="mu-chip">IP02_panelA_DEFAULT</span>
+            <span class="mu-chip">Filter:只顯示未分類 ▾</span>
+            <span style="margin-left:auto;font-size:11px">已分類 800/1234 · <b style="color:#d6453d">TrueDefect 600</b> · <b style="color:#1f9d55">Particle 200</b></span></div>
+          <div class="mu-cols" style="grid-template-columns: 1fr 0.5fr; gap:8px">
+            <div class="mu-panel" style="padding:6px"><div class="ph">縮圖牆(雙擊資料夾進入)</div>
+              <div class="mu-thumbwall">
+                <div class="mu-thumb t"></div><div class="mu-thumb p"></div><div class="mu-thumb"></div><div class="mu-thumb t"></div>
+                <div class="mu-thumb"></div><div class="mu-thumb p"></div><div class="mu-thumb t"></div><div class="mu-thumb"></div>
+                <div class="mu-thumb"></div><div class="mu-thumb t"></div><div class="mu-thumb p"></div><div class="mu-thumb"></div>
+                <div class="mu-thumb t"></div><div class="mu-thumb"></div><div class="mu-thumb p"></div><div class="mu-thumb t"></div>
+              </div>
+            </div>
+            <div class="mu-panel"><div class="ph">選中小圖放大</div>
+              <div style="width:100%;aspect-ratio:1;border:3px solid #d6453d;border-radius:5px;background:repeating-linear-gradient(45deg,#3a444f,#3a444f 4px,#434e5a 4px,#434e5a 8px)"></div>
+              <div class="mu-cap">亮 (1920,1080) sz100 #3 · <b style="color:#d6453d">TrueDefect</b></div>
+              <span class="mu-btn badb">TrueDefect (T)</span><span class="mu-btn ok">Particle (P)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="mu-cap">第一層:Parse 日期 → panel 資料夾 DataGrid → Sort 批次歸檔。第二層:鍵盤 <span class="kbd">T</span>/<span class="kbd">P</span> 分類 + <span class="kbd">←</span><span class="kbd">→</span> 切換;即時持久化。小圖以 base64 PNG over TCP 取回。</p>
+
+      <h3>⑤ SystemSettingsView — 連線 + 相機(TabControl)</h3>
+      <div class="mockup">
+        <div class="titlebar"><span class="dot"></span> 系統設定</div>
+        <div class="body">
+          <div class="mu-tabs"><span class="mu-tab">連線設定</span><span class="mu-tab on">相機</span></div>
+          <div class="mu-panel"><div class="ph">相機參數(Gap #2)　<span class="mu-led g"></span> Grab 已連線</div>
+            <div class="mu-row"><span class="lbl">CCD</span><span class="mu-in">0</span></div>
+            <div class="mu-row"><span class="lbl">曝光 (µs)</span><span class="mu-in">500.0</span><span class="mu-cap" style="color:#3A7AFE;margin:0">實際:500.0 µs</span></div>
+            <div class="mu-row"><span class="lbl">增益 raw</span><span class="mu-in">512</span><span class="mu-cap" style="color:#3A7AFE;margin:0">實際:512 raw</span></div>
+            <span class="mu-btn">套用</span><span class="mu-btn sec">讀取目前值</span>
+            <div class="mu-cap">⚠ 曝光/增益為機器層(cam_config.json),套用後持久化於 Grab 端。</div>
+          </div>
+        </div>
+      </div>
+      <p class="mu-cap">連線設定 tab:IP Host/Port、路徑、上位機 Port、測試連線。相機 tab:曝光/增益 + 實際值回顯(SET/GET_CAM_PARAMS → Grab)。</p>
+    </section>
+
+    <section id="flow">
+      <h2>數據流</h2>
+
+      <h3>RecipeStore — 配方單一資料來源</h3>
+      <div class="flow flow-v">
+        <div class="node accent"><div class="n-t">RecipeStore.Select(name)</div><div class="n-d">EnsureRecipeExists → Recipe + PrimaryZone(=DetectRoiList[0])+ RecipeSaving</div></div>
+        <div class="arrow-v lab"><span class="al">RecipeReloaded 事件</span></div>
+        <div class="node"><div class="n-t">各 ViewModel 重綁同一實例</div><div class="n-d">Step1 快速調參 / ZoneParamEditor / MainWindow 預覽</div></div>
+        <div class="arrow-v lab"><span class="al">任一處改 → 其他即時同步</span></div>
+        <div class="node"><div class="n-t">RecipeStore.Save() → RecipeInfo.xml</div></div>
+      </div>
+      <div class="callout inv"><span class="t">單一資料來源(不變式)</span>三處共用同一 <code class="k">ZoneSettingModel</code> 實例;<strong>不可</strong>各 View 各自載入副本(會不同步)。</div>
+
+      <h3>DefectSort — network-clean 小圖分類</h3>
+      <div class="flow flow-v">
+        <div class="node"><div class="n-t">Parse Date → <code class="k">LIST_DEFECT_FOLDERS</code></div><div class="n-d">IP 掃資料夾 → 回 folder list(folder_name / defect_count)</div></div>
+        <div class="arrow-v lab"><span class="al">雙擊 panel 夾</span></div>
+        <div class="node"><div class="n-t"><code class="k">LIST_DEFECT_PATCHES</code> + <code class="k">GET_DEFECT_PATCHES_BATCH</code></div><div class="n-d">metadata + PNG bytes(base64,~50 張一批)→ Avalonia Bitmap</div></div>
+        <div class="arrow-v lab"><span class="al">T/P 鍵分類</span></div>
+        <div class="node accent"><div class="n-t"><code class="k">SAVE_DEFECT_CLASSIFICATION</code>(即時)</div><div class="n-d">IP 複製到 TrueDefect/Particle/ + 寫 classification.json(AI 重訓標註)</div></div>
+      </div>
+    </section>
+
+    <section id="code">
+      <h2>可審查程式碼(真實源碼)</h2>
+
+      <h3>① 上位機 CF_ 協議 — 9 參數解析</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">control/src/Controllers/UpstreamServer.cs:90–108</span><span class="why">審查:| 分隔 / \r\n / 9 參數 / CF_ switch</span></div>
+<pre><span class="kw">var</span> writer = <span class="kw">new</span> <span class="ty">StreamWriter</span>(stream, <span class="kw">new</span> <span class="ty">UTF8Encoding</span>(<span class="kw">false</span>)) { AutoFlush = <span class="kw">true</span>, NewLine = <span class="st">"\r\n"</span> };
+<span class="kw">while</span> (... (line = <span class="kw">await</span> reader.<span class="fn">ReadLineAsync</span>(ct)) <span class="kw">is not null</span>) {
+    <span class="kw">var</span> p = line.<span class="fn">Split</span>(<span class="st">'|'</span>);
+    <span class="kw">var</span> cmd = p[<span class="nu">0</span>].<span class="fn">Trim</span>().<span class="fn">ToUpperInvariant</span>();
+    <span class="ty">string</span> <span class="fn">P</span>(<span class="ty">int</span> i) =&gt; i &lt; p.Length ? p[i] : <span class="st">""</span>;
+    <span class="kw">switch</span> (cmd) {
+        <span class="kw">case</span> CF_LOAD_RECIPE:   <span class="c">// p1=recipe, p2=panelId, p9=detectMode</span>
+            <span class="kw">var</span> ok = OnLoadRecipe <span class="kw">is null</span> || <span class="kw">await</span> <span class="fn">OnLoadRecipe</span>(<span class="fn">P</span>(<span class="nu">1</span>), <span class="fn">P</span>(<span class="nu">2</span>), <span class="fn">P</span>(<span class="nu">9</span>));
+            <span class="kw">await</span> writer.<span class="fn">WriteLineAsync</span>(<span class="fn">Resp</span>(ok, errMsg: ok ? <span class="st">""</span> : <span class="st">"load recipe failed"</span>));
+            <span class="kw">break</span>;
+        ...
+    }
+}</pre>
+      </div>
+      <div class="callout warn"><span class="t">狀態:實作完成、待驗證(L1)</span>邏輯寫好,但<strong>沒有任何地方 .Start() 啟動</strong>、On* 回呼未接 IpClient、從未接真實上位機。接真機前須:接線啟動 + 綁回呼 + 實機驗證。</div>
+
+      <h3>② RecipeStore.Select — 單一資料來源同步</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">control/src/Services/RecipeStore.cs:45–60</span><span class="why">審查:PrimaryZone 指向同一實例 → 跨 View 同步</span></div>
+<pre><span class="kw">public void</span> <span class="fn">Select</span>(<span class="ty">string</span> name) {
+    <span class="kw">if</span> (_inSelect) <span class="kw">return</span>;
+    _inSelect = <span class="kw">true</span>;
+    <span class="kw">try</span> {
+        <span class="kw">if</span> (SelectedRecipe != name) SelectedRecipe = name;
+        <span class="kw">var</span> ensure = _recipes.<span class="fn">EnsureRecipeExists</span>(name);
+        Recipe = ensure.Recipe;
+        <span class="kw">if</span> (Recipe.DetectRoiList.Count == <span class="nu">0</span>) Recipe.DetectRoiList.<span class="fn">Add</span>(<span class="kw">new</span> <span class="ty">ZoneSettingModel</span>());
+        PrimaryZone = Recipe.DetectRoiList[<span class="nu">0</span>];      <span class="c">// 共用實例</span>
+        RecipeSaving = _recipes.<span class="fn">LoadRecipeSetting</span>(name);
+        RecipeReloaded?.<span class="fn">Invoke</span>();                  <span class="c">// 廣播 → 各 View 重綁</span>
+    } <span class="kw">finally</span> { _inSelect = <span class="kw">false</span>; }
+}</pre>
+      </div>
+
+      <h3>③ ConnectionManager — 心跳 + 自動重連</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">control/src/Controllers/ConnectionManager.cs:54–83</span><span class="why">審查:IsBusy 跳過 / 失敗紅燈 + Disconnect 下回合重連</span></div>
+<pre><span class="kw">if</span> (client.IsBusy) {
+    ok = <span class="kw">true</span>;                            <span class="c">// 命令進行中 → 視為存活</span>
+} <span class="kw">else</span> {
+    <span class="kw">try</span> {
+        <span class="kw">if</span> (!client.IsConnected) {
+            <span class="kw">using var</span> cc = <span class="kw">new</span> <span class="ty">CancellationTokenSource</span>(<span class="ty">TimeSpan</span>.<span class="fn">FromSeconds</span>(<span class="nu">2</span>));
+            <span class="kw">await</span> client.<span class="fn">ConnectAsync</span>(node.Host, node.Port, cc.Token);
+        }
+        <span class="kw">using var</span> hb = <span class="kw">new</span> <span class="ty">CancellationTokenSource</span>(<span class="ty">TimeSpan</span>.<span class="fn">FromSeconds</span>(<span class="nu">2</span>));
+        <span class="kw">var</span> resp = <span class="kw">await</span> client.<span class="fn">CheckHealthAsync</span>(hb.Token);
+        ok = resp?[<span class="st">"status"</span>]?.<span class="fn">GetValue</span>&lt;<span class="ty">string</span>&gt;() == <span class="st">"OK"</span>;
+    } <span class="kw">catch</span> { ok = <span class="kw">false</span>; }
+    <span class="kw">if</span> (!ok) client.<span class="fn">Disconnect</span>();           <span class="c">// 關壞 socket → 下回合重連</span>
+}
+<span class="c">// ... await Task.Delay(2500, ct);  每 ~2.5s 一回合</span></pre>
+      </div>
+
+      <h3>④ MVVM — ObservableProperty / RelayCommand</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">control/src/ViewModels/Step1ViewModel.cs(代表)</span><span class="why">審查:CommunityToolkit 自動生成屬性/命令;綁 RecipeStore.PrimaryZone</span></div>
+<pre>[<span class="ty">ObservableProperty</span>] <span class="kw">private</span> <span class="ty">string</span> selectedImagePath = <span class="st">""</span>;
+[<span class="ty">ObservableProperty</span>] <span class="kw">private bool</span> isAnalyzing = <span class="kw">false</span>;
+
+[<span class="ty">RelayCommand</span>(CanExecute = <span class="kw">nameof</span>(CanRunAnalysis))]
+<span class="kw">private async</span> <span class="ty">Task</span> <span class="fn">RunAnalysisAsync</span>() {
+    IsAnalyzing = <span class="kw">true</span>;
+    <span class="kw">var</span> recipeResult = <span class="kw">await</span> _recipeService.<span class="fn">EnsureRecipeExistsAsync</span>(SelectedRecipe);
+    LastResult = <span class="kw">await</span> _offlineReviewService.<span class="fn">AnalyzeImageAsync</span>(
+        SelectedImagePath, SelectedRecipe, camId: <span class="nu">0</span>, overrideZone);
+    IsAnalyzing = <span class="kw">false</span>;
+}</pre>
+      </div>
+    </section>
+
+    <section id="tcp">
+      <h2>TCP 協議</h2>
+      <div class="grid2">
+        <div class="card"><h3 style="margin-top:0">上位機(CF_ @8787)</h3>
+          <ul style="margin:0">
+            <li><code class="k">CF_LOAD_RECIPE|{recipe}|{panelId}|{datetime}|…|{detectMode}</code></li>
+            <li><code class="k">CF_GRAB_START|{timeoutMs}</code></li>
+            <li><code class="k">CF_CHECK_ALIGN</code> → OK|{camStatus}|{shiftX}|{shiftY}</li>
+            <li><code class="k">CF_SET_ALIGN|{result}|{shiftX}|{shiftY}</code></li>
+            <li><code class="k">CF_GET_RESULT</code> → OK|{xml 路徑}|{缺陷數}</li>
+          </ul>
+        </div>
+        <div class="card"><h3 style="margin-top:0">IP / Grab(JSON)</h3>
+          <p style="margin:4px 0">IP @8200:LOAD_RECIPE / SEND_IMAGE_FOR_REVIEW / 缺陷 LIST/SORT/CLASSIFY / CHECK_HEALTH</p>
+          <p style="margin:4px 0">Grab @8100:CHECK_HEALTH / LOAD_RECIPE / GRAB_START / GRAB_STOP / SET_CAM_PARAMS / GET_CAM_PARAMS</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="pending">
+      <h2>待接線清單</h2>
+      <div class="callout warn"><span class="t">UpstreamServer 接真機前須完成</span>
+      <p>① 在啟動處 <code class="k">new UpstreamServer</code> + <code class="k">.Start()</code>　② 綁 <code class="k">OnLoadRecipe</code> / <code class="k">OnGrabStart</code> / <code class="k">OnGetResult</code> 回呼到 IpClient 流程　③ 用實機/模擬器驗證 9 參數格式與 <code class="k">CF_GET_RESULT</code> 回傳。</p></div>
+    </section>
+
+    <section id="inv">
+      <h2>不變式 + 驗證狀態</h2>
+      <div class="callout inv"><span class="t">network-clean</span>配方傳 XML 內容、結果 JSON、缺陷小圖 base64 PNG,全 over TCP。</div>
+      <div class="callout inv"><span class="t">整行 UTF-8 解碼</span>IpClient 累積 bytes 整行解 UTF-8(修中文亂碼,不可逐 byte→char)。</div>
+      <div class="callout inv"><span class="t">跨平台</span>影像用 ImageSharp + Avalonia Bitmap(不用 OpenCV);路徑 Path.Combine + ~ 展開。</div>
+      <div class="callout inv"><span class="t">UI 1:1 複製舊版</span>等比 Grid(非 Canvas 絕對座標);MIL 專屬鈕 IsEnabled=False + tooltip。</div>
+      <table>
+        <tr><th>模組</th><th>級別</th><th>驗證</th></tr>
+        <tr><td>Step1View(離線分析)</td><td><span class="lbadge l3">L3</span></td><td>Mac↔Linux 跑通:Test → IP → DefectCnt 561 + 縮圖牆</td></tr>
+        <tr><td>RecipeStore / ZoneParamEditor 同步</td><td><span class="lbadge l2">L2</span></td><td><code>--selftest store</code> 三處共用同一實例</td></tr>
+        <tr><td>DefectSort(Control UI)</td><td><span class="lbadge l2">L2</span></td><td>selftest(假 IP server)+ Mac 跑過;IP 側遠端命令 L3</td></tr>
+        <tr><td>連線心跳</td><td><span class="lbadge l2">L2</span></td><td>手動 harness(綠↔紅)</td></tr>
+        <tr><td>UpstreamServer(CF_/8787)</td><td><span class="lbadge l1">L1</span></td><td>寫好但未 .Start()、從未接真機</td></tr>
+        <tr><td>Step 2-5 操作 UI</td><td><span class="lbadge l0">L0</span></td><td>無對應 View</td></tr>
+      </table>
+    </section>
+
+    <p class="src-note">來源:<code>docs/control_程式完整說明.md</code>;程式碼片段取自 <code>control/src/</code> 當前源碼樹。</p>
+
+  </div>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tools — golden_maker | CF-AOI</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="theme-tools">
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html">總覽</a>
+    <a href="ip.html">IP</a>
+    <a href="control.html">Control</a>
+    <a href="grab.html">Grab</a>
+    <a href="tools.html" class="active">tools</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>tools 模組</h4>
+    <a href="#overview">用途</a>
+    <a href="#pipeline">在對位 pipeline 的位置</a>
+    <a href="#modes">兩種模式</a>
+    <a href="#args">命令列參數</a>
+    <a href="#output">stdout 輸出</a>
+    <a href="#build">編譯 + 檔案</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>tools — golden_maker</h1>
+    <p class="lead">獨立小工具集。目前唯一成員 <code class="k">golden_maker</code>:製作對位 Golden Pattern(框選 Mark 截圖),
+    輸出 Golden PNG + <code class="k">RecipeInfo.xml</code> 的 <code class="k">&lt;M_AlignRoi&gt;</code> 片段,供 Gap #1 對位 pipeline 使用。</p>
+    <p class="muted">tools/golden_maker · C++ / OpenCV · 來源:docs/tools_程式完整說明.md</p>
+
+    <section id="overview">
+      <h2>用途</h2>
+      <p>取代 legacy PrjCfAoi 的 MIL <code class="k">MpatFind</code> Pattern Match(<code class="k">CamProc.cs:307-485</code>)。演算法重寫(非移植),
+      新架構用 OpenCV <code class="k">TM_CCOEFF_NORMED</code>。golden_maker 負責<strong>離線製作</strong>對位樣板。</p>
+    </section>
+
+    <section id="pipeline">
+      <h2>在 Gap #1 對位 pipeline 的位置</h2>
+      <div class="flow flow-v">
+        <div class="node accent"><div class="n-t">【離線,調 Recipe 前】golden_maker</div><div class="n-d">代表幀框選 Mark → mark.png(Golden)+ &lt;M_AlignRoi&gt; XML 片段</div></div>
+        <div class="arrow-v lab"><span class="al">人工貼入 RecipeInfo.xml</span></div>
+        <div class="node"><div class="n-t">RecipeInfo.xml 的 &lt;M_AlignRoi&gt;</div><div class="n-d">PatternPath / ReferX/Y / SearchWidth/Height</div></div>
+        <div class="arrow-v lab"><span class="al">【線上,每片一次】LOAD_RECIPE</span></div>
+        <div class="node"><div class="n-t">Control:讀 PatternPath → base64 嵌入 → 送 IP</div><div class="n-d">network-clean:Golden PNG 以 base64 over TCP(不依賴對方硬碟)</div></div>
+        <div class="arrow-v lab"><span class="al">CF_GRAB_START → CHECK_ALIGN</span></div>
+        <div class="node accent"><div class="n-t">IP align_engine</div><div class="n-d">記憶體 decode Golden → 13 角 × TM_CCOEFF_NORMED + 拋物線 sub-pixel → ShiftX/Y</div></div>
+        <div class="arrow-v lab"><span class="al">SET_ALIGN</span></div>
+        <div class="node"><div class="n-t">aligned_* = roi_* + round(shift_*) 套回所有 zones</div></div>
+      </div>
+      <div class="callout info"><span class="t">驗證鏈</span><code class="k">ip/src/align_verify.cpp</code>(Stage 1:14/14 PASS)+ <code class="k">scripts/verify_alignment.py</code>(Stage 2:8/8 PASS)。對位 pipeline 於 GB10 實機驗通(<span class="lbadge l3">L3</span>)。</div>
+    </section>
+
+    <section id="modes">
+      <h2>兩種模式</h2>
+      <table>
+        <tr><th>模式</th><th>觸發</th><th>操作</th></tr>
+        <tr><td>GUI</td><td>無 <code>--mark-rect</code></td><td>滑鼠拖拽框選;鍵 <span class="kbd">S</span> 存 PNG + 印 XML、<span class="kbd">R</span> 重設、<span class="kbd">Q</span>/<span class="kbd">ESC</span> 離開。大圖自動縮放(上限 2000px),存檔以 inv_scale 還原原始座標</td></tr>
+        <tr><td>CLI fallback</td><td>帶 <code>--mark-rect</code></td><td>無桌面/SSH 用:直接指定 Mark 矩形(整數像素),headless 輸出</td></tr>
+      </table>
+    </section>
+
+    <section id="args">
+      <h2>命令列參數</h2>
+      <table>
+        <tr><th>參數</th><th>說明</th><th>預設</th></tr>
+        <tr><td><code>--image &lt;path&gt;</code></td><td>來源影像(OpenCV IMREAD_GRAYSCALE)</td><td><strong>必填</strong></td></tr>
+        <tr><td><code>--output &lt;path&gt;</code></td><td>輸出 Golden PNG 檔名</td><td><code>mark.png</code></td></tr>
+        <tr><td><code>--mark-rect x,y,w,h</code></td><td>CLI fallback:直接指定 Mark 矩形</td><td>—(給了就走 CLI)</td></tr>
+        <tr><td><code>--search-margin N</code></td><td>SearchWidth/Height = Mark 尺寸 × N</td><td><code>3</code></td></tr>
+      </table>
+      <div class="codecard">
+        <div class="head"><span class="path">用法範例</span></div>
+<pre><span class="c"># GUI 模式</span>
+./golden_maker --image frame.png --output mark.png --search-margin 3
+<span class="c"># CLI fallback(headless)</span>
+./golden_maker --image frame.png --mark-rect 1170,770,60,60</pre>
+      </div>
+    </section>
+
+    <section id="output">
+      <h2>stdout 輸出 — AlignRoi XML 片段</h2>
+      <div class="codecard">
+        <div class="head"><span class="path">tools/golden_maker/golden_maker.cpp:86–99</span><span class="why">審查:ReferX/Y = Mark 中心(非左上角);SearchW/H = 尺寸 × margin</span></div>
+<pre><span class="kw">static void</span> <span class="fn">print_align_roi_xml</span>(<span class="kw">const</span> <span class="ty">std::string</span>&amp; output_path,
+                                <span class="ty">int</span> orig_x, <span class="ty">int</span> orig_y, <span class="ty">int</span> orig_w, <span class="ty">int</span> orig_h,
+                                <span class="ty">int</span> search_margin) {
+    <span class="ty">int</span> refer_x = orig_x + orig_w / <span class="nu">2</span>;     <span class="c">// Mark 中心 X</span>
+    <span class="ty">int</span> refer_y = orig_y + orig_h / <span class="nu">2</span>;     <span class="c">// Mark 中心 Y</span>
+    <span class="ty">int</span> sw      = orig_w * search_margin;   <span class="c">// 搜尋寬 = Mark 寬 × margin</span>
+    <span class="ty">int</span> sh      = orig_h * search_margin;
+    <span class="fn">std::printf</span>(<span class="st">"&lt;!-- 貼入 RecipeInfo.xml &lt;M_AlignRoi&gt; --&gt;\n"</span>);
+    <span class="fn">std::printf</span>(<span class="st">"&lt;PatternPath&gt;%s&lt;/PatternPath&gt;\n"</span>,   output_path.<span class="fn">c_str</span>());
+    <span class="fn">std::printf</span>(<span class="st">"&lt;ReferX&gt;%d&lt;/ReferX&gt;\n"</span>,             refer_x);
+    <span class="fn">std::printf</span>(<span class="st">"&lt;ReferY&gt;%d&lt;/ReferY&gt;\n"</span>,             refer_y);
+    <span class="fn">std::printf</span>(<span class="st">"&lt;SearchWidth&gt;%d&lt;/SearchWidth&gt;\n"</span>,   sw);
+    <span class="fn">std::printf</span>(<span class="st">"&lt;SearchHeight&gt;%d&lt;/SearchHeight&gt;\n"</span>, sh);
+}</pre>
+      </div>
+      <div class="callout warn"><span class="t">語意提醒</span><code class="k">ReferX/Y</code> 是 <strong>Mark 中心</strong>(不是左上角);<code class="k">SearchWidth/Height</code> = Mark 尺寸 × <code class="k">--search-margin</code>(預設 3),給移動足夠搜尋空間。框選 &lt; 4×4 px 會拒絕。</div>
+    </section>
+
+    <section id="build">
+      <h2>編譯 + 關鍵檔案</h2>
+      <div class="codecard">
+        <div class="head"><span class="path">編譯(依賴 OpenCV)</span></div>
+<pre>cd tools/golden_maker
+mkdir -p build &amp;&amp; cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j4</pre>
+      </div>
+      <table>
+        <tr><th>檔案</th><th>用途</th></tr>
+        <tr><td><code>tools/golden_maker/golden_maker.cpp</code></td><td>主程式(GUI + CLI)</td></tr>
+        <tr><td><code>tools/golden_maker/CMakeLists.txt</code></td><td>OpenCV 連結</td></tr>
+        <tr><td><code>ip/src/align_engine.cpp</code></td><td>線上對位(TM_CCOEFF_NORMED)</td></tr>
+        <tr><td><code>ip/src/align_verify.cpp</code> / <code>scripts/verify_alignment.py</code></td><td>對位驗證鏈</td></tr>
+      </table>
+    </section>
+
+    <p class="src-note">來源:<code>docs/tools_程式完整說明.md</code>;程式碼片段取自 <code>tools/golden_maker/</code> 當前源碼樹。</p>
+
+  </div>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

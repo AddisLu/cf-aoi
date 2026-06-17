@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IP — GPU 檢測引擎 | CF-AOI</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="theme-ip">
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html">總覽</a>
+    <a href="ip.html" class="active">IP</a>
+    <a href="control.html">Control</a>
+    <a href="grab.html">Grab</a>
+    <a href="tools.html">tools</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>IP 模組</h4>
+    <a href="#overview">系統概述</a>
+    <a href="#arch">分層架構</a>
+    <a href="#modes">執行模式</a>
+    <a href="#pipeline">GPU 檢測 12 階段</a>
+    <a href="#code">可審查程式碼</a>
+    <a href="#recipe">RecipeInfo → ZoneConfig</a>
+    <a href="#tcp">TCP 協議</a>
+    <a href="#output">結果輸出</a>
+    <a href="#inv">關鍵不變式</a>
+    <a href="#verify">驗證狀態</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>IP — GPU 缺陷檢測引擎</h1>
+    <p class="lead">分散式架構的運算節點。接收影像,在 GPU 上執行 LCD 彩色濾光片缺陷檢測
+    (8 方向鄰域 DIV 比例式閾值),輸出結構化結果。</p>
+    <p class="muted">ip/ · C++ / CUDA · RTX 2080 Super(開發)→ DGX Spark GB10(生產) · 來源:docs/ip_程式完整說明.md</p>
+
+    <section id="overview">
+      <h2>系統概述</h2>
+      <p>核心策略:從 <code class="k">Reference/Demo</code> 遷移 GPU 演算法,<strong>kernel 本體一字不改</strong>,只換 I/O 外殼。
+      IP 額外新增了 Reference 沒有的:CCL 收斂迴圈、canonical 排序、network-clean、多 ROI、行車紀錄、DIV-only 強制、pixel→μm。</p>
+      <div class="callout info"><span class="t">為何「kernel 不改」是鐵律</span>
+      11 個 AI/檢測 kernel 已逐行比對與 Demo byte-identical。改 kernel 本體會破壞已驗證的 bit-exact 與跨架構一致性;
+      host wrapper(編排)可改。</div>
+    </section>
+
+    <section id="arch">
+      <h2>分層架構</h2>
+      <div class="arch-layer"><div class="lh">① 進入點 / 影像來源</div><div class="lb">main.cpp 解析模式 → FileImageSource / TcpImageSource(Mono8 raw)</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer"><div class="lh">② TCP Server(control_server.cpp @8200)</div><div class="lb">LOAD_RECIPE / SEND_IMAGE_FOR_REVIEW / 缺陷 LIST/SORT;收圖會合機制</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer"><div class="lh">③ GPU 運算(gpu_pipeline.cpp + cuda_kernels.cu)</div><div class="lb">8-way DIV → CCL → Blob → 排序;cudaEvent 計時</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer dim"><div class="lh">④ AI 分類(ai_kernels.cu,預設停用)</div><div class="lb">Random Forest + MLP,Tensor Core;缺陷標「待人工複核」</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer"><div class="lh">⑤ 輸出層(result_saver.cpp)</div><div class="lb">ResultInfo.json/.xml + Defect_*.png + overlay;pixel→μm</div></div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer dim"><div class="lh">⑥ 行車紀錄診斷(diag/flight_recorder)</div><div class="lb">純觀測:平時零磁碟 I/O,出事才落地 incident JSON</div></div>
+    </section>
+
+    <section id="modes">
+      <h2>執行模式</h2>
+      <table>
+        <tr><th>模式</th><th>觸發</th><th>用途</th></tr>
+        <tr><td><code>offline-file</code></td><td>預設</td><td>讀本機檔案(MIL 測試影像);可 <code>--verify-deterministic</code> 兩跑比對 bit-exact</td></tr>
+        <tr><td><code>offline-tcp</code></td><td><code>--mode offline-tcp</code></td><td>ControlServer @8200 收 SEND_IMAGE_FOR_REVIEW → 處理 → TCP 回傳(Step 1)</td></tr>
+        <tr><td><code>rdma-validate</code></td><td><code>--mode rdma-validate</code></td><td>N-slot ring 收 RDMA 幀 + CRC 二次驗 + seq 序驗(需 <code>CFAOI_HAS_RDMA</code>)</td></tr>
+        <tr><td><code>bench</code></td><td><code>--mode bench</code></td><td>純 GPU 量速:warmup → iters → mean/median/P99,換算 Spark 產能</td></tr>
+        <tr><td><code>image-capture / online</code></td><td>—</td><td><span class="lbadge l0">L0</span> Step 4/5,未實作</td></tr>
+      </table>
+    </section>
+
+    <section id="pipeline">
+      <h2>GPU 檢測 pipeline — 12 階段</h2>
+      <p>單張影像從進入到輸出,<code class="k">GpuPipeline::process_frame()</code> 對每個 zone 跑完整流程。
+      <span style="color:var(--bad)">紅框 = 決定性關鍵點</span>。</p>
+      <div class="flow">
+        <div class="stage"><div class="num">1</div><div class="node">影像進入 + 尺寸守衛 [1,16384] + FrameHeader magic/CRC 驗證 + FlightRecorder.set_scene</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">2</div><div class="node">多 DetectRoi 裁切子影像(zone_rect);GPUMemoryManager 同尺寸重用 buffer</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">3</div><div class="node">上傳:zero-copy mapped(GB10)/ pinned+async(x86);cudaEventRecord(start)</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">4</div><div class="node accent">LSC 鏡頭暗角校正(可選,預設 off)</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">5</div><div class="node accent"><strong>8 方向鄰域比較(DIV 比例式)</strong> — center/mean₈ &gt; BTH(亮 255)/ &lt; DTH(暗 128);Local Search ±1/±2 行消傾斜</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">6</div><div class="node hot"><strong>CCL 連通分量標記 + 收斂迴圈</strong> — atomicMin union,迴圈到 d_changed==0(typical 2-4 次)→ order-independent</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">7</div><div class="node">Blob 分析 + 缺陷提取(sparse hash);過濾 size/aspect/density;上限 MAX_DEFECTS=10000</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">8</div><div class="node dim" style="opacity:.7">AI 分類過濾(gate: ai_on &amp;&amp; ai_active,預設關)</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">9</div><div class="node">cudaEventRecord(stop) + Synchronize → process_time_ms</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">10</div><div class="node hot"><strong>主機端 canonical 排序</strong> — std::sort 依 label→center_y→center_x→size → bit-exact</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">11</div><div class="node">多 zone 聚合成 InspectionResult + FlightRecorder.record_frame(純觀測)</div></div>
+        <div class="arrow-v"></div>
+        <div class="stage"><div class="num">12</div><div class="node">序列化輸出:ResultInfo.json/.xml + Defect_*.png + overlay;GlobalPos pixel→μm</div></div>
+      </div>
+    </section>
+
+    <section id="code">
+      <h2>可審查程式碼(真實源碼)</h2>
+
+      <h3>① DIV 比例式閾值 — 整數運算避開浮點</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">ip/src/gpu/cuda_kernels.cu:189–201</span><span class="why">審查:BTH/DTH 比例語意 + 整數縮放</span></div>
+<pre><span class="c">// Integer threshold comparison (avoid floating point)</span>
+<span class="kw">const</span> <span class="ty">int</span> center_check = (center_val &lt;&lt; <span class="nu">3</span>) * <span class="nu">1000</span>;   <span class="c">// center×8 對應 8 鄰域和</span>
+<span class="kw">const</span> <span class="ty">int</span> bth_scaled = <span class="fn">__float2int_rn</span>(BTH * <span class="nu">1000.0f</span>);
+<span class="kw">const</span> <span class="ty">int</span> dth_scaled = <span class="fn">__float2int_rn</span>(DTH * <span class="nu">1000.0f</span>);
+
+<span class="ty">uint8_t</span> result = <span class="nu">0</span>;
+<span class="kw">if</span> (center_check &gt; neighbor_sum * bth_scaled) {
+    result = <span class="nu">255</span>;        <span class="c">// PointBright(亮缺陷)</span>
+} <span class="kw">else if</span> (center_check &lt; neighbor_sum * dth_scaled) {
+    result = <span class="nu">128</span>;        <span class="c">// PointDark(暗缺陷)</span>
+}
+d_binary[y * width + x] = result;   <span class="c">// 255/128/0 編碼供 CCL 依賴</span></pre>
+      </div>
+      <div class="callout inv"><span class="t">DIV-only 等價</span>等價於 <code class="k">center/mean₈ &gt; BTH</code>(亮)/ <code class="k">&lt; DTH</code>(暗),
+      與 legacy <code class="k">AlgorithmCompare="DIV"</code> 嚴格相等。SUB(灰階差)無法不依賴背景灰階轉成比例 → IP 直接拒絕載入。</div>
+
+      <h3>② CCL 收斂迴圈 — host wrapper(決定性關鍵)</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">ip/src/gpu/cuda_kernels.cu:1188–1199</span><span class="why">審查:單趟 race → 飄動;迴圈到不動點才 bit-exact</span></div>
+<pre><span class="c">// host-side launch orchestration ONLY; __global__ kernel bodies unchanged.</span>
+<span class="c">// atomicMin's fixed point is unique &amp; order-independent → loop until d_changed==0</span>
+{
+    <span class="ty">int</span> h_changed = <span class="nu">1</span>;
+    <span class="kw">const</span> <span class="ty">int</span> MAX_CCL_ITERS = <span class="nu">1000</span>;  <span class="c">// safety cap; typical 2-4</span>
+    <span class="kw">for</span> (<span class="ty">int</span> iter = <span class="nu">0</span>; iter &lt; MAX_CCL_ITERS &amp;&amp; h_changed; ++iter) {
+        <span class="fn">cudaMemsetAsync</span>(g_sparse.d_changed, <span class="nu">0</span>, <span class="kw">sizeof</span>(<span class="ty">int</span>), stream);
+        <span class="fn">kernelFastCCLMerge</span>&lt;&lt;&lt;gridDim, blockDim, <span class="nu">0</span>, stream&gt;&gt;&gt;(
+            d_binary, d_labels, width, height, g_sparse.d_changed);
+        <span class="fn">cudaMemcpyAsync</span>(&amp;h_changed, g_sparse.d_changed, <span class="kw">sizeof</span>(<span class="ty">int</span>),
+                        cudaMemcpyDeviceToHost, stream);
+        <span class="fn">cudaStreamSynchronize</span>(stream);
+    }
+}</pre>
+      </div>
+      <div class="callout warn"><span class="t">遷移陷阱</span>Reference 原版只跑單趟(lock-free union-find 未收斂)→ 缺陷數飄動(2761/2762/2763)。
+      從 Reference 重抄會覆蓋此迴圈,決定性就壞。</div>
+
+      <h3>③ canonical 排序 — 把 race 順序變成全序</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">ip/src/gpu/gpu_pipeline.cpp:292–298</span><span class="why">審查:atomicAdd append 順序不定 → 排序後 bit-exact</span></div>
+<pre><span class="fn">std::sort</span>(result.defects.<span class="fn">begin</span>(), result.defects.<span class="fn">end</span>(),
+    [](<span class="kw">const</span> <span class="ty">DefectInfo</span>&amp; a, <span class="kw">const</span> <span class="ty">DefectInfo</span>&amp; b) {
+        <span class="kw">if</span> (a.label    != b.label)    <span class="kw">return</span> a.label    &lt; b.label;
+        <span class="kw">if</span> (a.center_y != b.center_y) <span class="kw">return</span> a.center_y &lt; b.center_y;
+        <span class="kw">if</span> (a.center_x != b.center_x) <span class="kw">return</span> a.center_x &lt; b.center_x;
+        <span class="kw">return</span> a.size &lt; b.size;
+    });</pre>
+      </div>
+
+      <h3>④ DIV-only 強制 — 拒絕 SUB 配方</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">ip/src/config/zone_config_adapter.cpp:114–133</span><span class="why">審查:錯誤配方在載入期就擋下,不 silent</span></div>
+<pre><span class="c">// ★ 只接受 DIV 模式(gpu_algo kernel 是比例式;SUB 無固定轉換公式)</span>
+<span class="ty">std::string</span> cmp;
+<span class="ty">bool</span> has_cmp = <span class="fn">extract_tag</span>(blk, <span class="st">"AlgorithmCompare"</span>, cmp);
+<span class="kw">if</span> (cmp != <span class="st">"DIV"</span>) {
+    <span class="c">// ... 組訊息:實際 AlgorithmCompare / 拒絕原因 / 建議解法 ...</span>
+    <span class="kw">throw</span> <span class="fn">RecipeError</span>(
+        <span class="st">"[Recipe] 拒絕載入 DetectRoi[..]：\n"</span>
+        <span class="st">"  • 本系統僅接受 = \"DIV\"\n"</span>
+        <span class="st">"  • 建議:改 AlgorithmCompare 為 DIV,BrightThreshold/DarkThreshold 設比例域(例 1.4 / 0.6)"</span>);
+}</pre>
+      </div>
+
+      <h3>⑤ 收圖入口驗證 — magic / version / CRC32</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">ip/src/control_server.cpp:41–61</span><span class="why">審查:損壞幀記 incident 並拒收,不進佇列</span></div>
+<pre><span class="kw">if</span> (h.magic != FRAME_MAGIC)   { <span class="c">/* "magic 不符 期望=0x%08X 實得=.." */</span> <span class="kw">return</span> b; }
+<span class="kw">if</span> (h.version != FRAME_VERSION){ <span class="c">/* "version 不符" */</span> <span class="kw">return</span> b; }
+<span class="kw">if</span> (h.headerBytes != <span class="nu">256</span>)    { <span class="c">/* "headerBytes 不符 期望=256" */</span> <span class="kw">return</span> b; }
+<span class="kw">if</span> (h.payloadBytes != n)      { <span class="c">/* "payloadBytes 不符 header=.. 實收=.." */</span> <span class="kw">return</span> b; }
+<span class="ty">uint32_t</span> c = <span class="fn">crc32_ieee</span>(payload, n);
+<span class="kw">if</span> (h.crc32 != c)             { <span class="c">/* "CRC32 不符 header=.. 實算=.." */</span> <span class="kw">return</span> b; }</pre>
+      </div>
+
+      <h3>⑥ 缺陷座標 pixel → μm(Gap #5)</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">ip/src/result_saver.cpp:56–58</span><span class="why">審查:純乘法;opt_res=0 → μm 欄位填 0(sentinel)</span></div>
+<pre>L.GlobalPosX_um = (opt_res_x &gt; <span class="nu">0.0</span>) ? L.GlobalPosX * opt_res_x : <span class="nu">0.0</span>;
+L.GlobalPosY_um = (opt_res_y &gt; <span class="nu">0.0</span>) ? L.GlobalPosY * opt_res_y : <span class="nu">0.0</span>;
+L.CcdIndex      = ccd_index;   <span class="c">// 預留多 CCD,值固定 0</span></pre>
+      </div>
+      <div class="callout warn"><span class="t">follow-up</span>μm 欄位名/單位/精度為 IP 端片面提議,尚未與上位機確認(與 UpstreamServer 接真機同一條 follow-up)。</div>
+    </section>
+
+    <section id="recipe">
+      <h2>RecipeInfo.xml → ZoneConfig 對應</h2>
+      <p>每個 <code class="k">DetectRoi</code> 對應一個 zone。閾值欄位是 <code class="k">BrightThreshold</code>/<code class="k">DarkThreshold</code>(非 ThB/ThD)。</p>
+      <table>
+        <tr><th>DetectRoi(XML)</th><th>ZoneConfig</th><th>備註</th></tr>
+        <tr><td><code>StartX/Y/EndX/Y</code></td><td>zone rect</td><td>-1 = 全幅</td></tr>
+        <tr><td><code>BrightThreshold</code></td><td><code>BTH</code></td><td>比例域(例 1.4)</td></tr>
+        <tr><td><code>DarkThreshold</code></td><td><code>DTH</code></td><td>比例域(例 0.6)</td></tr>
+        <tr><td><code>PitchX / PitchY</code></td><td><code>pitch_x / pitch_y</code></td><td>偏 1~4px 即爆量</td></tr>
+        <tr><td><code>SearchX / SearchY</code></td><td><code>search_range_x/y</code></td><td><code>fast_search_range=clamp(SearchY,0,2)</code></td></tr>
+        <tr><td><code>AlgorithmCompare</code></td><td>—</td><td>只收 "DIV",SUB 拒絕</td></tr>
+      </table>
+    </section>
+
+    <section id="tcp">
+      <h2>TCP 協議(@8200,newline-delimited JSON)</h2>
+      <table class="cmdtable">
+        <tr><th>命令</th><th>用途</th></tr>
+        <tr><td>CHECK_HEALTH</td><td>健康檢查(IsBusy 時仍視為存活)</td></tr>
+        <tr><td>GET_STATUS</td><td>取狀態</td></tr>
+        <tr><td>LOAD_RECIPE</td><td>送 recipe_xml <strong>內容</strong>(network-clean),轉 ZoneConfig</td></tr>
+        <tr><td>SEND_IMAGE_FOR_REVIEW</td><td>送 Mono8 payload → 檢測 → deliver_result(60s 會合)</td></tr>
+        <tr><td>LIST_DEFECT_FOLDERS / SORT_DEFECTS</td><td>缺陷遠端歸檔</td></tr>
+        <tr><td>LIST_DEFECT_PATCHES / GET_DEFECT_PATCHES_BATCH</td><td>小圖 metadata / PNG bytes(base64)</td></tr>
+        <tr><td>SAVE_DEFECT_CLASSIFICATION</td><td>人工分類存回(TrueDefect/Particle)</td></tr>
+      </table>
+    </section>
+
+    <section id="output">
+      <h2>結果輸出</h2>
+      <div class="codecard">
+        <div class="head"><span class="path">輸出夾結構</span><span class="why">result_saver 產生</span></div>
+<pre>&lt;output&gt;/&lt;yyyyMMdd&gt;/&lt;panelId&gt;_&lt;recipeName&gt;/
+   Defect_&lt;IpName&gt;_Slice&lt;ff&gt;_Roi&lt;rr&gt;_Run&lt;nn&gt;_X&lt;..&gt;_Y&lt;..&gt;_Dr&lt;Bright|Dark&gt;.png
+   &lt;panelId&gt;_&lt;recipeName&gt;_ResultInfo.json / .xml
+   &lt;panelId&gt;_&lt;recipeName&gt;_result.png            <span class="c"># overlay(亮=紅/暗=藍)</span>
+&lt;output&gt;/_diag/&lt;yyyyMMdd&gt;.jsonl + incident_&lt;ts&gt;.json   <span class="c"># 行車紀錄(出事才落地)</span></pre>
+      </div>
+      <ul>
+        <li><strong>重測先清舊</strong>:存圖前無條件刪本層舊 <code class="k">Defect_*</code>(不動 classification.json)→ 避免 DefectSort 倍數疊加。</li>
+        <li><strong>RecipeSaving 閥門</strong>:<code class="k">max_save_defect_count</code> / <code class="k">save_width/height</code> / <code class="k">max_defect_count_pass</code>。</li>
+        <li><strong>FrameQueue 背壓</strong>:用 <code class="k">sysinfo().freeram</code> 算上限,滿則回 ERR「系統繁忙」,防 OOM。</li>
+        <li><strong>TuningRecipe</strong>:GPU 跑但跳過存圖(結果仍回傳),供快速調參。</li>
+      </ul>
+    </section>
+
+    <section id="inv">
+      <h2>關鍵不變式</h2>
+      <div class="callout inv"><span class="t">Kernel 禁改</span>cuda_kernels.cu / ai_kernels.cu 的 <code class="k">__global__</code> 本體 byte-exact 不改;host 編排可改。</div>
+      <div class="callout inv"><span class="t">同影像 bit-exact</span>兩跑結果完全相同(CCL 收斂 + canonical 排序);<code class="k">--verify-deterministic</code> 驗。</div>
+      <div class="callout inv"><span class="t">DIV-only</span>只收 <code class="k">AlgorithmCompare="DIV"</code>;SUB 拒絕載入並報錯。</div>
+      <div class="callout warn"><span class="t">Pitch 爆量陷阱</span>pitch 偏 1px → 30-50 缺陷;偏 4px → 561-1000;大偏差觸頂 10000。新面板先 FFT 估算。</div>
+      <div class="callout inv"><span class="t">AI 預設停用</span>模型載入但 <code class="k">ai_active=false</code>;缺陷標「待人工複核」進 DefectSort。<code class="k">--use-ai</code> 才開。</div>
+      <div class="callout inv"><span class="t">block_dim 固定 16×16</span>硬寫死,忽略 INI 的 [GPU] block_dim。實測 ~7.4ms/張,1 台 Spark 足夠。</div>
+      <div class="callout inv"><span class="t">行車紀錄純觀測</span>計時區外、bench no-op、不破 bit-exact;incident:cuda_fatal / frame_validation / recipe_load / bad_json / uncaught_exception。</div>
+    </section>
+
+    <section id="verify">
+      <h2>驗證狀態</h2>
+      <table>
+        <tr><th>項目</th><th>級別</th><th>證據</th></tr>
+        <tr><td>GPU 演算法(DIV-only)</td><td><span class="lbadge l4">L4</span></td><td>RTX2080S + GB10 實機;26 張真實面板 25/26 與 reference 一致</td></tr>
+        <tr><td>CCL 決定性</td><td><span class="lbadge l4">L4</span></td><td><code>--verify-deterministic</code> x86 &amp; GB10 全 bit-exact</td></tr>
+        <tr><td>跨架構一致性(x86↔ARM)</td><td><span class="lbadge l4">L4</span></td><td>整數/幾何完全一致,浮點邊界像素偶 ULP 翻面(偏保守)</td></tr>
+        <tr><td>結構化輸出 / DefectSort 遠端命令</td><td><span class="lbadge l3">L3</span></td><td>真機 offline + python client</td></tr>
+        <tr><td>行車紀錄</td><td><span class="lbadge l3">L3</span></td><td>RTX2080 五種 incident kind 全驗;GB10 待補</td></tr>
+        <tr><td>AI 推論</td><td><span class="lbadge l1">L1</span></td><td>模型載入但預設停用</td></tr>
+        <tr><td>rdma-validate / online / image-capture</td><td><span class="lbadge l3">L3</span> / <span class="lbadge l0">L0</span></td><td>rdma-validate L3;online/image-capture 未實作</td></tr>
+      </table>
+    </section>
+
+    <p class="src-note">來源:<code>docs/ip_程式完整說明.md</code>;程式碼片段取自 <code>ip/src/</code> 當前源碼樹。</p>
+
+  </div>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

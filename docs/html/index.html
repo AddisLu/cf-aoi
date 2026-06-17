@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CF-AOI 分散式架構 — 實作說明書</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html" class="active">總覽</a>
+    <a href="ip.html">IP</a>
+    <a href="control.html">Control</a>
+    <a href="grab.html">Grab</a>
+    <a href="tools.html">tools</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>本頁章節</h4>
+    <a href="#intro">系統定位</a>
+    <a href="#arch">三機架構</a>
+    <a href="#e2e">端到端數據流</a>
+    <a href="#steps">5 步驟驗證流程</a>
+    <a href="#proto">通訊協議速覽</a>
+    <a href="#modules">模組導航</a>
+    <a href="#status">實作狀態 L0–L4</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>CF-AOI 分散式 AOI 系統 — 實作說明書</h1>
+    <p class="lead">LCD 彩色濾光片(CF)自動光學檢測。本文件由 <code class="k">docs/*_程式完整說明.md</code> 轉製,
+    補上原型、數據流圖與可審查的真實源碼,供設計審查使用。</p>
+    <p class="muted">離線可用 · 純 HTML/CSS+SVG · 程式碼片段取自當前源碼樹</p>
+
+    <section id="intro">
+      <h2>系統定位</h2>
+      <p>系統把舊版單機 Windows(WinForms + MIL + GPU)拆成<strong>三台機器分工</strong>的分散式架構:
+      上位機下命令、Control 協調、Grab 取像、IP 在 GPU 上跑缺陷檢測。核心策略是從 <code class="k">Reference/</code>
+      遷移既有演算法(kernel 一字不改),只換 I/O 外殼。</p>
+      <div class="grid3">
+        <div class="card"><h3 style="margin-top:0">IP</h3><p style="margin:0">Linux / CUDA(→ DGX Spark GB10)。GPU 缺陷檢測引擎:8 方向鄰域 DIV 比例式閾值 + CCL + Blob。</p></div>
+        <div class="card"><h3 style="margin-top:0">Control</h3><p style="margin:0">C# / Avalonia(Mac·Win·Linux)。控制平面 + 操作 UI;接上位機、協調 Grab/IP。</p></div>
+        <div class="card"><h3 style="margin-top:0">Grab</h3><p style="margin:0">Linux / C++。相機擷取(pylon/eBUS)→ FrameHeader + CRC32 → RDMA 送 IP。</p></div>
+      </div>
+    </section>
+
+    <section id="arch">
+      <h2>三機架構</h2>
+      <p>上位機(另一台 PC,非 PLC)以文字命令驅動 Control;Control 對 Grab/IP 走 JSON;Grab 對 IP 走 RDMA 傳影像。</p>
+      <div class="card">
+        <svg viewBox="0 0 760 360" width="100%" style="max-width:760px;display:block;margin:auto" font-family="system-ui" font-size="13">
+          <defs>
+            <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#4a5a6a"/></marker>
+          </defs>
+          <!-- 上位機 -->
+          <rect x="280" y="14" width="200" height="46" rx="9" fill="#fff" stroke="#11203a" stroke-width="2"/>
+          <text x="380" y="34" text-anchor="middle" font-weight="700">上位機 Master PC</text>
+          <text x="380" y="51" text-anchor="middle" fill="#7c8a99" font-size="11">下命令 · 收結果</text>
+          <line x1="380" y1="60" x2="380" y2="96" stroke="#4a5a6a" stroke-width="2" marker-end="url(#ar)"/>
+          <text x="392" y="82" fill="#4a5a6a" font-size="11" font-family="monospace">TCP 8787 · CF_ 命令</text>
+          <!-- Control -->
+          <rect x="270" y="100" width="220" height="52" rx="9" fill="#e6f7f4" stroke="#0f9d8a" stroke-width="2"/>
+          <text x="380" y="122" text-anchor="middle" font-weight="700">CONTROL</text>
+          <text x="380" y="140" text-anchor="middle" fill="#0f7d6e" font-size="11">C# Avalonia · 控制平面 + UI</text>
+          <!-- 連到 Grab / IP -->
+          <line x1="320" y1="152" x2="170" y2="214" stroke="#4a5a6a" stroke-width="2" marker-end="url(#ar)"/>
+          <text x="150" y="190" fill="#4a5a6a" font-size="11" font-family="monospace">JSON 8100</text>
+          <line x1="440" y1="152" x2="590" y2="214" stroke="#4a5a6a" stroke-width="2" marker-end="url(#ar)"/>
+          <text x="560" y="190" fill="#4a5a6a" font-size="11" font-family="monospace">JSON 8200</text>
+          <!-- Grab -->
+          <rect x="60" y="218" width="210" height="52" rx="9" fill="#fdf0e2" stroke="#d9700a" stroke-width="2"/>
+          <text x="165" y="240" text-anchor="middle" font-weight="700">GRAB</text>
+          <text x="165" y="258" text-anchor="middle" fill="#a8560a" font-size="11">Linux · 相機擷取</text>
+          <!-- IP -->
+          <rect x="490" y="218" width="210" height="52" rx="9" fill="#eaf1ff" stroke="#2f6df0" stroke-width="2"/>
+          <text x="595" y="240" text-anchor="middle" font-weight="700">IP</text>
+          <text x="595" y="258" text-anchor="middle" fill="#1e4fb8" font-size="11">Linux · RTX2080 / GB10</text>
+          <!-- RDMA -->
+          <line x1="270" y1="244" x2="490" y2="244" stroke="#d6453d" stroke-width="2.5" marker-end="url(#ar)"/>
+          <text x="380" y="236" text-anchor="middle" fill="#d6453d" font-size="11.5" font-weight="700" font-family="monospace">RDMA RoCE v2</text>
+          <text x="380" y="262" text-anchor="middle" fill="#d6453d" font-size="10.5">FrameHeader 256B + payload</text>
+          <!-- 相機 -->
+          <rect x="60" y="306" width="210" height="40" rx="9" fill="#fff" stroke="#c4ccd6" stroke-width="1.5"/>
+          <text x="165" y="330" text-anchor="middle" fill="#4a5a6a" font-size="12">Basler raL8192 相機陣列</text>
+          <line x1="165" y1="306" x2="165" y2="272" stroke="#4a5a6a" stroke-width="2" marker-end="url(#ar)"/>
+        </svg>
+      </div>
+    </section>
+
+    <section id="e2e">
+      <h2>端到端數據流 — 一塊 panel 的生命週期</h2>
+      <p>從上位機載入配方到回傳結果,一塊面板走過的完整路徑:</p>
+      <div class="flow flow-v">
+        <div class="node accent"><div class="n-t">① 上位機 → Control:<code class="k">CF_LOAD_RECIPE</code></div><div class="n-d">recipe / panelId / detectMode(8787,9 參數)</div></div>
+        <div class="arrow-v lab"><span class="al">Control 讀 RecipeInfo.xml</span></div>
+        <div class="node"><div class="n-t">② Control → IP:<code class="k">LOAD_RECIPE</code>(JSON 8200)</div><div class="n-d">送 <strong>XML 內容</strong>(非路徑,network-clean);IP 轉 ZoneConfig,DIV-only 強制</div></div>
+        <div class="arrow-v lab"><span class="al">CF_GRAB_START</span></div>
+        <div class="node"><div class="n-t">③ Control → Grab:<code class="k">GRAB_START</code>(JSON 8100)</div><div class="n-d">Grab 開相機,狀態 IDLE → GRABBING</div></div>
+        <div class="arrow-v lab"><span class="al">RDMA WRITE_IMM</span></div>
+        <div class="node hot"><div class="n-t">④ Grab → IP:影像幀(RDMA RoCE v2)</div><div class="n-d">FrameHeader(magic 0xA01CF00D)+ Mono8 payload + CRC32;N-slot ring + credit 背壓</div></div>
+        <div class="arrow-v lab"><span class="al">收圖驗證 magic/CRC</span></div>
+        <div class="node accent"><div class="n-t">⑤ IP GPU 檢測</div><div class="n-d">8-way DIV → CCL 收斂 → Blob → (AI 停用)→ canonical 排序 → InspectionResult</div></div>
+        <div class="arrow-v lab"><span class="al">result_saver 落地</span></div>
+        <div class="node"><div class="n-t">⑥ 輸出:ResultInfo.json/.xml + Defect_*.png + overlay</div><div class="n-d"><code class="k">&lt;output&gt;/&lt;yyyyMMdd&gt;/&lt;panelId&gt;_&lt;recipe&gt;/</code></div></div>
+        <div class="arrow-v lab"><span class="al">CF_GET_RESULT</span></div>
+        <div class="node"><div class="n-t">⑦ 上位機 ← Control:結果路徑 + 缺陷數</div><div class="n-d">OK/NG 判定:<code class="k">DefectCnt==0</code> 即 PASS</div></div>
+      </div>
+      <div class="callout info"><span class="t">network-clean(跨模組不變式)</span>
+      Control↔IP 跨機不共用檔案系統:配方傳 XML 內容、結果 JSON 與缺陷小圖 PNG bytes 皆 over TCP 回傳。
+      Grab↔IP 影像走 RDMA。</div>
+    </section>
+
+    <section id="steps">
+      <h2>5 步驟驗證流程</h2>
+      <table>
+        <tr><th>步驟</th><th>Control</th><th>Grab</th><th>IP 模式</th><th>目的</th></tr>
+        <tr><td>1</td><td>offline 連線</td><td>—</td><td><code>offline-tcp</code></td><td>演算法驗證(MIL 影像)</td></tr>
+        <tr><td>2</td><td>validate</td><td><code>--cam-count 1</code></td><td><code>rdma-validate</code></td><td>單 CCD 傳輸</td></tr>
+        <tr><td>3</td><td>validate</td><td><code>--cam-count ALL</code></td><td><code>rdma-validate</code></td><td>全陣列 + Switch</td></tr>
+        <tr><td>4</td><td>full + 上位機</td><td><code>ALL</code></td><td><code>image-capture</code></td><td>存圖調 Recipe</td></tr>
+        <tr><td>5</td><td>full + 上位機</td><td><code>ALL</code></td><td><code>online</code></td><td>完整生產</td></tr>
+      </table>
+      <p class="muted">Step 4 → Step 1 閉環:image-capture 存的 TIFF 用於 Step 1 調 Recipe,保證 offline = inline。</p>
+    </section>
+
+    <section id="proto">
+      <h2>通訊協議速覽</h2>
+      <div class="grid3">
+        <div class="card">
+          <h3 style="margin-top:0">上位機 → Control</h3>
+          <p><span class="pill">TCP 8787</span></p>
+          <p>文字命令、<code class="k">CF_</code> 前綴、<code class="k">|</code> 分隔、<code class="k">\r\n</code> 結尾,9 參數回應。</p>
+          <p class="muted"><code>CF_LOAD_RECIPE</code> / <code>CF_GRAB_START</code> / <code>CF_CHECK_ALIGN</code> / <code>CF_SET_ALIGN</code> / <code>CF_GET_RESULT</code></p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">Control ↔ Grab / IP</h3>
+          <p><span class="pill">TCP 8100 / 8200</span></p>
+          <p>newline-delimited JSON:<code class="k">{"cmd":..,"seq":..,"params":{..}}</code></p>
+          <p class="muted">LOAD_RECIPE / SEND_IMAGE_FOR_REVIEW / LIST/SORT 缺陷 / CHECK_HEALTH …</p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">Grab → IP 影像</h3>
+          <p><span class="pill">RDMA RoCE v2</span></p>
+          <p>FrameHeader 256B(magic <code class="k">0xA01CF00D</code>,version 2)+ Mono8 payload + CRC32。</p>
+          <p class="muted">N-slot ring buffer + credit 背壓;2026-06-11 實機 CRC 驗通。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="modules">
+      <h2>模組導航</h2>
+      <div class="grid2">
+        <a class="card modcard" href="ip.html" style="--c:#2f6df0">
+          <span class="tag">ip/ · CUDA / C++</span>
+          <h3>IP — GPU 檢測引擎</h3>
+          <p>12 階段檢測 pipeline、DIV 比例式 kernel、CCL 收斂迴圈與決定性、RecipeInfo→ZoneConfig、結果輸出。</p>
+          <p><span class="lbadge l4">L4</span> <span class="muted">演算法/CCL/跨架構於 GB10 實機驗證</span></p>
+        </a>
+        <a class="card modcard" href="control.html" style="--c:#0f9d8a">
+          <span class="tag">control/ · C# Avalonia</span>
+          <h3>Control — 控制平面 + UI</h3>
+          <p>5 個 UI 原型、RecipeStore 單一資料來源、上位機 CF_ 協議、DefectSort network-clean 分類。</p>
+          <p><span class="lbadge l1">L1</span>–<span class="lbadge l3">L3</span> <span class="muted">混合;UpstreamServer 待接真機</span></p>
+        </a>
+        <a class="card modcard" href="grab.html" style="--c:#d9700a">
+          <span class="tag">grab/ · C++ pylon</span>
+          <h3>Grab — 相機擷取 + RDMA</h3>
+          <p>取像→RDMA pipeline、N-slot ring + credit 背壓握手、FrameHeader 組裝、GB10 cudaHostAlloc。</p>
+          <p><span class="lbadge l4">L4</span> <span class="muted">單相機 pylon→RDMA;多相機 L0</span></p>
+        </a>
+        <a class="card modcard" href="tools.html" style="--c:#8a4fd6">
+          <span class="tag">tools/ · C++ OpenCV</span>
+          <h3>tools — golden_maker</h3>
+          <p>對位 Golden Pattern 製作(GUI 框選 / CLI),輸出 AlignRoi XML 片段,接 Gap #1 對位 pipeline。</p>
+          <p><span class="lbadge l3">L3</span> <span class="muted">對位 pipeline 於 GB10 驗通</span></p>
+        </a>
+      </div>
+    </section>
+
+    <section id="status">
+      <h2>實作狀態 L0–L4</h2>
+      <div class="legend">
+        <span style="color:#9aa6b3">L0 未實作</span>
+        <span style="color:#d6453d">L1 已寫碼</span>
+        <span style="color:#d98a00">L2 單元自測</span>
+        <span style="color:#2f8fd6">L3 端到端</span>
+        <span style="color:#1f9d55">L4 真實外部系統</span>
+      </div>
+      <table>
+        <tr><th>層</th><th>平台</th><th>整體狀態</th></tr>
+        <tr><td>Control</td><td>C# / Avalonia</td><td><span class="lbadge l1">L1</span>–<span class="lbadge l3">L3</span> 混合(UI 多 L2,UpstreamServer L1 待真機)</td></tr>
+        <tr><td>Grab</td><td>Linux / C++</td><td>單相機路徑 <span class="lbadge l4">L4</span>;多相機全陣列 <span class="lbadge l0">L0</span>(待 Switch)</td></tr>
+        <tr><td>IP</td><td>Linux / CUDA</td><td><span class="lbadge l4">L4</span>(GB10 sm_121 實機:運算正確性 + 跨架構一致性 + 速度)</td></tr>
+      </table>
+      <p class="muted">完整 L0–L4 逐項分級、Gap #1–#33 缺口表見 <a class="inl" href="../STATUS.md">docs/STATUS.md</a>。</p>
+    </section>
+
+    <p class="src-note">來源:<code>docs/ip_程式完整說明.md</code>、<code>control_程式完整說明.md</code>、<code>grab_程式完整說明.md</code>、<code>tools_程式完整說明.md</code>
+    + <code>docs/CLAUDE.md</code> / <code>STATUS.md</code>。本文件忠實轉製,未杜撰內容。</p>
+
+  </div>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

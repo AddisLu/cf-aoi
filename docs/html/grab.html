@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grab — 相機擷取 + RDMA | CF-AOI</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="theme-grab">
+
+<header class="topbar">
+  <div class="brand">CF-AOI <small>分散式 AOI 實作說明書</small></div>
+  <nav>
+    <a href="index.html">總覽</a>
+    <a href="ip.html">IP</a>
+    <a href="control.html">Control</a>
+    <a href="grab.html" class="active">Grab</a>
+    <a href="tools.html">tools</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>Grab 模組</h4>
+    <a href="#overview">系統概述</a>
+    <a href="#arch">分層架構</a>
+    <a href="#pipeline">取像 → RDMA pipeline</a>
+    <a href="#backpressure">背壓握手時序</a>
+    <a href="#code">可審查程式碼</a>
+    <a href="#tcp">TCP 協議</a>
+    <a href="#inv">關鍵不變式</a>
+    <a href="#verify">平台 + 驗證</a>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <h1>Grab — 相機擷取 + RDMA 發送</h1>
+    <p class="lead">取像節點:pylon 相機 → FrameHeader + CRC32 → RDMA N-slot ring → IP(Spark)。
+    無 UI,全命令驅動(TCP JSON @8100)。單相機 pylon 路徑已實機驗通(CRC 20/20)。</p>
+    <p class="muted">grab/ · C++17 / pylon / RoCE v2 / nlohmann_json · 來源:docs/grab_程式完整說明.md</p>
+
+    <section id="overview">
+      <h2>系統概述</h2>
+      <p>從 <code class="k">Reference/cfaoi_phase1</code>(測試套件:單 buffer、逐幀同步、無背壓)升級成生產等級:
+      N-slot ring buffer + MrInfoEx 握手 + credit 背壓 + 狀態機 + TCP 控制面。</p>
+      <div class="callout inv"><span class="t">pylon / eBUS 嚴格分離</span><code class="k">cam_pylon.cpp</code> 與(未來)<code class="k">cam_ebus.cpp</code> 禁止互相 include — 不同廠商 SDK 可能全域狀態衝突。</div>
+    </section>
+
+    <section id="arch">
+      <h2>分層架構</h2>
+      <div class="arch-layer"><div class="lh">main.cpp — 進入點 / 狀態機(IDLE ↔ GRABBING)</div><div class="lb">parse CLI → 建 CamPylon / RdmaSender / ControlServer → callback 串接</div></div>
+      <div class="grid2" style="margin-top:8px">
+        <div class="arch-layer"><div class="lh">control_server.h — TCP JSON @8100</div><div class="lb">CHECK_HEALTH / LOAD_RECIPE / GRAB_START / GRAB_STOP</div></div>
+        <div class="arch-layer"><div class="lh">cam_pylon.h — pylon grab thread</div><div class="lb">MaxNumBuffer=16 / RetrieveResult / drop 偵測 / FPS 統計</div></div>
+      </div>
+      <div class="arrow-v"></div>
+      <div class="arch-layer accent" style="border-color:var(--accent)"><div class="lh">rdma_sender.h + rdma_common.h</div><div class="lb">FrameHeader 手填 + N-slot 定址 + post_write_imm + <strong>poll_one()(背壓點)</strong></div></div>
+      <div class="arrow-v lab"><span class="al">RoCE WRITE_IMM</span></div>
+      <div class="arch-layer dim"><div class="lh">wire layer(shared/FrameHeader.h)</div><div class="lb">256B, magic 0xA01CF00D, version 2</div></div>
+    </section>
+
+    <section id="pipeline">
+      <h2>取像 → RDMA pipeline</h2>
+      <div class="flow flow-v">
+        <div class="node"><div class="n-t">相機 GigE(raL8192-12gm @192.168.5.1)</div><div class="n-d">Mono8;MTU 9000(GigE jumbo)</div></div>
+        <div class="arrow-v lab"><span class="al">grab_loop()</span></div>
+        <div class="node"><div class="n-t">cam_pylon 取像迴圈</div><div class="n-d">MaxNumBuffer=16;RetrieveResult(2000ms);drop 偵測(BlockID + SkippedImages);每 5s 印 FPS</div></div>
+        <div class="arrow-v lab"><span class="al">frame_callback</span></div>
+        <div class="node"><div class="n-t">main:++frame_seq → sender.send_frame</div></div>
+        <div class="arrow-v lab"><span class="al">手填 FrameHeader</span></div>
+        <div class="node accent"><div class="n-t">FrameHeader(256B)+ CRC32 → txbuf</div><div class="n-d">magic 0xA01CF00D / frameSeq u64 / crc32_ieee(payload)</div></div>
+        <div class="arrow-v lab"><span class="al">slot_id = seq % n_slots</span></div>
+        <div class="node accent"><div class="n-t">N-slot 定址 → post_write_imm(imm=seq)</div><div class="n-d">write_addr = addr + slot_id × slot_size</div></div>
+        <div class="arrow-v lab"><span class="al">★ poll_one() 背壓點</span></div>
+        <div class="node hot"><div class="n-t">poll_one():等 NIC 送完;RNR 時阻塞</div><div class="n-d">rnr_retry_count=7=∞ → IP credit 耗盡時自然背壓(FPS↓)</div></div>
+        <div class="arrow-v lab"><span class="al">RoCE v2 over 100G DAC</span></div>
+        <div class="node"><div class="n-t">IP rdma_source:recv → memcpy → push_blocking → post_recv</div><div class="n-d">順序不可換(credit 背壓正確性)</div></div>
+      </div>
+    </section>
+
+    <section id="backpressure">
+      <h2>背壓握手時序(Grab ↔ IP credit / RNR)</h2>
+      <div class="card">
+        <svg viewBox="0 0 720 340" width="100%" style="max-width:720px;display:block;margin:auto" font-family="system-ui" font-size="12.5">
+          <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#4a5a6a"/></marker></defs>
+          <!-- lifelines -->
+          <text x="150" y="20" text-anchor="middle" font-weight="700" fill="#d9700a">Grab</text>
+          <text x="560" y="20" text-anchor="middle" font-weight="700" fill="#2f6df0">IP</text>
+          <line x1="150" y1="28" x2="150" y2="320" stroke="#c4ccd6" stroke-width="1.5"/>
+          <line x1="560" y1="28" x2="560" y2="320" stroke="#c4ccd6" stroke-width="1.5"/>
+          <!-- T0 -->
+          <text x="20" y="52" fill="#7c8a99">T0</text>
+          <text x="560" y="52" text-anchor="middle" fill="#1f9d55" font-size="11">預掛 4 post_recv(4 credit)</text>
+          <!-- frame1 -->
+          <text x="20" y="84" fill="#7c8a99">T1</text>
+          <line x1="150" y1="78" x2="560" y2="92" stroke="#1f9d55" stroke-width="2" marker-end="url(#a2)"/>
+          <text x="355" y="78" text-anchor="middle" fill="#1f9d55" font-size="11">frame_1 WRITE_IMM → 成功</text>
+          <text x="560" y="110" text-anchor="middle" fill="#4a5a6a" font-size="10.5">memcpy→push→post_recv ✓</text>
+          <!-- frame2 push 滿 -->
+          <text x="20" y="146" fill="#7c8a99">T2</text>
+          <line x1="150" y1="140" x2="560" y2="152" stroke="#d98a00" stroke-width="2" marker-end="url(#a2)"/>
+          <text x="355" y="138" text-anchor="middle" fill="#d98a00" font-size="11">frame_2 → push 阻塞(queue 滿)</text>
+          <text x="560" y="170" text-anchor="middle" fill="#d98a00" font-size="10.5">post_recv 延遲 → credit 耗盡</text>
+          <!-- frame3 RNR -->
+          <text x="20" y="206" fill="#7c8a99">T3</text>
+          <line x1="150" y1="200" x2="430" y2="208" stroke="#d6453d" stroke-width="2" marker-end="url(#a2)"/>
+          <path d="M430,208 Q470,212 430,224" fill="none" stroke="#d6453d" stroke-width="2" marker-end="url(#a2)"/>
+          <text x="290" y="198" text-anchor="middle" fill="#d6453d" font-size="11">frame_3 → RNR(無 credit)</text>
+          <text x="150" y="244" text-anchor="middle" fill="#d6453d" font-size="10.5">poll_one() 阻塞 → FPS↓</text>
+          <!-- recover -->
+          <text x="20" y="284" fill="#7c8a99">T4</text>
+          <text x="560" y="278" text-anchor="middle" fill="#1f9d55" font-size="11">consumer pop → push 解阻 → post_recv</text>
+          <line x1="560" y1="290" x2="150" y2="300" stroke="#1f9d55" stroke-width="2" marker-end="url(#a2)"/>
+          <text x="355" y="316" text-anchor="middle" fill="#1f9d55" font-size="11">credit 恢復 → Grab poll_one 返回 → 繼續送</text>
+        </svg>
+      </div>
+      <div class="callout inv"><span class="t">背壓鏈</span>process_image 慢 → FrameQueue 滿 → push_blocking 阻塞 → 不 post_recv → Grab RNR → Grab poll_one 阻塞。
+      實測:連續 120 幀 CRC 全對;背壓 20 幀 ok=20 err=0(Grab 降至 9.6fps 而非斷線)。</div>
+    </section>
+
+    <section id="code">
+      <h2>可審查程式碼(真實源碼)</h2>
+
+      <h3>① FrameHeader 手填 + CRC32</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">grab/src/rdma_sender.cpp:50–73</span><span class="why">審查:frameSeq 須 u64、CRC 對 payload、memcpy 順序</span></div>
+<pre><span class="c">// 手填 FrameHeader(不用 make_frame_header,因 frameSeq 需 uint64)</span>
+<span class="ty">FrameHeader</span> h{};
+h.magic        = FRAME_MAGIC;        <span class="c">// 0xA01CF00D</span>
+h.version      = FRAME_VERSION;      <span class="c">// 2</span>
+h.headerBytes  = <span class="kw">sizeof</span>(<span class="ty">FrameHeader</span>);
+h.frameSeq     = frame_seq;
+h.panelId      = panel_id_hash;
+h.width = width; h.height = height; h.bitDepth = <span class="nu">8</span>; h.pixelFormat = <span class="nu">0</span>;
+h.payloadBytes = payload_bytes;
+h.crc32        = <span class="fn">crc32_ieee</span>(payload, payload_bytes);
+<span class="c">// [FrameHeader(256B) || payload] → txbuf</span>
+<span class="fn">memcpy</span>(txbuf_.<span class="fn">data</span>(), &amp;h, <span class="kw">sizeof</span>(h));
+<span class="fn">memcpy</span>(txbuf_.<span class="fn">data</span>() + <span class="kw">sizeof</span>(h), payload, payload_bytes);</pre>
+      </div>
+
+      <h3>② N-slot 定址 + poll_one 背壓點</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">grab/src/rdma_sender.cpp:77–87</span><span class="why">審查:slot 循環 + RNR 無限重試 → 自然背壓</span></div>
+<pre><span class="c">// N-slot 定址 — slot_id = frame_seq % n_slots,write_addr 落對應 slot</span>
+<span class="c">// 背壓:IP post_recv credit 耗盡 → WRITE_WITH_IMM 觸 RNR(rnr_retry_count=7=∞)</span>
+<span class="ty">uint32_t</span> slot_id    = (<span class="ty">uint32_t</span>)(frame_seq % remote_.n_slots);
+<span class="ty">uint64_t</span> write_addr = remote_.addr + (<span class="ty">uint64_t</span>)slot_id * remote_.slot_size;
+
+<span class="ty">uint32_t</span> total = (<span class="ty">uint32_t</span>)(<span class="kw">sizeof</span>(h) + payload_bytes);
+<span class="kw">try</span> {
+    conn_.<span class="fn">post_write_imm</span>(mr_, txbuf_.<span class="fn">data</span>(), total,
+                         write_addr, remote_.rkey, (<span class="ty">uint32_t</span>)frame_seq);
+    conn_.<span class="fn">poll_one</span>();  <span class="c">// 等 NIC 送完;RNR 時此處阻塞 ← 背壓點</span>
+} <span class="kw">catch</span> (<span class="kw">const</span> <span class="ty">std::exception</span>&amp; e) { ... }</pre>
+      </div>
+
+      <h3>③ MrInfoEx 握手結構(256B wire)</h3>
+      <div class="codecard">
+        <div class="head"><span class="path">grab/src/rdma_common.h:45–54</span><span class="why">審查:IP 告知 ring 基底/rkey/n_slots/slot_size;static_assert 256B</span></div>
+<pre><span class="kw">struct</span> <span class="ty">MrInfoEx</span> {
+    <span class="ty">uint64_t</span> addr;       <span class="c">// N-slot ring 基底(cudaHostAlloc pinned)</span>
+    <span class="ty">uint32_t</span> rkey;       <span class="c">// 整塊 buffer RDMA 授權(一個 MR 涵蓋全部 slot)</span>
+    <span class="ty">uint32_t</span> len;        <span class="c">// = n_slots * slot_size</span>
+    <span class="ty">uint32_t</span> crc;        <span class="c">// 未使用(對齊舊 MrInfo)</span>
+    <span class="ty">uint32_t</span> n_slots;    <span class="c">// ring 深度(預設 4)</span>
+    <span class="ty">uint32_t</span> slot_size;  <span class="c">// = sizeof(FrameHeader) + max_payload</span>
+    <span class="ty">uint8_t</span>  pad[<span class="nu">228</span>];   <span class="c">// 對齊至 256 bytes</span>
+};
+<span class="kw">static_assert</span>(<span class="kw">sizeof</span>(<span class="ty">MrInfoEx</span>) == <span class="nu">256</span>, <span class="st">"MrInfoEx must be 256 bytes"</span>);</pre>
+      </div>
+      <div class="callout warn"><span class="t">GB10 cudaHostAlloc(不變式)</span>GB10(DGX Spark)RDMA 收圖<strong>不可用 nvidia_peermem</strong>(NVLink-C2C SoC GPU Bus ID 非標準 PCIe)。
+      IP 端 ring buffer 改用 <code class="k">cudaHostAlloc(Portable|Mapped)</code>,GPU 經 <code class="k">cudaHostGetDevicePointer</code> 透過 NVLink-C2C(~900GB/s)讀寫。Grab 端 txbuf 為一般 host 記憶體,不受影響。</div>
+    </section>
+
+    <section id="tcp">
+      <h2>TCP 協議(@8100,newline-delimited JSON)</h2>
+      <table class="cmdtable">
+        <tr><th>命令</th><th>用途</th></tr>
+        <tr><td>CHECK_HEALTH</td><td>附 data:grabbing / grabbed / dropped / sent_frames / sent_bytes</td></tr>
+        <tr><td>LOAD_RECIPE</td><td>更新 panel_id + FNV hash(不取像)</td></tr>
+        <tr><td>GRAB_START</td><td>timeout_ms;callback 開相機 + RDMA connect → GRABBING</td></tr>
+        <tr><td>GRAB_STOP</td><td>停止取像 → IDLE</td></tr>
+        <tr><td>SET_CAM_PARAMS / GET_CAM_PARAMS</td><td>曝光/增益(Gap #2;持久化 cam_config.json)</td></tr>
+      </table>
+    </section>
+
+    <section id="inv">
+      <h2>關鍵不變式(8 條)</h2>
+      <div class="grid2">
+        <div class="callout inv"><span class="t">1 · pylon/eBUS 分離</span>禁止互相 include。</div>
+        <div class="callout inv"><span class="t">2 · FrameHeader 永不變</span>256B,magic 0xA01CF00D,version 2,與 IP 同版。</div>
+        <div class="callout inv"><span class="t">3 · 無 UI</span>全命令驅動(TCP 8100 或 CLI)。</div>
+        <div class="callout inv"><span class="t">4 · RoCE v2 必須</span>RDMA NIC link_layer = Ethernet(非 IB)。</div>
+        <div class="callout inv"><span class="t">5 · MTU 區分</span>相機 NIC 9000(GigE jumbo);RDMA NIC 不需 jumbo。</div>
+        <div class="callout inv"><span class="t">6 · GB10 禁 nvidia_peermem</span>改 cudaHostAlloc(Portable|Mapped);IP 端改,Grab 無需改。</div>
+        <div class="callout inv"><span class="t">7 · N-slot + credit 背壓</span>slot_id = seq % n_slots;poll_one() 背壓點。</div>
+        <div class="callout inv"><span class="t">8 · IP credit 順序不可換</span>memcpy → push_blocking → post_recv 固定;先 post_recv 會掩蓋背壓。</div>
+      </div>
+    </section>
+
+    <section id="verify">
+      <h2>平台 + 驗證狀態</h2>
+      <p class="muted">截取中心 damac(Ryzen 7700 + ConnectX-5)↔ DGX Spark(GB10);相機 Basler raL8192-12gm;100G DAC RoCE v2。</p>
+      <table>
+        <tr><th>項目</th><th>級別</th><th>證據</th></tr>
+        <tr><td>單相機 pylon→RDMA→Spark</td><td><span class="lbadge l4">L4</span></td><td>2026-06-15 Step 2:CRC 20/20,FAIL=0</td></tr>
+        <tr><td>N-slot ring + 背壓(合成幀)</td><td><span class="lbadge l3">L3</span></td><td>2026-06-17:120 幀 CRC 全對;背壓 20 幀 ok=20</td></tr>
+        <tr><td>Control↔Grab 8100 接線</td><td><span class="lbadge l1">L1</span></td><td>nc hardcode 觸發;未接真 Control UI</td></tr>
+        <tr><td>Gap #2 曝光/增益參數</td><td><span class="lbadge l3">L3</span></td><td>actual 誤差 0%;光度 ratio exp 2.314 / gain 2.267</td></tr>
+        <tr><td>多相機全陣列 / eBUS / mac_ip_binder</td><td><span class="lbadge l0">L0</span></td><td>未實作;Step 3 待 SN2201 Switch</td></tr>
+      </table>
+    </section>
+
+    <p class="src-note">來源:<code>docs/grab_程式完整說明.md</code>;程式碼片段取自 <code>grab/src/</code> 當前源碼樹。</p>
+
+  </div>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
