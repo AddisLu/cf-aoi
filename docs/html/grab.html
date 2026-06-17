@@ -50,13 +50,14 @@
 
     <section id="arch">
       <h2>分層架構</h2>
-      <div class="arch-layer"><div class="lh">main.cpp — 進入點 / 狀態機(IDLE ↔ GRABBING)</div><div class="lb">parse CLI → 建 CamPylon / RdmaSender / ControlServer → callback 串接</div></div>
+      <p class="vsnote">💡 各層的<strong>檔名可點擊</strong> → 以 VS Code 開啟對應源碼(需本機 clone 於 <code>/Users/yourulyu/coding/cf-aoi</code>)。</p>
+      <div class="arch-layer"><div class="lh"><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/main.cpp">main.cpp ↗</a> — 進入點 / 狀態機(IDLE ↔ GRABBING)</div><div class="lb">parse CLI → 建 CamPylon / RdmaSender / ControlServer → callback 串接</div></div>
       <div class="grid2" style="margin-top:8px">
-        <div class="arch-layer"><div class="lh">control_server.h — TCP JSON @8100</div><div class="lb">CHECK_HEALTH / LOAD_RECIPE / GRAB_START / GRAB_STOP</div></div>
-        <div class="arch-layer"><div class="lh">cam_pylon.h — pylon grab thread</div><div class="lb">MaxNumBuffer=16 / RetrieveResult / drop 偵測 / FPS 統計</div></div>
+        <div class="arch-layer"><div class="lh"><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/control_server.cpp">control_server ↗</a> — TCP JSON @8100</div><div class="lb">CHECK_HEALTH / LOAD_RECIPE / GRAB_START / GRAB_STOP</div></div>
+        <div class="arch-layer"><div class="lh"><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/cam_pylon.cpp">cam_pylon ↗</a> — pylon grab thread</div><div class="lb">MaxNumBuffer=16 / RetrieveResult / drop 偵測 / FPS 統計</div></div>
       </div>
       <div class="arrow-v"></div>
-      <div class="arch-layer accent" style="border-color:var(--accent)"><div class="lh">rdma_sender.h + rdma_common.h</div><div class="lb">FrameHeader 手填 + N-slot 定址 + post_write_imm + <strong>poll_one()(背壓點)</strong></div></div>
+      <div class="arch-layer accent" style="border-color:var(--accent)"><div class="lh"><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/rdma_sender.cpp">rdma_sender.cpp ↗</a> + <a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/rdma_common.h">rdma_common.h ↗</a></div><div class="lb">FrameHeader 手填 + N-slot 定址 + post_write_imm + <strong>poll_one()(背壓點)</strong></div></div>
       <div class="arrow-v lab"><span class="al">RoCE WRITE_IMM</span></div>
       <div class="arch-layer dim"><div class="lh">wire layer(shared/FrameHeader.h)</div><div class="lb">256B, magic 0xA01CF00D, version 2</div></div>
     </section>
@@ -122,10 +123,11 @@
 
     <section id="code">
       <h2>可審查程式碼(真實源碼)</h2>
+      <p class="vsnote">💡 點各程式碼卡標頭的 <code>檔名:行號 ↗</code> → 以 <strong>VS Code</strong> 開啟該檔對應行(需本機 clone 於 <code>/Users/yourulyu/coding/cf-aoi</code>)。</p>
 
       <h3>① FrameHeader 手填 + CRC32</h3>
       <div class="codecard">
-        <div class="head"><span class="path">grab/src/rdma_sender.cpp:50–73</span><span class="why">審查:frameSeq 須 u64、CRC 對 payload、memcpy 順序</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/rdma_sender.cpp:50" title="在 VS Code 開啟">grab/src/rdma_sender.cpp:50–73 ↗</a><span class="why">審查:frameSeq 須 u64、CRC 對 payload、memcpy 順序</span></div>
 <pre><span class="c">// 手填 FrameHeader(不用 make_frame_header,因 frameSeq 需 uint64)</span>
 <span class="ty">FrameHeader</span> h{};
 h.magic        = FRAME_MAGIC;        <span class="c">// 0xA01CF00D</span>
@@ -143,7 +145,7 @@ h.crc32        = <span class="fn">crc32_ieee</span>(payload, payload_bytes);
 
       <h3>② N-slot 定址 + poll_one 背壓點</h3>
       <div class="codecard">
-        <div class="head"><span class="path">grab/src/rdma_sender.cpp:77–87</span><span class="why">審查:slot 循環 + RNR 無限重試 → 自然背壓</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/rdma_sender.cpp:77" title="在 VS Code 開啟">grab/src/rdma_sender.cpp:77–87 ↗</a><span class="why">審查:slot 循環 + RNR 無限重試 → 自然背壓</span></div>
 <pre><span class="c">// N-slot 定址 — slot_id = frame_seq % n_slots,write_addr 落對應 slot</span>
 <span class="c">// 背壓:IP post_recv credit 耗盡 → WRITE_WITH_IMM 觸 RNR(rnr_retry_count=7=∞)</span>
 <span class="ty">uint32_t</span> slot_id    = (<span class="ty">uint32_t</span>)(frame_seq % remote_.n_slots);
@@ -159,7 +161,7 @@ h.crc32        = <span class="fn">crc32_ieee</span>(payload, payload_bytes);
 
       <h3>③ MrInfoEx 握手結構(256B wire)</h3>
       <div class="codecard">
-        <div class="head"><span class="path">grab/src/rdma_common.h:45–54</span><span class="why">審查:IP 告知 ring 基底/rkey/n_slots/slot_size;static_assert 256B</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/grab/src/rdma_common.h:45" title="在 VS Code 開啟">grab/src/rdma_common.h:45–54 ↗</a><span class="why">審查:IP 告知 ring 基底/rkey/n_slots/slot_size;static_assert 256B</span></div>
 <pre><span class="kw">struct</span> <span class="ty">MrInfoEx</span> {
     <span class="ty">uint64_t</span> addr;       <span class="c">// N-slot ring 基底(cudaHostAlloc pinned)</span>
     <span class="ty">uint32_t</span> rkey;       <span class="c">// 整塊 buffer RDMA 授權(一個 MR 涵蓋全部 slot)</span>

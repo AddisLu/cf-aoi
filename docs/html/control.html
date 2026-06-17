@@ -51,11 +51,12 @@
 
     <section id="arch">
       <h2>分層架構</h2>
+      <p class="vsnote">💡 各層的<strong>檔名可點擊</strong> → 以 VS Code 開啟對應源碼(需本機 clone 於 <code>/Users/yourulyu/coding/cf-aoi</code>)。</p>
       <div class="arch-layer"><div class="lh">① UI(Views + ViewModels,MVVM)</div><div class="lb">Avalonia .axaml + CommunityToolkit.Mvvm;<code class="k">[ObservableProperty]</code> / <code class="k">[RelayCommand]</code></div></div>
       <div class="arrow-v"></div>
-      <div class="arch-layer"><div class="lh">② Services(DI 注入)</div><div class="lb">RecipeStore / RecipeService / OfflineReviewService / PitchEstimator / LogService</div></div>
+      <div class="arch-layer"><div class="lh">② Services(DI 注入)</div><div class="lb"><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Services/RecipeStore.cs">RecipeStore ↗</a> / RecipeService / OfflineReviewService / PitchEstimator / LogService</div></div>
       <div class="arrow-v"></div>
-      <div class="arch-layer"><div class="lh">③ Controllers(TCP,平台無關)</div><div class="lb">UpstreamServer(CF_@8787)/ IpClient(8200)/ GrabClient(8100)/ ConnectionManager(心跳)</div></div>
+      <div class="arch-layer"><div class="lh">③ Controllers(TCP,平台無關)</div><div class="lb"><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Controllers/UpstreamServer.cs">UpstreamServer ↗</a>(CF_@8787)/ <a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Controllers/IpClient.cs">IpClient ↗</a>(8200)/ GrabClient(8100)/ <a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Controllers/ConnectionManager.cs">ConnectionManager ↗</a>(心跳)</div></div>
       <div class="arrow-v"></div>
       <div class="arch-layer dim"><div class="lh">④ Models(XML/JSON 映射 legacy)</div><div class="lb">RecipeModel / ZoneSettingModel(32 欄)/ DefectResultModel;<code class="k">[XmlElement]</code>/<code class="k">[JsonPropertyName]</code></div></div>
     </section>
@@ -241,10 +242,11 @@
 
     <section id="code">
       <h2>可審查程式碼(真實源碼)</h2>
+      <p class="vsnote">💡 點各程式碼卡標頭的 <code>檔名:行號 ↗</code> → 以 <strong>VS Code</strong> 開啟該檔對應行(需本機 clone 於 <code>/Users/yourulyu/coding/cf-aoi</code>)。</p>
 
       <h3>① 上位機 CF_ 協議 — 9 參數解析</h3>
       <div class="codecard">
-        <div class="head"><span class="path">control/src/Controllers/UpstreamServer.cs:90–108</span><span class="why">審查:| 分隔 / \r\n / 9 參數 / CF_ switch</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Controllers/UpstreamServer.cs:90" title="在 VS Code 開啟">control/src/Controllers/UpstreamServer.cs:90–108 ↗</a><span class="why">審查:| 分隔 / \r\n / 9 參數 / CF_ switch</span></div>
 <pre><span class="kw">var</span> writer = <span class="kw">new</span> <span class="ty">StreamWriter</span>(stream, <span class="kw">new</span> <span class="ty">UTF8Encoding</span>(<span class="kw">false</span>)) { AutoFlush = <span class="kw">true</span>, NewLine = <span class="st">"\r\n"</span> };
 <span class="kw">while</span> (... (line = <span class="kw">await</span> reader.<span class="fn">ReadLineAsync</span>(ct)) <span class="kw">is not null</span>) {
     <span class="kw">var</span> p = line.<span class="fn">Split</span>(<span class="st">'|'</span>);
@@ -263,7 +265,7 @@
 
       <h3>② RecipeStore.Select — 單一資料來源同步</h3>
       <div class="codecard">
-        <div class="head"><span class="path">control/src/Services/RecipeStore.cs:45–60</span><span class="why">審查:PrimaryZone 指向同一實例 → 跨 View 同步</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Services/RecipeStore.cs:45" title="在 VS Code 開啟">control/src/Services/RecipeStore.cs:45–60 ↗</a><span class="why">審查:PrimaryZone 指向同一實例 → 跨 View 同步</span></div>
 <pre><span class="kw">public void</span> <span class="fn">Select</span>(<span class="ty">string</span> name) {
     <span class="kw">if</span> (_inSelect) <span class="kw">return</span>;
     _inSelect = <span class="kw">true</span>;
@@ -281,7 +283,7 @@
 
       <h3>③ ConnectionManager — 心跳 + 自動重連</h3>
       <div class="codecard">
-        <div class="head"><span class="path">control/src/Controllers/ConnectionManager.cs:54–83</span><span class="why">審查:IsBusy 跳過 / 失敗紅燈 + Disconnect 下回合重連</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/Controllers/ConnectionManager.cs:54" title="在 VS Code 開啟">control/src/Controllers/ConnectionManager.cs:54–83 ↗</a><span class="why">審查:IsBusy 跳過 / 失敗紅燈 + Disconnect 下回合重連</span></div>
 <pre><span class="kw">if</span> (client.IsBusy) {
     ok = <span class="kw">true</span>;                            <span class="c">// 命令進行中 → 視為存活</span>
 } <span class="kw">else</span> {
@@ -301,7 +303,7 @@
 
       <h3>④ MVVM — ObservableProperty / RelayCommand</h3>
       <div class="codecard">
-        <div class="head"><span class="path">control/src/ViewModels/Step1ViewModel.cs(代表)</span><span class="why">審查:CommunityToolkit 自動生成屬性/命令;綁 RecipeStore.PrimaryZone</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/control/src/ViewModels/Step1ViewModel.cs" title="在 VS Code 開啟">control/src/ViewModels/Step1ViewModel.cs(代表)↗</a><span class="why">審查:CommunityToolkit 自動生成屬性/命令;綁 RecipeStore.PrimaryZone</span></div>
 <pre>[<span class="ty">ObservableProperty</span>] <span class="kw">private</span> <span class="ty">string</span> selectedImagePath = <span class="st">""</span>;
 [<span class="ty">ObservableProperty</span>] <span class="kw">private bool</span> isAnalyzing = <span class="kw">false</span>;
 

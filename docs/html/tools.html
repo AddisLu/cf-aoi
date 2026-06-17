@@ -90,8 +90,9 @@
 
     <section id="output">
       <h2>stdout 輸出 — AlignRoi XML 片段</h2>
+      <p class="vsnote">💡 點程式碼卡標頭 <code>檔名:行號 ↗</code> 或下方檔案表 → 以 <strong>VS Code</strong> 開啟(需本機 clone 於 <code>/Users/yourulyu/coding/cf-aoi</code>)。</p>
       <div class="codecard">
-        <div class="head"><span class="path">tools/golden_maker/golden_maker.cpp:86–99</span><span class="why">審查:ReferX/Y = Mark 中心(非左上角);SearchW/H = 尺寸 × margin</span></div>
+        <div class="head"><a class="path" href="vscode://file/Users/yourulyu/coding/cf-aoi/tools/golden_maker/golden_maker.cpp:86" title="在 VS Code 開啟">tools/golden_maker/golden_maker.cpp:86–99 ↗</a><span class="why">審查:ReferX/Y = Mark 中心(非左上角);SearchW/H = 尺寸 × margin</span></div>
 <pre><span class="kw">static void</span> <span class="fn">print_align_roi_xml</span>(<span class="kw">const</span> <span class="ty">std::string</span>&amp; output_path,
                                 <span class="ty">int</span> orig_x, <span class="ty">int</span> orig_y, <span class="ty">int</span> orig_w, <span class="ty">int</span> orig_h,
                                 <span class="ty">int</span> search_margin) {
@@ -121,10 +122,10 @@ make -j4</pre>
       </div>
       <table>
         <tr><th>檔案</th><th>用途</th></tr>
-        <tr><td><code>tools/golden_maker/golden_maker.cpp</code></td><td>主程式(GUI + CLI)</td></tr>
-        <tr><td><code>tools/golden_maker/CMakeLists.txt</code></td><td>OpenCV 連結</td></tr>
-        <tr><td><code>ip/src/align_engine.cpp</code></td><td>線上對位(TM_CCOEFF_NORMED)</td></tr>
-        <tr><td><code>ip/src/align_verify.cpp</code> / <code>scripts/verify_alignment.py</code></td><td>對位驗證鏈</td></tr>
+        <tr><td><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/tools/golden_maker/golden_maker.cpp">tools/golden_maker/golden_maker.cpp ↗</a></td><td>主程式(GUI + CLI)</td></tr>
+        <tr><td><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/tools/golden_maker/CMakeLists.txt">tools/golden_maker/CMakeLists.txt ↗</a></td><td>OpenCV 連結</td></tr>
+        <tr><td><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/ip/src/align_engine.cpp">ip/src/align_engine.cpp ↗</a></td><td>線上對位(TM_CCOEFF_NORMED)</td></tr>
+        <tr><td><a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/ip/src/align_verify.cpp">ip/src/align_verify.cpp ↗</a> / <a class="srclink" href="vscode://file/Users/yourulyu/coding/cf-aoi/scripts/verify_alignment.py">scripts/verify_alignment.py ↗</a></td><td>對位驗證鏈</td></tr>
       </table>
     </section>
 
