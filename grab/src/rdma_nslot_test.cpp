@@ -5,7 +5,7 @@
 //   delay_ms     送幀間人工延遲（ms），預設 0；測背壓時 IP 端用 --test-consumer-delay-ms
 // =============================================================================
 #include "rdma_sender.h"
-#include "FrameHeader.h"
+// FrameHeader.h 已透過 rdma_sender.h → ../../shared/FrameHeader.h 引入
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
