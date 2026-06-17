@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-17**（Gap #2 CCD 參數 UI — Grab 側 Stage 0+1+4 實機驗通 → L3；Control GrabClient L1；UI tab 版面待確認）
+> 最後更新：**2026-06-17**（① 二次考古：Reference 源碼回頭驗 #1–#28 → 100% 一致,補登 #29–#31,見表四。② UI 設定專項複查：legacy 15 表單 ↔ 新版 5 View 逐控制項對照,補登 #32–#33,見表五/表六。前次：Gap #2 CCD 參數 UI — Grab 側 Stage 0+1+4 實機驗通 → L3）
 
 ## 分級定義
 
@@ -262,6 +262,21 @@
 | **#27** | **file replay（檔案→RDMA 送器）** | phase1 `t40_e2e_client_file.cpp:35-168` | **缺（grab）**| grab 無檔案 RDMA 送器（ip `file_source` 是 offline-tcp 非 RDMA 回放，不等價）|
 | **#28** | AutoFlash 待機閃頻 / 登入權限（frmLogin）| `LibAoiSetting/AutoFlash.cs` / `frmAoiSettingEditor.cs:1487-1577` | **缺（次要）**| 產線/操作周邊；多數場景可不補（與 won't-do 邊界）|
 
+### 表四：二次考古補登 #29–#31（2026-06-17，用 Reference 源碼回頭驗證 #1–#28 時發現的漏網項）
+
+> 來源：2026-06-17 二次考古——以 4 個 reader 逐項核實 #1–#28 與 ip/grab/control 源碼一致性（結論：**100% 一致**），
+> 並比對 legacy `PrjCfAoi` 全功能清單,撈出**既缺、又不在 #1–#28** 的漏網項。寧多列勿漏。
+
+| # | 漏網缺功能 | 舊版位置(file:line) | 現狀 / L-level | 備註 |
+|---|---|---|---|---|
+| **#29** | **DetectRoi 前後處理參數未接線**（Remap / Smooth / Blob 合併距離 / EdgePass 濾除）| 見下四子項 | **L0（缺）**| 四項皆 legacy `DetectRoi` 欄位,`zone_config_adapter.cpp:162` 註解明確「Blob* 已忽略」,Remap/Smooth 連欄位都無。⚠️ **檢測精度 caveat**：26 張跨架驗證(25/26 一致)**未暴露**其影響 → 推測測試配方未啟用,或 ground truth 亦由不含這些步驟的 Demo 產生;**是否影響生產取決於正式配方是否啟用,待真機/真實配方定論**。|
+| ⤷ 子項 a | Remap 影像前處理（`M_ImagePreproc=Ip_Remap`，MIL `MimRemap`）| `ClibCf/Recipe.cs:54` / `CamProc.cs:591-598` | **L0** | gpu_pipeline 無幾何 remap 等價 |
+| ⤷ 子項 b | Smooth 平滑前處理（`SmoothTimes`/`SmoothTimes2`，5×5 卷積疊加）| `ClibCf/Recipe.cs:58,61` / `CamProc.cs:619-641` | **L0** | ZoneConfig 無欄位,檢測直接進 8-Way,跳過卷積平滑 |
+| ⤷ 子項 c | Blob 合併距離（`Blob{Dark,Bright,All}MergeDistance`）| `ClibCf/Recipe.cs:126-132` / `CamProc.cs:553-562` | **L0** | gpu Blob analysis 無合併邏輯 |
+| ⤷ 子項 d | EdgePass 邊界濾除（`EdgePassRatio`/`EdgePassThreshold`）| `ClibCf/Recipe.cs:108,110` | **L0** | gpu 缺陷後處理無邊界通過濾除 |
+| **#30** | **建立/重命名/另存配方 UI**（`frmNewRecipe`）| `PrjAoiSettingEditor/frmNewRecipe.cs:15-62` | **L0（缺）**| Control `RecipeService` 只「找不到→自動生成預設」,無新建/重命名/另存對話框,主視窗 Recipe 區僅下拉選單。（與 #7 配方批次複製相關但功能獨立）|
+| **#31** | **frmViewDefect 缺陷影像移到 OK/NG 資料夾**| `PrjAoiSettingEditor/frmViewDefect.cs:213-295` | **部分缺**| Control `DefectSortView` 涵蓋 legacy `frmSortDefect`（標 TrueDefect/Particle）,但**未涵蓋 frmViewDefect 的「移動/複製影像檔到 OK/NG 資料夾」**檔案歸檔操作。|
+
 ### 里程碑（非 gap，已在 STATUS 模組表追蹤）
 
 - **多相機匯聚（cam_manager / cam_ebus / --cam-count ALL）**：`grab` 多相機全陣列 **L0**（Step 3，待 SN2201 Switch + 相機陣列）。
@@ -282,10 +297,52 @@
 4. **NEW① 多 CCD 拼接**：併入 **#5（座標）+ #1（對位）的多 CCD 預留**，不單列。
 5. **NEW⑩ 三合一拆分**：ROI 繪製→**#8**、MaskGen→**#22**、IOI→**#23**（三者功能獨立，分列）。
 
+6. **二次考古結論（2026-06-17）**：用 Reference `PrjCfAoi` 源碼回頭逐項驗證 #1–#28 → **與 ip/grab/control 源碼 100% 一致**（標「缺/L0」者源碼確實無對應實作,無標定錯誤）。同時比對 legacy 全功能清單,補登 **#29–#31**（DetectRoi 前後處理 Remap/Smooth/Blob合併/EdgePass / 建配方 UI / frmViewDefect 影像歸檔）;依使用者裁示 Remap+Smooth+Blob合併+EdgePass 合併為 **#29**（四子項）。
+7. **UI 設定專項複查（2026-06-17）**：逐控制項對照 legacy 15 個 WinForms ↔ 新版 5 個 View（見「UI 設定專項複查」表五/表六）→ legacy 絕大多數 UI 設定新版**都有對應 UI**（DetectRoi 全參數在 ZoneParamEditor 27 列,IP 未接者標「IP待接」佔位）;真正缺的 UI 補登 **#32**（RecipeSetting BypassEdgeX/Y/OfflineLoadImageFolder/Kernal 值無 UI）、**#33**（配方 Delete/SaveAll/開資料夾無 UI）。無「有 UI 但漏記」的反向落差。
+
 > **殘留考古缺口（誠實列出）**：
 > ① **μm 契約**：legacy 缺陷一律 pixel、CF_GET_RESULT 只回 XML 路徑+缺陷數 → 無法確認舊上位機要不要 μm（#5 為片面提議，與 UpstreamServer 接真機同一條 follow-up）。
 > ② **#10–#15「工具」定義**：交接無逐項清單，考古無法逐一還原；#20/#21 可能屬此但無佐證。
 > ③ **#18 多尺度**：RAG_TRAINING.md 稱生效，但 Demo `batch_detector` 與 ip `run()` 皆無 launch 呼叫 → 文件 > 程式碼接線（兩邊 L0）。
+
+---
+
+## UI 設定專項複查（2026-06-17）：legacy WinForms 逐表單 ↔ 新版 Control 對照
+
+> 來源：3 個 reader 逐控制項盤點 legacy 15 個 WinForms（每個 TextBox/CheckBox/ComboBox/Button）+ 新版 Control 5 個 View（MainWindow/Step1/ZoneParamEditor/DefectSort/SystemSettings），逐一對照「每個 UI 設定項是否有對應功能」。
+>
+> **總結論**：legacy **絕大多數 UI 設定在新版都有對應 UI**——24+ 個 `DetectRoi` 參數 → ZoneParamEditor **27 列**（含 Smooth/Sobel/EdgePass/Blob 等,IP 未消費者標「IP待接」佔位,**UI 存在**）；ShareSetting/RecipeSetting → MainWindow 兩區；曝光/增益 → SystemSettings 相機 tab；缺陷分類 → DefectSort。真正缺的 UI 集中在「少數 RecipeSetting 欄位 + 配方管理操作」,補登 #32–#33。
+
+### 表五：legacy UI 表單覆蓋對照
+
+| legacy 表單 | 用途 | 新版對應 | 狀態 |
+|---|---|---|---|
+| `frmCfAoi` | 主控視窗（CF 鈕/log/status/Recipe 預覽）| `MainWindow` | ✅ 完整（CF_STOP/Grab/Align 鈕停用,見 #25/#1）|
+| `frmIpParamEditor` | 24+ DetectRoi 參數批次編輯 | `ZoneParamEditorView`（27 列+多 ROI 批次）| ✅ **UI 完整**（參數列全在,IP 未接者標「IP待接」→ 接線缺 = #29,非 UI 缺）|
+| `frmIpParamFullView` | 全參數 DataGrid 檢視+批次寫 | `ZoneParamEditorView` 批次套用 | ⚠️ 功能可替代（無全欄 DataGrid,但有逐參數/多 ROI 批次）|
+| `frmAoiSettingEditor` | 配方管理（New/Delete/Save/SaveAs/SaveAll/Copy/OpenFolder）| `MainWindow` Recipe 下拉+Save | ⚠️ **部分**（Save/選配方 ✅;New/SaveAs=#30、Copy=#7、**Delete/SaveAll/OpenFolder 無 UI = #33**）|
+| `frmSetting`（ShareSetting）| TuningRecipe/SaveSourceImage/SaveFullImage/DebugAlgorithm/BypassAlignment/AiRootPath | `MainWindow` ShareSetting 區 | ✅ 6 欄全在（TuningRecipe/SaveFullImage/BypassAlignment 停用顯示,新流程不適用）|
+| `frmSetting`（RecipeSetting）| MaxSave*/SaveDefect*/AiDefect*/Kernal*/BypassEdge*/ImageRule*/M_AiGroup/OfflineLoadImageFolder | `MainWindow` RecipeSetting 區 + `RecipeSavingModel` | ⚠️ **部分**（11 欄有;**BypassEdgeX/Y + OfflineLoadImageFolder 完全無 = #32**；KernalValue/File2/Value2 有 model 無 UI = #32；ImageRule*=#16；M_AiGroup=#24）|
+| `frmNewRecipe` | 新增/重命名/另存配方 | — | ❌ 缺 = **#30** |
+| `frmCopyRecipeParamToRecipe` | 配方間參數複製 | — | ❌ 缺 = **#7** |
+| `frmAiModelManager` | 掃/刪 .onnx | — | ❌ 缺 = **#24** |
+| `frmMaskGen` | Mask ROI 互動繪製 | — | ❌ 缺 = **#22**（互動繪製=#8）|
+| `frmBaslerCom` | 曝光/增益（COM 串口）| `SystemSettingsView` 相機 tab | ✅ 完整 = **#2**（串口機制 won't-do,功能已用 Grab pylon SET/GET_CAM_PARAMS）|
+| `frmViewDefect` | 缺陷影像檢視/分類/移 OK/NG | `DefectSortView`（Layer2 小圖分類）| ⚠️ 部分（分類 ✅;**移影像檔到 OK/NG = #31**;Cut 裁剪 minor）|
+| `frmSortDefect` | 缺陷檔案排序歸檔 | `DefectSortView`（Layer1 LIST/SORT）| ✅ 完整 |
+| `frmAlgorithmTestTools` | 離線演算法驗證/ROI 繪製/影像變換 | `Step1View` | ✅ 核心完整（MIL 專屬 Add/Del Rect/Cut/Remap/HistEq/Reload 停用 = #8/#29）|
+| `frmVariance` | 模糊度統計（呼叫 Python）| — | ⏸️ won't-do（已記錄）|
+| `frmLogin`（×2）| 密碼/登入等級 | — | ❌ 缺 = **#28**（次要）|
+
+### 表六：UI 專項複查新發現 gap #32–#33
+
+| # | 漏網缺功能 | 舊版位置(file:line) | 現狀 / L-level | 備註 |
+|---|---|---|---|---|
+| **#32** | **RecipeSetting 部分欄位無對應 UI/model**（BypassEdgeX/Y 邊界略過 + OfflineLoadImageFolder + KernalValue/File2/Value2）| `RecipeSetting.cs:55-68,90-91`(BypassEdge/OfflineFolder) + `:52-60`(Kernal*) | **L0/部分** | **BypassEdgeX/Y**（邊界略過距離,影響檢測有效區）`RecipeSavingModel.cs` **完全無欄位**、無 UI、IP 不消費(grep 0 命中);**OfflineLoadImageFolder** 無（Step1 直接 browse 取代,可接受）;**KernalValue/KernalFile2/KernalValue2** 有 model 無 MainWindow UI（KernalFile 僅停用顯示「MIL 前處理,IP 未接」→ 本質即 #29 Smooth 的 MIL Gaussian kernel 機制）。`M_AiGroup`/`ImageRule*` 另計 #24/#16。|
+| **#33** | **配方管理操作不全**（Delete / SaveAll / 開資料夾）| `frmAoiSettingEditor.cs:154-168` | **L0（缺）** | 新版 `MainWindow` 只有配方下拉+Save;legacy 的 **刪除配方 / 全部另存 / 開配方資料夾** 無對應 UI。（新建/重命名/另存 = #30、跨配方複製 = #7,功能獨立分列。）|
+
+> **UI 複查結論**：標「缺」的 UI 全部對得上既有/新增 gap#（無「有 UI 但漏記」的反向落差）。新版**未引入** legacy 沒有的多餘 UI 設定。
+> 多數「停用顯示」（IsEnabled=False + tooltip）屬刻意保留版面 1:1、標明 MIL/新流程不適用,**非缺漏**。
 
 ---
 
