@@ -35,6 +35,24 @@
 // 透過控制訊息交換給對端的記憶體區資訊：遠端 buffer 的位址、rkey、長度、(可選)crc。
 struct MrInfo { uint64_t addr; uint32_t rkey; uint32_t len; uint32_t crc; };
 
+// Step 3：N-slot ring buffer 握手擴充（grab/IP 兩端同步更新，不搞版本協商）。
+// Grab 收到此結構後，每幀寫入位置：
+//   slot_id  = frame_seq % n_slots
+//   write_addr = addr + (uint64_t)slot_id * slot_size
+// IP 端 post_recv N 個 = N 個初始 credit；每處理完一幀補一個 post_recv = credit++。
+// 背壓：credit 耗盡 → Grab 下一幀 WRITE_WITH_IMM → RNR（rnr_retry_count=7=∞）→
+//   Grab poll_one() 阻塞直到 IP 補 post_recv → 自然背壓，無需額外控制通道。
+struct MrInfoEx {
+    uint64_t addr;       // N-slot ring buffer 基底位址（cudaHostAlloc pinned）
+    uint32_t rkey;       // 整塊 buffer 的 RDMA 授權金鑰（一個 MR 涵蓋全部 N slot）
+    uint32_t len;        // 整塊 buffer 大小 = n_slots * slot_size
+    uint32_t crc;        // 未使用（padding，對齊舊 MrInfo 前 4 欄位）
+    uint32_t n_slots;    // slot 數量（RDMA ring 深度，預設 4）
+    uint32_t slot_size;  // 每個 slot 大小（bytes）= sizeof(FrameHeader) + max_payload
+    uint8_t  pad[228];   // 預留擴充空間（對齊至 256 bytes）
+};
+static_assert(sizeof(MrInfoEx) == 256, "MrInfoEx must be 256 bytes");
+
 struct RcConn {
     rdma_event_channel* ec   = nullptr; // 事件通道：rdma_cm 的非同步事件由此取得
     rdma_cm_id*         id   = nullptr; // 連線後的資料用 id（server 為被接受的 child id）

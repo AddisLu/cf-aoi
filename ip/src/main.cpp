@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CF-AOI IP 程式 — 進入點（Step 1：offline-tcp / offline-file）
+ * CF-AOI IP 程式 — 進入點
  * ============================================================================
  *
  * 流程：
@@ -9,6 +9,7 @@
  *   3. 依 mode 建 IImageSource：
  *        offline-file → FileImageSource
  *        offline-tcp  → ControlServer(餵 FrameQueue) + TcpImageSource(消費)
+ *        rdma-validate → RdmaImageSource（Step 3 N-slot ring buffer，需 CFAOI_HAS_RDMA）
  *   4. 迴圈：next_frame → 對每個 zone 裁切+process_frame+offset → 合併 → ResultSaver::save
  * ============================================================================
  */
@@ -38,6 +39,10 @@
 #include "image_source/tcp_source.h"
 #include "control_server.h"
 #include "result_saver.h"
+
+#ifdef CFAOI_HAS_RDMA
+#include "image_source/rdma_source.h"
+#endif
 
 using json = nlohmann::json;
 
@@ -74,6 +79,10 @@ struct Args {
     int  test_consumer_delay_ms = 0;  // --test-consumer-delay-ms N
     // 壓力測試用：SourceWriter 寫檔後人工延遲（模擬慢 HDD/NAS，讓 ring 積累到滿觸發 drop WARN）
     int  test_source_writer_delay_ms = 0;  // --test-source-writer-delay-ms N
+    // RDMA（Step 3 rdma-validate 模式）
+    std::string rdma_bind = "0.0.0.0";     // --rdma-bind
+    std::string rdma_port = "18515";       // --rdma-port
+    uint32_t    rdma_slots = 4;            // --rdma-slots N（N-slot ring 深度 = 初始 credit 數）
 };
 
 void usage(const char* prog) {
@@ -102,7 +111,12 @@ void usage(const char* prog) {
     "  --max-src-ring-size <n> 覆寫 SourceRing 上限（取代計算器；驗證 OOM 防護用）\n"
     "  --max-defect-count-pass <n> offline-file 模式設 MaxDefectCountPass 截斷（驗決定性用）\n"
     "  --test-consumer-delay-ms <n> offline-tcp：每幀處理後人工延遲 N ms（模擬慢消費，觸發背壓 ERR 測試）\n"
-    "  --test-source-writer-delay-ms <n> SourceWriter：每幀寫完後延遲 N ms（模擬慢 HDD，觸發 ring drop WARN 測試）\n";
+    "  --test-source-writer-delay-ms <n> SourceWriter：每幀寫完後延遲 N ms（模擬慢 HDD，觸發 ring drop WARN 測試）\n"
+    "\n[rdma-validate 模式（需 CFAOI_HAS_RDMA）]\n"
+    "  --rdma-bind <ip>      RDMA server 綁定 IP（預設 0.0.0.0）\n"
+    "  --rdma-port <port>    RDMA server port（預設 18515）\n"
+    "  --rdma-slots <n>      N-slot ring 深度 = 初始 credit（預設 4，4×40MB=160MB）\n"
+    "  --test-consumer-delay-ms 同樣有效：故意拖慢消費→ credit 耗盡→ Grab RNR 背壓\n";
 }
 
 bool parse_args(int argc, char** argv, Args& a) {
@@ -137,6 +151,9 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--max-defect-count-pass") a.max_defect_count_pass = std::stoi(next("--max-defect-count-pass"));
         else if (k == "--test-consumer-delay-ms") a.test_consumer_delay_ms = std::stoi(next("--test-consumer-delay-ms"));
         else if (k == "--test-source-writer-delay-ms") a.test_source_writer_delay_ms = std::stoi(next("--test-source-writer-delay-ms"));
+        else if (k == "--rdma-bind")  a.rdma_bind  = next("--rdma-bind");
+        else if (k == "--rdma-port")  a.rdma_port  = next("--rdma-port");
+        else if (k == "--rdma-slots") a.rdma_slots = (uint32_t)std::stoul(next("--rdma-slots"));
         else if (k == "-h" || k == "--help") { usage(argv[0]); return false; }
         else { std::cerr << "未知參數: " << k << "\n"; usage(argv[0]); return false; }
     }
@@ -555,6 +572,97 @@ int main(int argc, char** argv) {
         std::printf("[Bench] 容量換算：1110 張 × %.2fms(gpu median) = %.1f s/面板"
                     "（30s 節拍）→ N_spark = ceil(%.2f) = %d\n",
                     g_med, total_s, total_s / 30.0, (int)std::ceil(total_s / 30.0));
+
+    } else if (args.mode == "rdma-validate") {
+#ifndef CFAOI_HAS_RDMA
+        std::cerr << "[rdma-validate] 未編譯 RDMA（找不到 libibverbs），無法使用此模式\n";
+        return 1;
+#else
+        // ── Step 3 驗證模式：N-slot RDMA ring buffer + credit 背壓 ──────────────
+        // 1. 連續流：Grab 連送 100+ 幀，IP N-slot 連續接，CRC 全對
+        // 2. 背壓：--test-consumer-delay-ms → credit 耗盡 → Grab poll_one() 阻塞
+        // 3. slot race：繞回（seq>N）時 CRC 仍正確
+        // 4. flight_recorder：credit 水位低時 incident
+        // ────────────────────────────────────────────────────────────────────────
+
+        // max_payload = 一幀最大 payload（以 INI/recipe 的 width×height 估算）
+        const uint32_t img_w = (base.width  > 0) ? (uint32_t)base.width  : 8192u;
+        const uint32_t img_h = (base.height > 0) ? (uint32_t)base.height : 5000u;
+        const uint32_t max_payload = img_w * img_h;
+
+        FrameQueue queue;
+        // FrameQueue 上限：--max-queue-size 或 2×rdma_slots（rdma-validate 不需太大）
+        {
+            const size_t n = args.max_queue_size > 0
+                ? (size_t)args.max_queue_size
+                : std::max<size_t>(2, (size_t)args.rdma_slots * 2);
+            queue.set_max_size(n);
+            std::cout << "[rdma-validate] FrameQueue 上限=" << n << " 幀"
+                      << "  rdma_slots=" << args.rdma_slots
+                      << "  bind=" << args.rdma_bind << ":" << args.rdma_port << "\n";
+        }
+
+        RdmaImageSource rdma_src;
+        if (!rdma_src.init(args.rdma_bind, args.rdma_port,
+                           args.rdma_slots, max_payload, queue)) {
+            std::cerr << "[rdma-validate] RDMA 初始化失敗\n";
+            return 3;
+        }
+
+        FrameHeader hdr;
+        std::vector<uint8_t> payload;
+        uint64_t ok_count = 0, err_count = 0;
+        uint64_t last_seq = UINT64_MAX;
+
+        while (rdma_src.next_frame(hdr, payload)) {
+            // 驗收：seq 必須遞增（RC QP 保序）
+            if (last_seq != UINT64_MAX && hdr.frameSeq != last_seq + 1) {
+                fprintf(stderr, "[rdma-validate] ERR seq 跳躍：expected=%llu got=%llu\n",
+                        (unsigned long long)(last_seq + 1),
+                        (unsigned long long)hdr.frameSeq);
+                ++err_count;
+            }
+            last_seq = hdr.frameSeq;
+
+            // 二次驗 CRC（rdma_source 已驗過一次；此處再驗確認 payload copy 正確）
+            uint32_t crc2 = crc32_ieee(payload.data(), hdr.payloadBytes);
+            if (crc2 != hdr.crc32) {
+                fprintf(stderr, "[rdma-validate] ERR 二次 CRC 失敗 seq=%llu"
+                        " slot=%llu（got=0x%08x want=0x%08x）\n",
+                        (unsigned long long)hdr.frameSeq,
+                        (unsigned long long)(hdr.frameSeq % args.rdma_slots),
+                        crc2, hdr.crc32);
+                diag::FlightRecorder::instance().record_incident("rdma_validate",
+                    "double-check crc seq=" + std::to_string(hdr.frameSeq));
+                ++err_count;
+            } else {
+                ++ok_count;
+                if (ok_count <= 5 || ok_count % 20 == 0)
+                    printf("[rdma-validate] seq=%-6llu slot=%-2llu  CRC=OK  ok/err=%llu/%llu\n",
+                           (unsigned long long)hdr.frameSeq,
+                           (unsigned long long)(hdr.frameSeq % args.rdma_slots),
+                           (unsigned long long)ok_count,
+                           (unsigned long long)err_count);
+            }
+
+            if (args.test_consumer_delay_ms > 0)
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(args.test_consumer_delay_ms));
+
+            ++processed;
+        }
+
+        rdma_src.stop();
+        printf("[rdma-validate] 完成：ok=%llu err=%llu total=%llu\n",
+               (unsigned long long)ok_count,
+               (unsigned long long)err_count,
+               (unsigned long long)processed);
+        if (err_count > 0) {
+            std::cerr << "[rdma-validate] ✗ 有 " << err_count << " 幀錯誤，驗證失敗\n";
+            return 4;
+        }
+        std::cout << "[rdma-validate] ✓ 全部 " << ok_count << " 幀 CRC 正確\n";
+#endif  // CFAOI_HAS_RDMA
 
     } else {
         std::cerr << "未知 mode: " << args.mode << "\n";

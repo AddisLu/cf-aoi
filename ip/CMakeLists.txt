@@ -25,11 +25,15 @@ else()
     message(STATUS "ONNX Runtime not found → AI offline backend disabled")
 endif()
 
-# libibverbs（rdma-validate/image-capture/online）— 本階段通常無
-find_library(IBVERBS_LIB ibverbs QUIET)
-if(IBVERBS_LIB)
+# libibverbs + librdmacm（rdma-validate/image-capture/online）— 本階段通常無
+find_library(IBVERBS_LIB  ibverbs  QUIET)
+find_library(RDMACM_LIB   rdmacm   QUIET)
+if(IBVERBS_LIB AND RDMACM_LIB)
     add_compile_definitions(CFAOI_HAS_RDMA)
-    message(STATUS "RDMA enabled → Step 2-5 modes available")
+    message(STATUS "RDMA enabled (ibverbs=${IBVERBS_LIB} rdmacm=${RDMACM_LIB}) → Step 2-5 modes available")
+elseif(IBVERBS_LIB)
+    add_compile_definitions(CFAOI_HAS_RDMA)
+    message(STATUS "RDMA enabled (ibverbs only, rdmacm not found) → Step 2-5 modes available")
 else()
     message(STATUS "No RDMA → Step 1 (offline) only")
 endif()
@@ -45,6 +49,7 @@ add_executable(cfaoi_ip
     src/image_source/tcp_source.cpp
     src/result_saver.cpp
     src/control_server.cpp
+    $<$<BOOL:${IBVERBS_LIB}>:src/image_source/rdma_source.cpp>
 )
 
 target_include_directories(cfaoi_ip PRIVATE
@@ -67,6 +72,7 @@ target_link_libraries(cfaoi_ip PRIVATE
     Threads::Threads
     $<$<BOOL:${ORT_LIB}>:${ORT_LIB}>
     $<$<BOOL:${IBVERBS_LIB}>:${IBVERBS_LIB}>
+    $<$<BOOL:${RDMACM_LIB}>:${RDMACM_LIB}>
 )
 
 set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)

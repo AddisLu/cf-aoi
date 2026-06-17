@@ -171,13 +171,38 @@
 
 ---
 
+## Step 3 N-slot RDMA 實作（2026-06-17）
+
+**已實作（code complete，待實機驗證）：**
+
+| 元件 | 檔案 | 說明 |
+|------|------|------|
+| `MrInfoEx` 握手結構 | `grab/src/rdma_common.h` | 256B wire format，含 `n_slots`/`slot_size` |
+| Grab N-slot 定址 | `grab/src/rdma_sender.cpp` | `slot_id = frame_seq % n_slots`，`poll_one` = backpressure |
+| IP N-slot ring buffer | `ip/src/image_source/rdma_source.cpp` | cudaHostAlloc N×slot，初始 N post_recv，釘點 1 順序 |
+| `push_blocking` | `ip/src/image_source/image_source.h` | FrameQueue 滿時阻塞（背壓鏈） |
+| `rdma-validate` 模式 | `ip/src/main.cpp` | `#ifdef CFAOI_HAS_RDMA`，CRC 二次驗，seq 序驗 |
+| CMake | `ip/CMakeLists.txt` | ibverbs+rdmacm 條件連結，`rdma_source.cpp` 條件編譯 |
+
+**背壓鏈**：`process_image 慢 → FrameQueue 滿 → push_blocking 阻塞 → 不 post_recv → Grab RNR（rnr_retry_count=7=∞）→ Grab poll_one 阻塞`
+
+**待驗證**（需 RDMA 硬體）：
+
+| 驗證項目 | 方式 |
+|---------|------|
+| 連續流 100+ 幀 CRC 全對 | `cfaoi_ip --mode rdma-validate --rdma-slots 4` + Grab 連送 |
+| 背壓：credit 耗盡 → Grab 阻塞而非斷線 | `--test-consumer-delay-ms 200` |
+| slot race：seq>N 繞回 CRC 仍正確 | 高速連送觀察 `slot=0..3` 交替 CRC=OK |
+| flight_recorder credit 水位 incident | FrameQueue 接近上限時 incident 寫磁碟 |
+
+---
+
 ## 下一階段：Step 3（Grab 全陣列 + Switch）
 
-Step 2 已完成（2026-06-15），下一步：
+Step 2 已完成（2026-06-15），N-slot RDMA 實作完成（2026-06-17，待硬體驗證）：
 
 1. **SN2201 交換器到貨** + 37 台 raL8192 接線
 2. `cfaoi_grab --cam-count ALL`（全陣列多相機）
-3. N-slot ring buffer（配合連續多相機流量，IP 端協商多 MrInfo）
+3. 實機驗收上方 4 個驗證項目
 4. Control↔Grab 8100 完整接線（目前 hardcode nc，待 Step 3 接真正 Control UI）
-5. IP 端加入 `rdma-validate` 模式（目前 t40_e2e_server 代，Step 3 正規化）
-6. UpstreamServer 接線（online 階段需要）：L1→（接線啟動+綁回呼）→ L4
+5. UpstreamServer 接線（online 階段需要）：L1→（接線啟動+綁回呼）→ L4

@@ -69,7 +69,24 @@ public:
         if (q_.empty()) return false;  // closed
         out = std::move(q_.front());
         q_.pop();
+        cv_prod_.notify_one();  // 通知 push_blocking 有位置了
         return true;
+    }
+
+    // 阻塞推入：阻塞直到佇列有位置或被 close()。
+    // 用於 RDMA recv_thread：佇列滿時不 drop，阻塞直到 main loop 消費，
+    // 從而延伸背壓鏈：FrameQueue 滿 → recv_thread 不 post_recv → Grab RNR → Grab 自然慢下來。
+    // ★ 釘點 1：呼叫前確保 payload 已從 RDMA slot memcpy 完畢；
+    //   push_blocking 返回後 payload 已 move 進佇列，之後才可 post_recv 補 credit。
+    //   C++17 順序語意保證：memcpy → push_blocking（互斥鎖 acquire/release）→ post_recv
+    //   不需額外 std::atomic_thread_fence。
+    void push_blocking(FrameHeader hdr, std::string panel_id, std::vector<uint8_t> payload) {
+        std::unique_lock<std::mutex> lk(mtx_);
+        if (max_size_ > 0)
+            cv_prod_.wait(lk, [&] { return closed_ || q_.size() < max_size_; });
+        if (closed_) return;
+        q_.push(Item{hdr, std::move(panel_id), std::move(payload)});
+        cv_.notify_one();
     }
 
     void close() {
@@ -78,6 +95,7 @@ public:
             closed_ = true;
         }
         cv_.notify_all();
+        cv_prod_.notify_all();  // 喚醒 push_blocking 使其感知 closed_
     }
 
     size_t size() const {
@@ -91,7 +109,8 @@ public:
 
 private:
     mutable std::mutex mtx_;
-    std::condition_variable cv_;
+    std::condition_variable cv_;       // pop 等待（有資料）
+    std::condition_variable cv_prod_;  // push_blocking 等待（有空位），由 pop 觸發
     std::queue<Item> q_;
     bool closed_ = false;
     size_t max_size_ = 0;  // 0 = 無上限（向下相容）；set_max_size 後固定

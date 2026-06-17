@@ -358,3 +358,11 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 22. **RecipeSaving 欄位 -1 = 向下相容**：`max_save_defect_count=-1` 等同現行 `max_patches=-1`（無上限）；
     `save_defect_width/height` 預設 100px；`max_defect_count_pass=-1` = 不截斷。
     LOAD_RECIPE 若無 `recipe_saving` 欄位，IP 保留前次設定（session 初始值為全 -1 預設）。
+23. **RDMA credit 背壓（rdma-credit-backpressure）**（Step 3，`image_source/rdma_source.cpp`）：
+    IP 預掛 N 個 `post_recv`（= N 個初始 credit）；`recv_thread` 正確順序為
+    `[1] memcpy slot → payload → [2] push_blocking（等 FrameQueue 有位置）→ [3] post_recv（補 credit）`。
+    此順序不可調換：post_recv 在 push_blocking 之後，保證 Grab 在 IP 讀完 slot 前不能重用該 slot。
+    credit 耗盡 → Grab `WRITE_WITH_IMM` 觸發 RNR（`rnr_retry_count=7=∞`）→ Grab `poll_one()` 阻塞
+    → 自然背壓，無需額外控制通道。C++17 happens-before 語意保證順序，不需額外 `std::atomic_thread_fence`。
+    N-slot ring：`slot_id = frame_seq % n_slots`，N 個連續幀佔 N 個不同 slot，credit 確保 in-flight ≤ N，
+    不可能出現 slot 覆蓋。`--rdma-slots` 預設 4（4×40MB=160MB host pinned memory）。

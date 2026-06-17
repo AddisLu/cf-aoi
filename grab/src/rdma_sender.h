@@ -30,10 +30,10 @@ public:
     uint64_t    sent_bytes()   const { return sent_bytes_; }
 
 private:
-    RcConn   conn_;
-    MrInfo   remote_{};
-    ibv_mr*  mr_      = nullptr;
-    ibv_mr*  ctrl_mr_ = nullptr;
+    RcConn    conn_;
+    MrInfoEx  remote_{};   // Step 3：N-slot 握手（addr/rkey/n_slots/slot_size）
+    ibv_mr*   mr_      = nullptr;
+    ibv_mr*   ctrl_mr_ = nullptr;
     std::vector<uint8_t> txbuf_;
     std::vector<uint8_t> ctrl_buf_;
     bool     connected_   = false;
