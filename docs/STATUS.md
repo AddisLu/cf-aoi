@@ -91,7 +91,7 @@
 | rdma_nslot_test（合成幀送器，驗 N-slot ring + 背壓，不需相機） | **L3** | **2026-06-17 damac↔Spark 實機**：120 幀連送 CRC=OK；背壓 20 幀（IP 200ms 延遲）ok=20 err=0；commit `de047a3` |
 | Control↔Grab 8100 完整接線 | **L1** | CHECK_HEALTH/LOAD_RECIPE/GRAB_START/GRAB_STOP 命令解析正確；以 nc hardcode 觸發；未接真正 Control UI |
 | ⤷ Gap #2：參數控制（SET/GET_CAM_PARAMS）| **L3** | **2026-06-17 damac raL8192-12gm 實機**：Stage 0（ExposureTimeAbs 2~10000µs；GainRaw 256~2047；TLParamsLocked=0）；Stage 1（SET actual 誤差 0%：exp 200/500µs actual 完全一致；gain 256/512 actual 完全一致）；Stage 4（4 ERR 路徑全 PASS）；cam_config.json 持久化。close() 空 QP bug fix：重現 connect 127.0.0.1 route 失敗 → `rdma_destroy_qp(nullptr)` SIGSEGV；修後 `if (id && id->qp)` guard + null-clear，乾淨退出。⚠️ 假設：曝光/增益為機器層（cam_config.json），若日後隨產品調 → 補 recipe-override。|
-| ⤷ Gap #2：光度效果（Stage 2+3 mean gray 單調性）| **待照明（L1.5）** | **2026-06-17 damac 跑 cam_mean_gray_test：mean_gray≈2.5/255（noise floor）**：exp=70µs mean=2.77 / exp=500µs mean=2.65 ratio=0.957；gain=256 mean=2.69 / gain=1024 mean=2.44 ratio=0.908 → FAIL（全暗，無光可積分）。非程式碼 bug。待機台安裝光源後補跑（預期 exp ratio ≥1.4，gain ratio ≥1.2 → 才升 L3）。|
+| ⤷ Gap #2：光度效果（Stage 2+3 mean gray 單調性）| **L3** | **2026-06-17 damac 加光源後 cam_mean_gray_test 全 PASS**：Stage 2 曝光 exp=70µs mean=3.30 / exp=500µs mean=7.63 → **ratio=2.314（>1.4）PASS**；Stage 3 增益 gain=256 mean=4.65 / gain=1024 mean=10.54 → **ratio=2.267（>1.2）PASS**。證 set_params 確實驅動 sensor 積分（曝光/增益皆單調遞增）。（暗環境基線：mean≈2.5/255 noise floor，ratio≈0.95，加光源後響應正確。）|
 | ⤷ Gap #2：Control UI（相機 tab + SystemSettings TabControl 改版）| **L1（待 Mac 目視）** | TabControl（連線設定/相機）；相機 tab：Grab Ellipse 指示器、ExposureUs NumericUpDown 2~10000µs + actual 回顯行、GainRaw 256~2047 + actual 回顯行、Apply（IsEnabled=IsGrabConnected）/讀取 btn + CamStatus。MVVM `[ObservableProperty]/[RelayCommand]` 對齊現有面板；0 警告 0 錯誤。**連線設定 tab = 原有內容搬入 TabItem，待 Mac 重新目視確認版面無誤**；相機 tab 互動亦待 Addis Mac 目視。|
 | ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端（Phase-1 測試套件） | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
 
@@ -227,7 +227,7 @@
 | # | 意義（既有定義）| 現狀 / L-level | 證據（file:line）|
 |---|---|---|---|
 | **#1** | 對位 pipeline（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 對位 **L0（預留）**| IP `align_engine`+`golden_maker`+CHECK/SET_ALIGN（取代 MIL `CamProc.cs:307-485`）；多 CCD 對位未實作 |
-| **#2** | CCD 參數 UI（曝光/增益，跨 Control+Grab）| 參數控制 **L3**；光度 **待照明**；Control UI **L1（待 Mac 目視）**| Grab 側全 L3（見 Grab 表）；光度 noise floor 數據貼出、非程式碼 bug；Control TabControl + 相機 tab L1，待 Addis Mac 目視後才升。|
+| **#2** | CCD 參數 UI（曝光/增益，跨 Control+Grab）| 參數控制 **L3**；光度 **L3**；Control UI **L1（待 Mac 目視）**| Grab 側全 L3（見 Grab 表）；光度加光源後 exp ratio=2.314 / gain ratio=2.267 全 PASS；Control TabControl + 相機 tab L1，待 Addis Mac 目視後才升。|
 | **#3** | （交接僅記「已做」，無具體定義）| **無對應** | 考古查無對應功能；不留幽靈號，僅記錄此編號存在但定義缺失 |
 | **#4** | （交接僅記「已做」，無具體定義）| **無對應** | 同 #3 |
 | **#5** | 座標換算 pixel→μm（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 座標 **L0（預留）**| IP `GlobalPosX_um/Y_um`+`CcdIndex`（INI [Optical]→OpticalParams）；多 CCD 拼接（`CamToStageAngle/CcdPitch/CcdOverlap`, `Configuration.cs:80-88`）未實作、公式分歧待確認 |
