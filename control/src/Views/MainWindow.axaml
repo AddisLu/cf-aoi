@@ -70,15 +70,15 @@
               <Button Classes="sv" Command="{Binding CfSaveRecipeCommand}" Content="Save&#10;Recipe"/>
               <Button Classes="sv" Command="{Binding RefreshCommand}" Content="Refresh"/>
             </WrapPanel>
-            <!-- 常駐：開離線分析工具 + 顯示進階 -->
-            <StackPanel VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="8">
+            <!-- 常駐：開離線分析工具 + 顯示進階（WrapPanel 自動換行，避免按鈕被擠出畫面）-->
+            <WrapPanel VerticalAlignment="Bottom" Orientation="Horizontal">
               <Button Name="BtnOpenAlgoTest" Content="離線分析工具 (Algorithm Test)"
-                      Background="{StaticResource ColLightGreen}" Padding="12,8"/>
-              <Button Name="BtnOpenParamEditor" Content="配方編輯 (IP Param Editor)" Padding="12,8"/>
-              <Button Name="BtnOpenSortDefect" Content="缺陷整理 (Sort Defect)" Padding="12,8"/>
-              <Button Name="BtnOpenSysSettings" Content="系統設定 (Settings)" Padding="12,8"/>
-              <Button Command="{Binding ToggleAdvancedCommand}" Content="顯示/隱藏進階 (Ctrl+F)" Padding="12,8"/>
-            </StackPanel>
+                      Background="{StaticResource ColLightGreen}" Padding="12,8" Margin="0,0,8,8"/>
+              <Button Name="BtnOpenParamEditor" Content="配方編輯 (IP Param Editor)" Padding="12,8" Margin="0,0,8,8"/>
+              <Button Name="BtnOpenSortDefect" Content="缺陷整理 (Sort Defect)" Padding="12,8" Margin="0,0,8,8"/>
+              <Button Name="BtnOpenSysSettings" Content="系統設定 (Settings)" Padding="12,8" Margin="0,0,8,8"/>
+              <Button Command="{Binding ToggleAdvancedCommand}" Content="顯示/隱藏進階 (Ctrl+F)" Padding="12,8" Margin="0,0,8,8"/>
+            </WrapPanel>
           </Grid>
         </HeaderedContentControl>
 
