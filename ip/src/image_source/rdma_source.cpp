@@ -202,6 +202,9 @@ void RdmaImageSource::recv_thread_fn() {
     printf("[rdma_source] recv_thread 結束（ok=%llu err=%llu）\n",
            (unsigned long long)recv_ok_.load(),
            (unsigned long long)recv_err_.load());
+    // Grab 斷線後 recv_thread 自然退出，需關閉 queue 讓主迴圈的 next_frame/pop 返回 false。
+    // stop() 正常路徑也會呼叫 queue_->close()，重複呼叫安全（FrameQueue::close 是冪等的）。
+    if (queue_) queue_->close();
 }
 
 // ---------------------------------------------------------------------------
