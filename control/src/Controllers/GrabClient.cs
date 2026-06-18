@@ -105,6 +105,28 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
         };
     }
 
+    // GET_CAM_NODES：讀回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包），供 UI 顯示。
+    public async Task<CamNodesModel?> GetCamNodesAsync(CancellationToken ct = default)
+    {
+        var resp = await SendCommandAsync("GET_CAM_NODES", null, ct);
+        if (resp?["status"]?.GetValue<string>() != "OK") return null;
+        var n = resp["nodes"];
+        if (n is null) return null;
+        return new CamNodesModel
+        {
+            PixelFormat     = n["pixel_format"]?.GetValue<string>()     ?? "",
+            ExposureAuto    = n["exposure_auto"]?.GetValue<string>()    ?? "",
+            GainAuto        = n["gain_auto"]?.GetValue<string>()        ?? "",
+            TriggerMode     = n["trigger_mode"]?.GetValue<string>()     ?? "",
+            TriggerSelector = n["trigger_selector"]?.GetValue<string>() ?? "",
+            TriggerSource   = n["trigger_source"]?.GetValue<string>()   ?? "",
+            Width           = n["width"]?.GetValue<long>()      ?? 0,
+            Height          = n["height"]?.GetValue<long>()     ?? 0,
+            PacketSize      = n["packet_size"]?.GetValue<long>() ?? 0,
+            Scpd            = n["scpd"]?.GetValue<long>()        ?? 0,
+        };
+    }
+
     // 相機陣列總覽：LIST_CAMERAS（唯讀列舉）。回傳每台 {cam_id,mac,model,ip,online,persistent,...}。
     public async Task<System.Collections.Generic.List<CameraInfoModel>?> ListCamerasAsync(CancellationToken ct = default)
     {

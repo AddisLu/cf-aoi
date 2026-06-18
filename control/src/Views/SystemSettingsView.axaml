@@ -219,6 +219,15 @@
                         IsEnabled="{Binding IsGrabConnected}"
                         ToolTip.Tip="設曝光/增益後抓 1 幀算平均灰階,證明影像真的有變(非只看回讀值)。取像中無法用。"/>
                 <TextBlock Text="{Binding MeanGrayText}" Foreground="#1F7A4D" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap"/>
+
+                <Separator/>
+                <!-- GigE 機器層參數（open() 設的:PixelFormat/Auto/Trigger/ROI/封包）→ 看得到 -->
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="GigE 機器層參數" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  <Button Content="讀取機器層參數" Command="{Binding ReadCamNodesCommand}" IsEnabled="{Binding IsGrabConnected}"/>
+                </StackPanel>
+                <TextBlock Text="{Binding MachineParamsText}" FontFamily="Consolas" FontSize="11"
+                           Foreground="#555" TextWrapping="Wrap"/>
                 <!-- 綁定動作 = Gap #21，本次只做唯讀狀態，按鈕停用 -->
                 <Button Content="綁定相機（指派 IP / 位置）" IsEnabled="False"
                         ToolTip.Tip="指派 persistent IP / 位置映射 = Gap #21，開發中"/>

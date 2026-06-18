@@ -141,6 +141,27 @@ public partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string meanGrayText = "mean gray：—（按「套用並驗證」抓幀）";
     private double _prevMean = -1;
 
+    // GigE 機器層參數（open() 設的 PixelFormat/Auto/Trigger/ROI/封包）→ 讓使用者看得到。
+    [ObservableProperty] private string machineParamsText = "（按「讀取機器層參數」顯示 PixelFormat/Trigger/ROI…）";
+
+    [RelayCommand]
+    private async Task ReadCamNodes()
+    {
+        CamStatus = "讀取機器層參數中…";
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            var n = await _svc.Connection.Grab.GetCamNodesAsync(cts.Token);
+            if (n is null) { CamStatus = "ERR：讀取失敗（取像中?）"; return; }
+            MachineParamsText =
+                $"PixelFormat={n.PixelFormat}　ExposureAuto={n.ExposureAuto}　GainAuto={n.GainAuto}\n" +
+                $"TriggerMode={n.TriggerMode}（Selector={n.TriggerSelector} / Source={n.TriggerSource}）\n" +
+                $"ROI={n.Width}×{n.Height}　PacketSize={n.PacketSize}　GevSCPD={n.Scpd}";
+            CamStatus = "已讀取機器層參數";
+        }
+        catch (Exception ex) { CamStatus = $"ERR：{ex.Message}"; }
+    }
+
     [RelayCommand]
     private async Task VerifyCamParams()
     {
