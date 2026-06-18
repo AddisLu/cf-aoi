@@ -215,6 +215,10 @@
                   <Button Content="儲存此相機" Command="{Binding ApplyCamParamsCommand}" IsEnabled="{Binding IsGrabConnected}"/>
                   <Button Content="讀取" Command="{Binding RefreshCamParamsCommand}" IsEnabled="{Binding IsGrabConnected}"/>
                 </StackPanel>
+                <Button Content="套用並驗證（抓幀看 mean）" Command="{Binding VerifyCamParamsCommand}"
+                        IsEnabled="{Binding IsGrabConnected}"
+                        ToolTip.Tip="設曝光/增益後抓 1 幀算平均灰階,證明影像真的有變(非只看回讀值)。取像中無法用。"/>
+                <TextBlock Text="{Binding MeanGrayText}" Foreground="#1F7A4D" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap"/>
                 <!-- 綁定動作 = Gap #21，本次只做唯讀狀態，按鈕停用 -->
                 <Button Content="綁定相機（指派 IP / 位置）" IsEnabled="False"
                         ToolTip.Tip="指派 persistent IP / 位置映射 = Gap #21，開發中"/>

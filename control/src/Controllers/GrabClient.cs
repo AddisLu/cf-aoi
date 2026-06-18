@@ -83,6 +83,28 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
         };
     }
 
+    // 調參效果確認：TUNE_MEAN（開相機免 RDMA → 設曝光/增益 → 抓 1 幀回 mean gray）。
+    public async Task<CamParamsResult?> TuneMeanAsync(
+        int camId, double exposureUs, int gainRaw, CancellationToken ct = default)
+    {
+        var prms = new JsonObject
+        {
+            ["cam_id"]      = camId,
+            ["exposure_us"] = exposureUs,
+            ["gain_raw"]    = gainRaw,
+        };
+        var resp = await SendCommandAsync("TUNE_MEAN", prms, ct);
+        if (resp?["status"]?.GetValue<string>() != "OK") return null;
+        return new CamParamsResult
+        {
+            ExposureUs       = exposureUs,
+            GainRaw          = gainRaw,
+            ExposureUsActual = resp["exposure_us_actual"]?.GetValue<double>() ?? exposureUs,
+            GainRawActual    = resp["gain_raw_actual"]?.GetValue<int>()       ?? gainRaw,
+            MeanGray         = resp["mean_gray"]?.GetValue<double>()          ?? -1,
+        };
+    }
+
     // 相機陣列總覽：LIST_CAMERAS（唯讀列舉）。回傳每台 {cam_id,mac,model,ip,online,persistent,...}。
     public async Task<System.Collections.Generic.List<CameraInfoModel>?> ListCamerasAsync(CancellationToken ct = default)
     {

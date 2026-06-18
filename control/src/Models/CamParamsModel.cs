@@ -10,4 +10,5 @@ public class CamParamsResult
     public int    GainRaw          { get; init; }
     public double ExposureUsActual { get; init; }
     public int    GainRawActual    { get; init; }
+    public double MeanGray         { get; init; } = -1;  // TUNE_MEAN 抓幀平均灰階；-1 = N/A
 }

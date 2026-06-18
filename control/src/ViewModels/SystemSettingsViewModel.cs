@@ -137,6 +137,30 @@ public partial class SystemSettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string camStatus = "";
 
+    // 調參效果確認（mean gray）：證明影像真的隨曝光/增益變，非只看回讀值。
+    [ObservableProperty] private string meanGrayText = "mean gray：—（按「套用並驗證」抓幀）";
+    private double _prevMean = -1;
+
+    [RelayCommand]
+    private async Task VerifyCamParams()
+    {
+        CamStatus = "套用並抓幀中…";
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var r = await _svc.Connection.Grab.TuneMeanAsync(CurCamId, ExposureUs, GainRaw, cts.Token);
+            if (r is null) { CamStatus = "ERR：Grab 回應失敗（取像中無法調參預覽?）"; return; }
+            ExposureActualText = $"實際：{r.ExposureUsActual:F1} µs";
+            GainActualText     = $"實際：{r.GainRawActual} raw";
+            MeanGrayText = _prevMean >= 0
+                ? $"mean gray：{r.MeanGray:F1}（前次 {_prevMean:F1}，Δ {r.MeanGray - _prevMean:+0.0;-0.0}）"
+                : $"mean gray：{r.MeanGray:F1}";
+            _prevMean = r.MeanGray;
+            CamStatus = $"已套用並抓幀 CCD{CurCamId:00}";
+        }
+        catch (Exception ex) { CamStatus = $"ERR：{ex.Message}"; }
+    }
+
     [RelayCommand]
     private async Task ApplyCamParams()
     {
