@@ -240,6 +240,24 @@ public static class SelfTest
         bool kpiCase2 = vm.DeclaredSlotCount == 3
                         && vm.OnlineCount == 1 && vm.UnboundCount == 1 && vm.BoundCount == 0 && vm.OfflineCount == 0;
 
+        // ── 塊2：運算單元卡三項 ──
+        var sp1 = vm.ComputeUnits.First(g => g.Unit.Id == "Spark1");
+        var sp2 = vm.ComputeUnits.First(g => g.Unit.Id == "Spark2");
+        // (a) 處理 N(真) = 槽數
+        bool procN = sp1.SlotCount == 2 && sp2.SlotCount == 1;
+        // (b) 負載%(估算) = 公式算出值（非寫死；用同公式獨立重算比對）+ LoadText 標「估算」+ tooltip 寫投影
+        int expect1 = (int)System.Math.Round(sp1.SlotCount * 30 * 7.4 / 30000 * 100);
+        int expect2 = (int)System.Math.Round(sp2.SlotCount * 30 * 7.4 / 30000 * 100);
+        bool loadCalc = sp1.EstLoadPct == expect1 && sp2.EstLoadPct == expect2
+                        && sp1.EstMarginPct == 100 - expect1
+                        && sp1.LoadText.Contains("估算") && sp1.LoadDetail.Contains("未實機跑滿");
+        // (c) 連線(真)：ApplyTopology 後（home IP 未連）兩單元皆 false（不假綠）
+        bool connDefault = !sp1.IsConnected && !sp2.IsConnected;
+        // 連線規則（純函式，deterministic，不依賴 heartbeat）：active node 連上才綠、非 active 仍灰、未連皆灰
+        bool connRule = ViewModels.ComputeUnitGroup.UnitConnected("IpOffline", "IpOffline", true)
+                        && !ViewModels.ComputeUnitGroup.UnitConnected("IpOnline", "IpOffline", true)
+                        && !ViewModels.ComputeUnitGroup.UnitConnected("IpOffline", "IpOffline", false);
+
         svc.Connection.Grab.Disconnect();
         listener.Stop();
 
@@ -250,8 +268,12 @@ public static class SelfTest
         Console.WriteLine($"  KPI案① 37槽+0列舉 → 配置=37 偵測KPI全0: {(kpiCase1 ? "PASS" : "FAIL")} (實得 配置={declaredAtBoot} 偵測 on/b/u/off=0)");
         Console.WriteLine($"  KPI案② 3宣告槽+假列舉1台 → 配置=3 連線=1 待綁=1 已綁=0 離線=0: {(kpiCase2 ? "PASS" : "FAIL")} " +
             $"(實得 配置={vm.DeclaredSlotCount} on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount})");
-        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2;
-        Console.WriteLine(ok ? "✓ 塊1：拓樸宣告載入 + 分群 + 配置=宣告數 + 偵測KPI runtime-only + 宣告≠綁定(不假 merge)"
+        Console.WriteLine($"  塊2-a 處理 N(真)=槽數 Spark1=2/Spark2=1: {(procN ? "PASS" : "FAIL")} (實得 {sp1.SlotCount}/{sp2.SlotCount})");
+        Console.WriteLine($"  塊2-b 負載%(估算,公式非寫死)+標旗標: {(loadCalc ? "PASS" : "FAIL")} (Spark1 EstLoadPct={sp1.EstLoadPct} 期望={expect1}; LoadText=\"{sp1.LoadText}\")");
+        Console.WriteLine($"  塊2-c 連線(真): 預設未連不假綠={connDefault} + 規則(active才綠/非active灰/未連灰)={connRule}: {(connDefault && connRule ? "PASS" : "FAIL")}");
+        bool block2 = procN && loadCalc && connDefault && connRule;
+        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2 && block2;
+        Console.WriteLine(ok ? "✓ 塊1+2：拓樸/分群/配置=宣告數/偵測runtime-only/不假merge + 處理N真/負載估算公式/連線真不假綠"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }

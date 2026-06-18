@@ -85,11 +85,14 @@
                             CornerRadius="{DynamicResource Rad}" Padding="11" Margin="0,0,0,8">
                       <StackPanel Spacing="8">
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                          <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{DynamicResource Txt3}"/>
+                          <Ellipse Width="10" Height="10" Classes="live" VerticalAlignment="Center"
+                                   Fill="{Binding IsConnected, Converter={StaticResource BoolToGreenRed}}"
+                                   ToolTip.Tip="運算單元連線（真實狀態：node==ActiveIpNode 且已連才綠）"/>
                           <TextBlock Text="{Binding Title}" FontWeight="Bold" Foreground="{DynamicResource Txt}" VerticalAlignment="Center"/>
                           <TextBlock Text="{Binding SubTitle}" Classes="mono dim" FontSize="11" VerticalAlignment="Center"/>
                           <TextBlock Text="{Binding SlotCountText}" Classes="dim" FontSize="11" VerticalAlignment="Center"/>
-                          <TextBlock Text="· 連線/負載 = 塊2" Classes="dim" FontSize="10" VerticalAlignment="Center"/>
+                          <TextBlock Text="{Binding LoadText}" Classes="dim" FontSize="11" VerticalAlignment="Center"
+                                     ToolTip.Tip="{Binding LoadDetail}"/>
                         </StackPanel>
                         <ItemsControl ItemsSource="{Binding Slots}">
                           <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>

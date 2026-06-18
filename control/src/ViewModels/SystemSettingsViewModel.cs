@@ -67,6 +67,17 @@ public partial class SystemSettingsViewModel : ViewModelBase
         }
         DeclaredSlotCount = topo.Slots.Count;
         TopologyStatus = $"宣告 {DeclaredSlotCount} 槽 / {topo.ComputeUnits.Count} 運算單元 · 全部未綁（綁定動作 = #21）";
+        RefreshUnitConnectivity();
+    }
+
+    // 連線(真)：Control 現只連單一 ActiveIpNode → 以該 node + IsIpConnected 套 UnitConnected 規則。
+    // 結構上未假設永遠單台：未來多台 active 各自連線時，改成查 per-node 連線狀態即可（規則函式不變）。
+    private void RefreshUnitConnectivity()
+    {
+        var connectedNode = _svc.Config.ActiveIpNode;
+        bool ipUp = _svc.Connection.IsIpConnected;
+        foreach (var g in ComputeUnits)
+            g.IsConnected = ComputeUnitGroup.UnitConnected(g.Unit.Node, connectedNode, ipUp);
     }
 
     [RelayCommand] private void SelectSlot(CcdSlotModel? s) { if (s is not null) SelectedSlot = s; }
@@ -263,15 +274,42 @@ public partial class SystemSettingsViewModel : ViewModelBase
     {
         if (e.PropertyName == nameof(ConnectionManager.IsGrabConnected))
             OnPropertyChanged(nameof(IsGrabConnected));
+        else if (e.PropertyName == nameof(ConnectionManager.IsIpConnected))
+            RefreshUnitConnectivity();   // 連線變化即時刷新各運算單元卡的燈（不影響負載估算）
     }
 }
 
-/// <summary>運算單元帶的一張卡：某運算單元 + 它宣告的 CCD 槽（塊1 骨架；連線/負載% = 塊2）。</summary>
-public sealed class ComputeUnitGroup
+/// <summary>運算單元帶的一張卡：連線(真) + 處理 N 顆 CCD(真) + 負載%(估算容量投影)。</summary>
+public sealed partial class ComputeUnitGroup : ObservableObject
 {
     public ComputeUnitModel Unit { get; init; } = new();
     public ObservableCollection<CcdSlotModel> Slots { get; } = new();
     public string Title => Unit.Id;
     public string SubTitle => string.IsNullOrEmpty(Unit.Node) ? Unit.Role : $"node={Unit.Node} · {Unit.Role}";
-    public string SlotCountText => $"宣告 {Slots.Count} 顆 CCD";
+
+    // ① 處理 N（真）：= 該 unit 分到的宣告槽數（從拓樸算，不寫死）。
+    public int SlotCount => Slots.Count;
+    public string SlotCountText => $"處理 {SlotCount} 顆 CCD";
+
+    // ② 連線（真）：由 VM 依連線規則設定；未連顯灰、不假綠；連線變化即時刷新。
+    [ObservableProperty] private bool isConnected;
+
+    /// <summary>
+    /// 連線規則（純函式，可測；不假設永遠單台）：本單元 node == 該連線 node 且該連線已連 → 連線。
+    /// 現況 Control 只連單一 ActiveIpNode，故 VM 傳 active 進來；未來多台 active 時改為 per-node 查詢即可。
+    /// </summary>
+    public static bool UnitConnected(string unitNode, string connectedNode, bool nodeUp)
+        => !string.IsNullOrEmpty(unitNode) && unitNode == connectedNode && nodeUp;
+
+    // ③ 負載%（估算容量投影，與連線無關）：§2 投影——7.4ms/張實測、每 CCD ~30 張(=1110/37)、30s 節拍；
+    //    37 CCD 吞吐未實機跑滿。代表「滿載時約多少」，非當下即時量測。
+    public const double MsPerImage = 7.4;     // 實測
+    public const int    ImagesPerCcd = 30;    // 投影 = 1110/37
+    public const double TactMs = 30000;       // 30s 節拍
+    public double EstPanelMs => SlotCount * ImagesPerCcd * MsPerImage;
+    public int EstLoadPct   => (int)Math.Round(EstPanelMs / TactMs * 100);
+    public int EstMarginPct => Math.Max(0, 100 - EstLoadPct);
+    public string LoadText   => $"負載 ~{EstLoadPct}% · 餘裕 ~{EstMarginPct}%（估算）";
+    public string LoadDetail =>
+        $"估算容量投影（非即時量測）：{SlotCount}×{ImagesPerCcd}張×{MsPerImage}ms ≈ {EstPanelMs / 1000:F1}s / {TactMs / 1000:F0}s 節拍。7.4ms/張實測，37 CCD 吞吐未實機跑滿。";
 }
