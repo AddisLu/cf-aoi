@@ -395,7 +395,31 @@ public static class SelfTest
         Console.WriteLine($"  多 IP: IpNames=[{string.Join(",", mstore.IpNames)}] IP0.PitchX=11 / IP1.PitchX=22 隔離={ipIso} 切回載={ipReload}");
         Console.WriteLine(ipIso && ipReload ? "✓ 多 IP 單一入口:per-IP 配方隔離 + 切 IP 重載" : "✗ 多 IP 不符");
 
-        return shared && xmlOk && ipIso && ipReload ? 0 : 1;
+        // #34 per-IP 對位 Mark（M_AlignRoi）：每台 CCD 自己的對位樣板/參考點 → 隔離 + 存回各 IP RecipeInfo.xml + 切回重載
+        mstore.SelectedIp = "IP0";
+        mstore.Recipe.AlignRoi.AlignEnable = true;
+        mstore.Recipe.AlignRoi.ReferX = 100; mstore.Recipe.AlignRoi.ReferY = 200;
+        mstore.Recipe.AlignRoi.SearchWidth = 640; mstore.Recipe.AlignRoi.SearchHeight = 480;
+        mstore.Recipe.AlignRoi.PatternPath = "mark_ip0.tif";
+        mstore.Save();
+        mstore.SelectedIp = "IP1";
+        mstore.Recipe.AlignRoi.AlignEnable = false;
+        mstore.Recipe.AlignRoi.ReferX = 300; mstore.Recipe.AlignRoi.ReferY = 400;
+        mstore.Recipe.AlignRoi.PatternPath = "mark_ip1.tif";
+        mstore.Save();
+        var a0 = System.IO.File.ReadAllText(p0);
+        var a1 = System.IO.File.ReadAllText(p1);
+        bool alignIso = a0.Contains("<ReferX>100</ReferX>") && a0.Contains("<PatternPath>mark_ip0.tif</PatternPath>")
+                        && a0.Contains("<AlignEnable>true</AlignEnable>")
+                        && a1.Contains("<ReferX>300</ReferX>") && a1.Contains("<PatternPath>mark_ip1.tif</PatternPath>");
+        mstore.SelectedIp = "IP0";   // 切回應載到 IP0 的對位 Mark
+        bool alignReload = mstore.Recipe.AlignRoi.ReferX == 100
+                           && mstore.Recipe.AlignRoi.PatternPath == "mark_ip0.tif"
+                           && mstore.Recipe.AlignRoi.AlignEnable;
+        Console.WriteLine($"  對位 Mark: IP0 ReferX=100/mark_ip0 / IP1 ReferX=300/mark_ip1 隔離={alignIso} 切回載={alignReload}");
+        Console.WriteLine(alignIso && alignReload ? "✓ per-IP M_AlignRoi 隔離 + 存回各 IP RecipeInfo.xml + 切回重載" : "✗ 對位 Mark 不符");
+
+        return shared && xmlOk && ipIso && ipReload && alignIso && alignReload ? 0 : 1;
     }
 
     // ---- FFT Pitch 估算（驗證純 managed FFT 邏輯）----

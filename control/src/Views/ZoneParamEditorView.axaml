@@ -77,6 +77,30 @@
             <Button Classes="ghost" HorizontalAlignment="Stretch" Content="套用範圍到勾選 ROI" Command="{Binding ApplyRoiRangeCommand}"/>
           </StackPanel>
         </Border>
+
+        <!-- per-IP 對位 Mark（M_AlignRoi）：每台 CCD 自己的對位樣板/參考點，存回該 IP 的 RecipeInfo.xml -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="cardHead" Text="對位 Mark (M_AlignRoi)"
+                       ToolTip.Tip="每台 CCD 自己的對位樣板,吸收各相機起始點差異;切 IP 各自編輯,儲存配方寫回該 IP 的 RecipeInfo.xml"/>
+            <CheckBox Content="AlignEnable（此 CCD 啟用對位）" IsChecked="{Binding AlignRoi.AlignEnable}"/>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Text="ReferX" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding AlignRoi.ReferX}" Increment="1" Minimum="-1"/>
+              <TextBlock Grid.Row="1" Text="ReferY" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding AlignRoi.ReferY}" Increment="1" Minimum="-1"/>
+              <TextBlock Grid.Row="2" Text="SearchW" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding AlignRoi.SearchWidth}" Increment="1" Minimum="1"/>
+              <TextBlock Grid.Row="3" Text="SearchH" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AlignRoi.SearchHeight}" Increment="1" Minimum="1"/>
+            </Grid>
+            <TextBlock Text="Pattern 樣板" Foreground="{DynamicResource Txt2}"/>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding AlignRoi.PatternPath}" Watermark="樣板路徑（golden_maker 產生）"/>
+              <Button Grid.Column="1" Classes="ghost" Content="…" Margin="6,0,0,0" Command="{Binding BrowsePatternCommand}"/>
+            </Grid>
+          </StackPanel>
+        </Border>
       </StackPanel>
 
       <!-- ===== 中：27 列參數 ===== -->

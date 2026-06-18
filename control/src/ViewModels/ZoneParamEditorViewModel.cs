@@ -123,6 +123,13 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
 
     public ZoneSettingModel? EditZone => SelectedRoi?.Zone;   // Region 綁此（選取 ROI 的實際 Zone）
 
+    // per-IP 對位 Mark（M_AlignRoi）：每台 CCD 自己的對位樣板/參考點，吸收各相機起始點差異。
+    // 切 IP 重載 → OnRecipeReloaded 重發此屬性，UI 綁到該 CCD 的 AlignRoi。存配方時一併寫回該 IP 的 RecipeInfo.xml。
+    public AlignRoiModel AlignRoi => Store.Recipe.AlignRoi;
+
+    // PatternPath 檔案選擇（由 View 注入 StorageProvider，保持 VM 平台無關）。
+    public Func<Task<string?>>? PatternPicker;
+
     public static ImagePreproc[] ImagePreprocValues => Enum.GetValues<ImagePreproc>();
     public static AlgorithmWayCompare[] AlgorithmWayCompareValues => Enum.GetValues<AlgorithmWayCompare>();
     public static string[] AlgorithmCompareOptions { get; } = { "DIV" };
@@ -176,6 +183,7 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
         int i = 0;
         foreach (var z in Store.Recipe.DetectRoiList) Rois.Add(new RoiCheckItem { Index = i++, Zone = z });
         SelectedRoi = Rois.FirstOrDefault();
+        OnPropertyChanged(nameof(AlignRoi));   // 切 IP/配方 → 對位 Mark 綁定刷新到該 CCD
         StatusMessage = $"載入 {Store.SelectedRecipe}：{Rois.Count} 個 ROI";
     }
 
@@ -266,6 +274,17 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
     [RelayCommand] private void SelectAllChk() { foreach (var r in ParamRows) r.IsChecked = true; }
 
     [RelayCommand] private async Task Save() => await Store.SaveAsync();
+
+    // 選對位 Mark 樣板檔 → 寫回該 IP 的 AlignRoi.PatternPath（存配方時一併存回 RecipeInfo.xml）
+    [RelayCommand]
+    private async Task BrowsePattern()
+    {
+        if (PatternPicker is null) return;
+        var path = await PatternPicker();
+        if (string.IsNullOrEmpty(path)) return;
+        AlignRoi.PatternPath = path;
+        OnPropertyChanged(nameof(AlignRoi));   // 通知 PatternPath TextBox 刷新
+    }
 
     private void RequestApply(string summary, Action apply)
     {
