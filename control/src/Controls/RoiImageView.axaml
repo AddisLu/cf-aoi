@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctrl="using:CfAoiControl.Controls"
+             x:Class="CfAoiControl.Controls.RoiImageView"
+             x:Name="Self" x:CompileBindings="False">
+
+  <!-- 影像/ROI 共用控制項：影像顯示 + 縮放/平移/量測 + 多 ROI 方框(選中可拖把手/數值編) + 缺陷 overlay。
+       所有輸入走 StyledProperty(Source/ImageWidth/.../EditZone/AllZones/Defects)，故 Step1 與單 CCD 頁可共用。 -->
+  <Border CornerRadius="{DynamicResource Rad}" ClipToBounds="True"
+          BorderBrush="{DynamicResource Line}" BorderThickness="1">
+    <Grid RowDefinitions="*,Auto">
+      <Border Grid.Row="0" Name="Viewport" Background="{DynamicResource ImageBackdrop}" ClipToBounds="True" Focusable="True">
+        <Panel>
+          <Canvas Name="ContentRoot" RenderTransformOrigin="0,0">
+            <Image Name="ImgDisplay" Source="{Binding #Self.Source}"
+                   Width="{Binding #Self.ImageWidth}" Height="{Binding #Self.ImageHeight}"
+                   RenderOptions.BitmapInterpolationMode="None"/>
+            <ctrl:DefectOverlayControl Name="DefectOverlay" IsHitTestVisible="False"
+                                       Width="{Binding #Self.ImageWidth}" Height="{Binding #Self.ImageHeight}"/>
+          </Canvas>
+          <Canvas Name="RoiOverlay" IsHitTestVisible="False"/>
+          <Canvas Name="MeasureOverlay" IsHitTestVisible="False"/>
+          <TextBlock Margin="12,10" VerticalAlignment="Top" HorizontalAlignment="Left"
+                     FontFamily="{DynamicResource MonoFont}" FontSize="11" Foreground="#80FFFFFF"
+                     Text="{Binding #Self.Caption}"/>
+        </Panel>
+      </Border>
+      <!-- 工具列 -->
+      <Border Grid.Row="1" Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0">
+        <StackPanel Margin="8,6" Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Name="BtnFit" Classes="ghost" Content="Fit"/>
+            <Button Name="BtnRefresh" Classes="ghost" Content="刷新標示"
+                    ToolTip.Tip="從目前缺陷清單重畫大圖圓圈（不需重跑 Test）"/>
+            <Button Name="BtnRoi" Classes="ghost" Content="框 ROI"
+                    ToolTip.Tip="開啟後在影像上拖矩形框出 ROI;放大後可拖四角/四邊把手精修,或用下方數值微調;再按一次關閉"/>
+            <Button Name="BtnRoiClear" Classes="ghost" Content="ROI 全幅(-1)"
+                    ToolTip.Tip="清除 ROI → -1 = 全幅檢測"/>
+            <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"
+                       Text="左鍵拖平移 · 點缺陷選取 · 滾輪/雙指縮放 · 框 ROI 後拖角把手或下方數值精修 · 按 M 量 Pitch"/>
+          </StackPanel>
+          <!-- ROI 數值微調（雙向綁 EditZone，±1 微調精確到像素；-1=全幅）-->
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="ROI 座標" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"/>
+            <TextBlock Text="X1" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"/>
+            <NumericUpDown Width="104" Increment="1" Minimum="-1" FormatString="0" Value="{Binding #Self.EditZone.StartX}"/>
+            <TextBlock Text="Y1" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"/>
+            <NumericUpDown Width="104" Increment="1" Minimum="-1" FormatString="0" Value="{Binding #Self.EditZone.StartY}"/>
+            <TextBlock Text="X2" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"/>
+            <NumericUpDown Width="104" Increment="1" Minimum="-1" FormatString="0" Value="{Binding #Self.EditZone.EndX}"/>
+            <TextBlock Text="Y2" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"/>
+            <NumericUpDown Width="104" Increment="1" Minimum="-1" FormatString="0" Value="{Binding #Self.EditZone.EndY}"/>
+            <TextBlock Text="(-1=全幅)" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Border>
+</UserControl>
