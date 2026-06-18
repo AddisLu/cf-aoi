@@ -274,6 +274,18 @@ int main(int argc, char** argv) {
         return arr.dump();
     });
 
+    // 調參效果確認：TUNE_MEAN（開相機免 RDMA → 設曝光/增益 → 抓 1 幀回 mean gray）
+    ctrl.set_tune_mean_handler([&](int /*cam_id*/, float exp_us, int gain_raw,
+                                   float& ea, int& ga, double& mean,
+                                   std::string& err) -> bool {
+        std::lock_guard<std::mutex> lk(state_mtx);
+        if (grabbing) { err = "取像中，請先 GRAB_STOP 再調參預覽"; return false; }
+        if (!cam.is_open() && !cam.open(serial, pkt_size)) { err = "開相機失敗"; return false; }
+        if (!cam.set_params(exp_us, gain_raw, ea, ga)) { err = "相機寫入失敗"; return false; }
+        save_cam_config(cam_cfg_path, ea, ga);
+        return cam.grab_one_mean(mean, err);
+    });
+
     ctrl.set_status_provider([&]() -> std::string {
         bool g;
         uint64_t grabbed, dropped, sent_f, sent_b;

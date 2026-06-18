@@ -35,6 +35,10 @@ public:
                                         std::string& err)>;
     // LIST_CAMERAS：回傳 cameras JSON array 字串（唯讀列舉，不開相機）
     using ListCamFn = std::function<std::string()>;
+    // TUNE_MEAN：開相機(免 RDMA)+ 設曝光/增益 + 抓 1 幀回 mean gray（調參效果確認）
+    using TuneMeanFn = std::function<bool(int cam_id, float exp_us, int gain_raw,
+                                          float& exp_actual, int& gain_actual,
+                                          double& mean, std::string& err)>;
 
     explicit ControlServer(int port);
     ~ControlServer();
@@ -46,6 +50,7 @@ public:
     void set_cam_params_handler(SetCamFn fn) { set_cam_fn_ = std::move(fn); }
     void get_cam_params_handler(GetCamFn fn) { get_cam_fn_ = std::move(fn); }
     void set_list_cameras_handler(ListCamFn fn) { list_cam_fn_ = std::move(fn); }
+    void set_tune_mean_handler(TuneMeanFn fn) { tune_mean_fn_ = std::move(fn); }
 
     bool start();   // 建立 listener，開接受 thread
     void stop();    // 關閉 listener，join thread
@@ -66,4 +71,5 @@ private:
     SetCamFn     set_cam_fn_;
     GetCamFn     get_cam_fn_;
     ListCamFn    list_cam_fn_;
+    TuneMeanFn   tune_mean_fn_;
 };

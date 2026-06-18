@@ -226,3 +226,33 @@ bool CamPylon::get_params(float& exp_actual, int& gain_actual) {
         return false;
     }
 }
+
+// 抓 1 幀算 uint8 平均灰階（調參效果確認）。需相機已 open 且非串流中。
+bool CamPylon::grab_one_mean(double& mean, std::string& err) {
+    if (!opened_ || !camera_ptr_) { err = "相機未開"; return false; }
+    if (running_.load())          { err = "取像中，無法單張抓幀（請先停止取像）"; return false; }
+    auto* c = cam(camera_ptr_);
+    try {
+        c->StartGrabbing(1, GrabStrategy_OneByOne, GrabLoop_ProvidedByUser);
+        CGrabResultPtr r;
+        c->RetrieveResult(3000, r, TimeoutHandling_Return);
+        if (!r || !r->GrabSucceeded()) {
+            c->StopGrabbing();
+            err = "抓幀失敗/逾時";
+            return false;
+        }
+        const uint8_t* p = (const uint8_t*)r->GetBuffer();
+        size_t n = (size_t)r->GetImageSize();
+        uint64_t sum = 0;
+        for (size_t i = 0; i < n; ++i) sum += p[i];
+        mean = n ? (double)sum / (double)n : 0.0;
+        c->StopGrabbing();
+        printf("[cam_pylon] grab_one_mean: %ux%u mean=%.2f\n",
+               r->GetWidth(), r->GetHeight(), mean);
+        return true;
+    } catch (const GenericException& e) {
+        try { c->StopGrabbing(); } catch (...) {}
+        err = e.GetDescription();
+        return false;
+    }
+}

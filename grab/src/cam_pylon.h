@@ -63,6 +63,10 @@ public:
                     float& exp_actual, int& gain_actual);
     bool get_params(float& exp_actual, int& gain_actual);
 
+    // 調參效果確認：抓 1 幀算 uint8 平均灰階（證明影像真的隨曝光/增益變，非只看回讀值）。
+    // 需相機已 open 且「非串流中」(running_=false)；串流中請先停止。
+    bool grab_one_mean(double& mean, std::string& err);
+
 private:
     void grab_loop();
 
