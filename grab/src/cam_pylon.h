@@ -29,6 +29,13 @@ struct CamInfo {
     std::string ip_config;           // GetIpConfigCurrent（Persistent/DHCP/AutoIP…）
 };
 
+// GigE 機器層參數快照（open() 設定的東西,供 UI 顯示「看得到」）。只 std 型別。
+struct MachineParams {
+    std::string pixel_format, exposure_auto, gain_auto;
+    std::string trigger_mode, trigger_selector, trigger_source;
+    long long width = 0, height = 0, packet_size = 0, scpd = 0;
+};
+
 class CamPylon {
 public:
     CamPylon() = default;
@@ -66,6 +73,9 @@ public:
     // 調參效果確認：抓 1 幀算 uint8 平均灰階（證明影像真的隨曝光/增益變，非只看回讀值）。
     // 需相機已 open 且「非串流中」(running_=false)；串流中請先停止。
     bool grab_one_mean(double& mean, std::string& err);
+
+    // 讀回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包），供 UI 顯示。需相機已 open。
+    bool read_machine_params(MachineParams& mp, std::string& err);
 
 private:
     void grab_loop();

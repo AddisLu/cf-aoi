@@ -39,6 +39,8 @@ public:
     using TuneMeanFn = std::function<bool(int cam_id, float exp_us, int gain_raw,
                                           float& exp_actual, int& gain_actual,
                                           double& mean, std::string& err)>;
+    // GET_CAM_NODES：回 GigE 機器層參數 JSON 物件字串（需開相機）
+    using GetNodesFn = std::function<bool(std::string& json_out, std::string& err)>;
 
     explicit ControlServer(int port);
     ~ControlServer();
@@ -51,6 +53,7 @@ public:
     void get_cam_params_handler(GetCamFn fn) { get_cam_fn_ = std::move(fn); }
     void set_list_cameras_handler(ListCamFn fn) { list_cam_fn_ = std::move(fn); }
     void set_tune_mean_handler(TuneMeanFn fn) { tune_mean_fn_ = std::move(fn); }
+    void set_get_nodes_handler(GetNodesFn fn) { get_nodes_fn_ = std::move(fn); }
 
     bool start();   // 建立 listener，開接受 thread
     void stop();    // 關閉 listener，join thread
@@ -72,4 +75,5 @@ private:
     GetCamFn     get_cam_fn_;
     ListCamFn    list_cam_fn_;
     TuneMeanFn   tune_mean_fn_;
+    GetNodesFn   get_nodes_fn_;
 };

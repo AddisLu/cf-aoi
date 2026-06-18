@@ -227,6 +227,36 @@ bool CamPylon::get_params(float& exp_actual, int& gain_actual) {
     }
 }
 
+// 讀回 GigE 機器層參數(open() 設的東西),供 UI 顯示。需相機已 open。
+bool CamPylon::read_machine_params(MachineParams& mp, std::string& err) {
+    if (!opened_ || !camera_ptr_) { err = "相機未開"; return false; }
+    try {
+        GenApi::INodeMap& nm = cam(camera_ptr_)->GetNodeMap();
+        auto en = [&](const char* n) -> std::string {
+            try { return std::string(CEnumParameter(nm, n).GetValue().c_str()); }
+            catch (...) { return std::string("?"); }
+        };
+        auto it = [&](const char* n) -> long long {
+            try { return (long long)CIntegerParameter(nm, n).GetValue(); }
+            catch (...) { return -1; }
+        };
+        mp.pixel_format     = en("PixelFormat");
+        mp.exposure_auto    = en("ExposureAuto");
+        mp.gain_auto        = en("GainAuto");
+        mp.trigger_mode     = en("TriggerMode");
+        mp.trigger_selector = en("TriggerSelector");
+        mp.trigger_source   = en("TriggerSource");
+        mp.width       = it("Width");
+        mp.height      = it("Height");
+        mp.packet_size = it("GevSCPSPacketSize");
+        mp.scpd        = it("GevSCPD");
+        return true;
+    } catch (const GenericException& e) {
+        err = e.GetDescription();
+        return false;
+    }
+}
+
 // 抓 1 幀算 uint8 平均灰階（調參效果確認）。需相機已 open 且非串流中。
 bool CamPylon::grab_one_mean(double& mean, std::string& err) {
     if (!opened_ || !camera_ptr_) { err = "相機未開"; return false; }

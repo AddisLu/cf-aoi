@@ -242,6 +242,20 @@ void ControlServer::handle_client(int fd) {
                     catch (...) { resp["cameras"] = json::array(); }
                 }
 
+            } else if (cmd == "GET_CAM_NODES") {
+                if (!get_nodes_fn_) {
+                    resp["status"] = "ERR"; resp["error"] = "no handler";
+                } else {
+                    std::string js, err;
+                    if (get_nodes_fn_(js, err)) {
+                        resp["status"] = "OK";
+                        try { resp["nodes"] = json::parse(js); }
+                        catch (...) { resp["nodes"] = json::object(); }
+                    } else {
+                        resp["status"] = "ERR"; resp["error"] = err;
+                    }
+                }
+
             } else if (cmd == "TUNE_MEAN") {
                 auto& prms    = req["params"];
                 int   cam_id  = prms.value("cam_id",      0);

@@ -274,6 +274,28 @@ int main(int argc, char** argv) {
         return arr.dump();
     });
 
+    // GET_CAM_NODES：回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包），供 UI 顯示
+    ctrl.set_get_nodes_handler([&](std::string& js, std::string& err) -> bool {
+        std::lock_guard<std::mutex> lk(state_mtx);
+        if (!cam.is_open() && !cam.open(serial, pkt_size)) { err = "開相機失敗"; return false; }
+        MachineParams mp;
+        if (!cam.read_machine_params(mp, err)) return false;
+        json j = {
+            {"pixel_format",     mp.pixel_format},
+            {"exposure_auto",    mp.exposure_auto},
+            {"gain_auto",        mp.gain_auto},
+            {"trigger_mode",     mp.trigger_mode},
+            {"trigger_selector", mp.trigger_selector},
+            {"trigger_source",   mp.trigger_source},
+            {"width",            mp.width},
+            {"height",           mp.height},
+            {"packet_size",      mp.packet_size},
+            {"scpd",             mp.scpd}
+        };
+        js = j.dump();
+        return true;
+    });
+
     // 調參效果確認：TUNE_MEAN（開相機免 RDMA → 設曝光/增益 → 抓 1 幀回 mean gray）
     ctrl.set_tune_mean_handler([&](int /*cam_id*/, float exp_us, int gain_raw,
                                    float& ea, int& ga, double& mean,
