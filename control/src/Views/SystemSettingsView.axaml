@@ -129,9 +129,9 @@
 
           <!-- KPI 列 -->
           <UniformGrid Columns="5">
-            <Border Classes="card" Margin="0,0,8,0" Padding="13">
-              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="配置" Margin="0,0,0,6"/>
-                <TextBlock Classes="mono" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Txt}" Text="{Binding ConfiguredCount}"/></StackPanel>
+            <Border Classes="card" Margin="0,0,8,0" Padding="13" ToolTip.Tip="配置 = 拓樸宣告 CCD 數（config），非 runtime 偵測；下方 4 個 KPI 才是偵測狀態">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="配置(宣告)" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Txt}" Text="{Binding DeclaredSlotCount}"/></StackPanel>
             </Border>
             <Border Classes="card" Margin="0,0,8,0" Padding="13">
               <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="連線" Margin="0,0,0,6"/>

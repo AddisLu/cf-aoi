@@ -151,7 +151,8 @@ public static class SelfTest
         await vm.LoadCamerasCommand.ExecuteAsync(null);
 
         bool count   = vm.Cameras.Count == 2;
-        bool kpi      = vm.ConfiguredCount == 2 && vm.OnlineCount == 2
+        // 配置 KPI 已改為宣告數(DeclaredSlotCount)，不再 = 偵測數 → 此處只驗偵測類 KPI（runtime）
+        bool kpi      = vm.OnlineCount == 2
                         && vm.BoundCount == 1 && vm.UnboundCount == 1 && vm.OfflineCount == 0;
         bool grouping = vm.BoundCameras.Count == 1 && vm.BoundCameras[0].CamId == 0
                         && vm.UnboundCameras.Count == 1 && vm.UnboundCameras[0].CamId == 1
@@ -160,8 +161,8 @@ public static class SelfTest
         bool fields   = vm.Cameras[1].Mac == "00:30:53:2B:12:10" && vm.Cameras[1].StatusLabel == "待綁定";
 
         Console.WriteLine($"  列舉 2 台: {(count ? "PASS" : "FAIL")}");
-        Console.WriteLine($"  KPI 配置=2 上線=2 已綁定=1 待綁定=1 離線=0: {(kpi ? "PASS" : "FAIL")} " +
-            $"(實得 cfg={vm.ConfiguredCount} on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount})");
+        Console.WriteLine($"  KPI(偵測) 上線=2 已綁定=1 待綁定=1 離線=0: {(kpi ? "PASS" : "FAIL")} " +
+            $"(實得 on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount})");
         Console.WriteLine($"  分群 bound[CCD00]/unbound[CCD01]/offline[空]: {(grouping ? "PASS" : "FAIL")}");
         Console.WriteLine($"  預選第一台 + HasSelection: {(selected ? "PASS" : "FAIL")}");
         Console.WriteLine($"  欄位解析 (MAC/狀態標籤): {(fields ? "PASS" : "FAIL")}");
@@ -196,6 +197,11 @@ public static class SelfTest
 
         var svc = AppServices.Build();
         var vm = new ViewModels.SystemSettingsViewModel(svc);
+        // 案①：建構即載入機台 array_topology.example.json(37 槽) + 尚未列舉相機
+        //      → 配置(=DeclaredSlotCount)=37；偵測類 KPI 連線/已綁/待綁/離線 全 0。
+        int declaredAtBoot = vm.DeclaredSlotCount;   // 建構載入 example.json 的宣告數（期望 37）
+        bool kpiCase1 = declaredAtBoot == 37
+                        && vm.OnlineCount == 0 && vm.BoundCount == 0 && vm.UnboundCount == 0 && vm.OfflineCount == 0;
         vm.ApplyTopology(topo);
         var g1 = vm.ComputeUnits.FirstOrDefault(g => g.Unit.Id == "Spark1");
         var g2 = vm.ComputeUnits.FirstOrDefault(g => g.Unit.Id == "Spark2");
@@ -230,6 +236,9 @@ public static class SelfTest
         bool detectedSeparate = vm.Cameras.Count == 1                                  // 偵測側有 1 台
             && vm.ComputeUnits.SelectMany(g => g.Slots).Count() == 3                    // 宣告槽數不因列舉而變
             && vm.ComputeUnits.SelectMany(g => g.Slots).All(s => s.SlotStatusLabel == "已宣告 · 未綁");  // 列舉後槽仍未綁（未 merge）
+        // 案②：fixture 3 槽 + 假列舉 1 台(unbound) → 配置=宣告數3；偵測類 KPI 反映該 1 台(連線1/待綁1/已綁0/離線0)。
+        bool kpiCase2 = vm.DeclaredSlotCount == 3
+                        && vm.OnlineCount == 1 && vm.UnboundCount == 1 && vm.BoundCount == 0 && vm.OfflineCount == 0;
 
         svc.Connection.Grab.Disconnect();
         listener.Stop();
@@ -238,8 +247,11 @@ public static class SelfTest
         Console.WriteLine($"  ② 依 compute_unit 分群 Spark1[2]/Spark2[1] + DeclaredSlotCount=3: {(group ? "PASS" : "FAIL")} (實得 units={vm.ComputeUnits.Count} declared={vm.DeclaredSlotCount})");
         Console.WriteLine($"  ③ 全部宣告槽「已宣告·未綁」無人線上: {(noOnline ? "PASS" : "FAIL")}");
         Console.WriteLine($"  ④ 列舉相機獨立呈現({vm.Cameras.Count} 台)且未 merge 進宣告槽: {(detectedSeparate ? "PASS" : "FAIL")}");
-        bool ok = load && keys && group && noOnline && detectedSeparate;
-        Console.WriteLine(ok ? "✓ 塊1：拓樸宣告載入 + compute_unit 分群 + 未綁不標線上 + 宣告≠綁定(不假 merge)"
+        Console.WriteLine($"  KPI案① 37槽+0列舉 → 配置=37 偵測KPI全0: {(kpiCase1 ? "PASS" : "FAIL")} (實得 配置={declaredAtBoot} 偵測 on/b/u/off=0)");
+        Console.WriteLine($"  KPI案② 3宣告槽+假列舉1台 → 配置=3 連線=1 待綁=1 已綁=0 離線=0: {(kpiCase2 ? "PASS" : "FAIL")} " +
+            $"(實得 配置={vm.DeclaredSlotCount} on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount})");
+        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2;
+        Console.WriteLine(ok ? "✓ 塊1：拓樸宣告載入 + 分群 + 配置=宣告數 + 偵測KPI runtime-only + 宣告≠綁定(不假 merge)"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }

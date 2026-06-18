@@ -104,8 +104,9 @@ public partial class SystemSettingsViewModel : ViewModelBase
     public ObservableCollection<CameraInfoModel> BoundCameras   { get; } = new();
     public ObservableCollection<CameraInfoModel> OfflineCameras { get; } = new();
 
-    // KPI：配置 = 列舉數（無 config↔CCD 映射前 = 偵測數，映射 = Gap #21）；離線 = 0（無映射來源）。
-    [ObservableProperty] private int configuredCount;
+    // KPI：配置 = 拓樸「宣告」CCD 數（= DeclaredSlotCount，config 數，非 runtime 偵測）。
+    // 連線/已綁定/待綁定/離線 = 「偵測到的相機」之狀態（runtime；未偵測前皆 0）。
+    // 約束②：宣告的 37 槽不在這 4 個偵測 KPI 重複計（用上方黃點呈現），不假裝宣告槽=偵測狀態。
     [ObservableProperty] private int onlineCount;
     [ObservableProperty] private int boundCount;
     [ObservableProperty] private int unboundCount;
@@ -146,7 +147,6 @@ public partial class SystemSettingsViewModel : ViewModelBase
                     default:                    OfflineCameras.Add(c); break;
                 }
             }
-            ConfiguredCount = Cameras.Count;                 // = 偵測數（配置映射 = #21）
             OnlineCount     = Cameras.Count(c => c.Online);
             BoundCount      = BoundCameras.Count;
             UnboundCount    = UnboundCameras.Count;
