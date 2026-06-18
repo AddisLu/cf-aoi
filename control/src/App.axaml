@@ -16,6 +16,7 @@
         <conv:AtCapToBrushConverter x:Key="AtCapToBrush"/>
         <conv:CanSortToBrushConverter x:Key="CanSortToBrush"/>
         <conv:ClassToBorderBrushConverter x:Key="ClassToBorderBrush"/>
+        <conv:CamStatusToBrushConverter x:Key="CamStatusToBrush"/>
         <conv:InverseBoolConverter x:Key="InverseBool"/>
 
         <!-- 舊版 WinForms 顏色慣例（規格書實際 RGB），集中於此供 1:1 重建 -->

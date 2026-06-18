@@ -68,6 +68,30 @@ public sealed class ClassToBorderBrushConverter : IValueConverter
     public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
 }
 
+/// <summary>相機狀態 → 色碼（已綁定綠 / 待綁定琥珀 / 離線灰，對齊 mockup 語意）。接受 CamStatusKind 或其字串。</summary>
+public sealed class CamStatusToBrushConverter : IValueConverter
+{
+    public static readonly CamStatusToBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c)
+    {
+        var s = v switch
+        {
+            Models.CamStatusKind.Bound   => "bound",
+            Models.CamStatusKind.Unbound => "unbound",
+            Models.CamStatusKind.Offline => "offline",
+            string str                   => str,
+            _                            => "",
+        };
+        return new SolidColorBrush(s switch
+        {
+            "bound" or "已綁定"   => Color.Parse("#2ecc71"),
+            "unbound" or "待綁定" => Color.Parse("#E2A03B"),
+            _                     => Color.Parse("#9AA6B3"),
+        });
+    }
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
 /// <summary>bool 反相（true→false）。用於 IsVisible 切換。</summary>
 public sealed class InverseBoolConverter : IValueConverter
 {

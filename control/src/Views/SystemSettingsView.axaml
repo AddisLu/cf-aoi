@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:CfAoiControl.ViewModels"
+             xmlns:m="using:CfAoiControl.Models"
              x:Class="CfAoiControl.Views.SystemSettingsView"
              x:DataType="vm:SystemSettingsViewModel">
   <TabControl>
@@ -38,73 +39,192 @@
       </ScrollViewer>
     </TabItem>
 
-    <!-- ── 相機 tab（Gap #2：曝光/增益設定）───────────────────────── -->
+    <!-- ── 相機 tab：相機陣列總覽（資料由 LIST_CAMERAS 真實列舉，不 hardcode）─── -->
     <TabItem Header="相機">
-      <ScrollViewer>
-        <StackPanel Margin="20" Spacing="16" MaxWidth="460" HorizontalAlignment="Left">
+      <Grid Margin="14" RowDefinitions="Auto,Auto,Auto,*">
 
-          <!-- 標題列：相機參數 + Grab 連線指示器 -->
-          <StackPanel Orientation="Horizontal" Spacing="14">
-            <TextBlock Text="相機參數" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-              <Ellipse Width="12" Height="12" VerticalAlignment="Center"
-                       Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
-              <TextBlock FontSize="14" Text="Grab 連線" VerticalAlignment="Center"/>
-            </StackPanel>
-          </StackPanel>
-
-          <Grid ColumnDefinitions="90,180,*">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-
-            <!-- CCD（唯讀，固定 0）-->
-            <TextBlock Grid.Row="0" Text="CCD" FontSize="14" VerticalAlignment="Center" Margin="0,7"/>
-            <TextBox Grid.Row="0" Grid.Column="1" Text="0" IsEnabled="False" Margin="0,7"/>
-            <TextBlock Grid.Row="0" Grid.Column="2" Text="固定 cam_id = 0"
-                       VerticalAlignment="Center" Foreground="#888" FontSize="13" Margin="10,7,0,7"/>
-
-            <!-- 曝光 -->
-            <TextBlock Grid.Row="1" Text="曝光 (µs)" FontSize="14" VerticalAlignment="Center" Margin="0,7"/>
-            <NumericUpDown Grid.Row="1" Grid.Column="1" Margin="0,7"
-                           Value="{Binding ExposureUs}"
-                           Minimum="2" Maximum="10000" Increment="10"
-                           FormatString="F1"/>
-            <StackPanel Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="10,7,0,7">
-              <TextBlock Text="範圍 2 ~ 10000 µs" Foreground="#888" FontSize="13"/>
-              <TextBlock Text="{Binding ExposureActualText}" Foreground="#3A7AFE" FontSize="13" FontWeight="SemiBold"/>
-            </StackPanel>
-
-            <!-- 增益 -->
-            <TextBlock Grid.Row="2" Text="增益 raw" FontSize="14" VerticalAlignment="Center" Margin="0,7"/>
-            <NumericUpDown Grid.Row="2" Grid.Column="1" Margin="0,7"
-                           Value="{Binding GainRaw}"
-                           Minimum="256" Maximum="2047" Increment="64"
-                           FormatString="0"/>
-            <StackPanel Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="10,7,0,7">
-              <TextBlock Text="範圍 256 ~ 2047" Foreground="#888" FontSize="13"/>
-              <TextBlock Text="{Binding GainActualText}" Foreground="#3A7AFE" FontSize="13" FontWeight="SemiBold"/>
-            </StackPanel>
-          </Grid>
-
-          <!-- 操作按鈕 -->
-          <StackPanel Orientation="Horizontal" Spacing="10">
-            <Button Content="套用" Padding="20,8" FontSize="14"
-                    Command="{Binding ApplyCamParamsCommand}"
-                    IsEnabled="{Binding IsGrabConnected}"/>
-            <Button Content="讀取目前值" Padding="16,8" FontSize="14"
-                    Command="{Binding RefreshCamParamsCommand}"
-                    IsEnabled="{Binding IsGrabConnected}"/>
-            <TextBlock Text="{Binding CamStatus}" FontSize="14" VerticalAlignment="Center" Margin="6,0,0,0"/>
-          </StackPanel>
-
-          <TextBlock Text="⚠ 曝光/增益為機器層設定（cam_config.json），套用後持久化於 Grab 端。"
-                     FontSize="13" Foreground="#888" TextWrapping="Wrap"/>
+        <!-- 標題 + Grab LED + 列舉按鈕 + 狀態 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
+          <TextBlock Text="相機陣列總覽" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+          <Ellipse Width="12" Height="12" VerticalAlignment="Center"
+                   Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
+          <TextBlock Text="Grab 連線" VerticalAlignment="Center"/>
+          <Button Content="↻ 列舉相機" Command="{Binding LoadCamerasCommand}"
+                  IsEnabled="{Binding IsGrabConnected}"/>
+          <TextBlock Text="{Binding CamStatus}" VerticalAlignment="Center" Foreground="#666"/>
         </StackPanel>
-      </ScrollViewer>
+
+        <!-- KPI 列：配置 / 上線 / 已綁定 / 待綁定 / 離線 -->
+        <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,12">
+          <Border Classes="kpi" Margin="0,0,8,0">
+            <StackPanel><TextBlock Classes="kpiNum" Text="{Binding ConfiguredCount}"/><TextBlock Classes="kpiLab" Text="配置 CCD"/></StackPanel>
+          </Border>
+          <Border Classes="kpi" Margin="0,0,8,0">
+            <StackPanel><TextBlock Classes="kpiNum" Text="{Binding OnlineCount}"/><TextBlock Classes="kpiLab" Text="上線"/></StackPanel>
+          </Border>
+          <Border Classes="kpi" Margin="0,0,8,0">
+            <StackPanel><TextBlock Classes="kpiNum" Foreground="#2ecc71" Text="{Binding BoundCount}"/><TextBlock Classes="kpiLab" Text="已綁定"/></StackPanel>
+          </Border>
+          <Border Classes="kpi" Margin="0,0,8,0">
+            <StackPanel><TextBlock Classes="kpiNum" Foreground="#E2A03B" Text="{Binding UnboundCount}"/><TextBlock Classes="kpiLab" Text="待綁定"/></StackPanel>
+          </Border>
+          <Border Classes="kpi">
+            <StackPanel><TextBlock Classes="kpiNum" Foreground="#9AA6B3" Text="{Binding OfflineCount}"/><TextBlock Classes="kpiLab" Text="離線/未偵測"/></StackPanel>
+          </Border>
+        </UniformGrid>
+
+        <!-- 實體陣列：CCD 一字排開、狀態色碼、點選=選中（ListBox 原生選取）-->
+        <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="6" Margin="0,0,0,4">
+          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <ListBox ItemsSource="{Binding Cameras}" SelectedItem="{Binding SelectedCamera}"
+                     Background="Transparent" BorderThickness="0">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4"/></ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="m:CameraInfoModel">
+                  <Border Width="40" CornerRadius="5" Padding="0,6" ToolTip.Tip="{Binding StatusLabel}">
+                    <StackPanel HorizontalAlignment="Center" Spacing="4">
+                      <Ellipse Width="14" Height="14" HorizontalAlignment="Center"
+                               Fill="{Binding Status, Converter={StaticResource CamStatusToBrush}}"/>
+                      <TextBlock Text="{Binding CamId, StringFormat='{}{0:00}'}" FontSize="11"
+                                 FontFamily="Consolas" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </ScrollViewer>
+        </Border>
+
+        <!-- 下半：分群清單 | 明細面板 -->
+        <Grid Grid.Row="3" ColumnDefinitions="*,360" Margin="0,12,0,0">
+
+          <!-- 分群清單：待綁定（置頂）/ 已綁定 / 離線 -->
+          <ScrollViewer Grid.Column="0" Margin="0,0,12,0">
+            <StackPanel Spacing="12">
+              <!-- 待綁定 -->
+              <StackPanel>
+                <TextBlock Text="待綁定" FontWeight="Bold" Foreground="#C77F0A"/>
+                <ItemsControl ItemsSource="{Binding UnboundCameras}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="m:CameraInfoModel">
+                      <Grid ColumnDefinitions="70,*,Auto" Margin="0,3">
+                        <TextBlock Grid.Column="0" Text="{Binding CcdLabel}" FontFamily="Consolas"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999" Margin="8,0,0,0"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+              <!-- 已綁定 -->
+              <StackPanel>
+                <TextBlock Text="已綁定" FontWeight="Bold" Foreground="#1F9D55"/>
+                <ItemsControl ItemsSource="{Binding BoundCameras}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="m:CameraInfoModel">
+                      <Grid ColumnDefinitions="70,*,Auto" Margin="0,3">
+                        <TextBlock Grid.Column="0" Text="{Binding CcdLabel}" FontFamily="Consolas"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999" Margin="8,0,0,0"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+              <!-- 離線 / 未偵測（現無 config 映射 → 恆空，= Gap #21）-->
+              <StackPanel>
+                <TextBlock Text="離線 / 未偵測" FontWeight="Bold" Foreground="#9AA6B3"/>
+                <ItemsControl ItemsSource="{Binding OfflineCameras}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="m:CameraInfoModel">
+                      <Grid ColumnDefinitions="70,*,Auto" Margin="0,3">
+                        <TextBlock Grid.Column="0" Text="{Binding CcdLabel}" FontFamily="Consolas"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999" Margin="8,0,0,0"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+
+          <!-- 明細面板（選中相機）：MAC/型號/IP/狀態 + 重用的曝光/增益 + 儲存此相機 -->
+          <Border Grid.Column="1" BorderBrush="#DDD" BorderThickness="1" CornerRadius="8"
+                  Padding="14" IsVisible="{Binding HasSelection}" VerticalAlignment="Top">
+            <StackPanel Spacing="10" DataContext="{Binding SelectedCamera}" x:DataType="m:CameraInfoModel">
+              <!-- 標頭 -->
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Ellipse Width="16" Height="16" VerticalAlignment="Center"
+                         Fill="{Binding Status, Converter={StaticResource CamStatusToBrush}}"/>
+                <TextBlock Text="{Binding CcdLabel}" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding StatusLabel}" VerticalAlignment="Center" Foreground="#666"/>
+              </StackPanel>
+              <Grid ColumnDefinitions="64,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Text="型號" Foreground="#888"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Model}" FontFamily="Consolas"/>
+                <TextBlock Grid.Row="1" Text="MAC" Foreground="#888"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas"/>
+                <TextBlock Grid.Row="2" Text="IP" Foreground="#888"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding IpDisplay}" FontFamily="Consolas"/>
+                <TextBlock Grid.Row="3" Text="IP 設定" Foreground="#888"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding IpConfig}" FontFamily="Consolas" Foreground="#999"/>
+              </Grid>
+
+              <Separator/>
+
+              <!-- 相機設定（重用 Gap #2 曝光/增益，per-camera）。DataContext 切回 VM。 -->
+              <StackPanel Spacing="8" DataContext="{Binding $parent[UserControl].DataContext}"
+                          x:DataType="vm:SystemSettingsViewModel">
+                <TextBlock Text="相機設定（cam_config，機器層）" FontWeight="SemiBold"/>
+                <Grid ColumnDefinitions="70,120,*" RowDefinitions="Auto,Auto">
+                  <TextBlock Grid.Row="0" Text="曝光 (µs)" VerticalAlignment="Center"/>
+                  <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding ExposureUs}"
+                                 Minimum="2" Maximum="10000" Increment="10" FormatString="F1"/>
+                  <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding ExposureActualText}"
+                             Foreground="#3A7AFE" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                  <TextBlock Grid.Row="1" Text="增益 raw" VerticalAlignment="Center"/>
+                  <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding GainRaw}"
+                                 Minimum="256" Maximum="2047" Increment="64" FormatString="0"/>
+                  <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding GainActualText}"
+                             Foreground="#3A7AFE" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="儲存此相機" Command="{Binding ApplyCamParamsCommand}" IsEnabled="{Binding IsGrabConnected}"/>
+                  <Button Content="讀取" Command="{Binding RefreshCamParamsCommand}" IsEnabled="{Binding IsGrabConnected}"/>
+                </StackPanel>
+                <!-- 綁定動作 = Gap #21，本次只做唯讀狀態，按鈕停用 -->
+                <Button Content="綁定相機（指派 IP / 位置）" IsEnabled="False"
+                        ToolTip.Tip="指派 persistent IP / 位置映射 = Gap #21，開發中"/>
+                <TextBlock Text="⚠ 綁定動作（指派 IP / 位置映射）= Gap #21，本版僅顯示狀態、不執行。"
+                           FontSize="11" Foreground="#C77F0A" TextWrapping="Wrap"/>
+                <TextBlock Text="曝光/增益為機器層（cam_config.json，per cam_id），儲存後持久化於 Grab 端。"
+                           FontSize="11" Foreground="#888" TextWrapping="Wrap"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
     </TabItem>
 
   </TabControl>
+
+  <UserControl.Styles>
+    <Style Selector="Border.kpi">
+      <Setter Property="BorderBrush" Value="#E0E0E0"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="12,8"/>
+    </Style>
+    <Style Selector="Border.kpi TextBlock.kpiNum">
+      <Setter Property="FontSize" Value="24"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+    <Style Selector="Border.kpi TextBlock.kpiLab">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="#888"/>
+    </Style>
+  </UserControl.Styles>
 </UserControl>

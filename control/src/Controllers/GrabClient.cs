@@ -83,6 +83,34 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
         };
     }
 
+    // 相機陣列總覽：LIST_CAMERAS（唯讀列舉）。回傳每台 {cam_id,mac,model,ip,online,persistent,...}。
+    public async Task<System.Collections.Generic.List<CameraInfoModel>?> ListCamerasAsync(CancellationToken ct = default)
+    {
+        var resp = await SendCommandAsync("LIST_CAMERAS", null, ct);
+        if (resp?["status"]?.GetValue<string>() != "OK") return null;
+        var list = new System.Collections.Generic.List<CameraInfoModel>();
+        if (resp["cameras"] is JsonArray arr)
+        {
+            foreach (var n in arr)
+            {
+                if (n is null) continue;
+                list.Add(new CameraInfoModel
+                {
+                    CamId       = n["cam_id"]?.GetValue<int>()        ?? 0,
+                    Mac         = n["mac"]?.GetValue<string>()        ?? "",
+                    Model       = n["model"]?.GetValue<string>()      ?? "",
+                    Serial      = n["serial"]?.GetValue<string>()     ?? "",
+                    Ip          = n["ip"]?.GetValue<string>()         ?? "",
+                    Online      = n["online"]?.GetValue<bool>()       ?? true,
+                    Persistent  = n["persistent"]?.GetValue<bool>()   ?? false,
+                    IpConfig    = n["ip_config"]?.GetValue<string>()  ?? "",
+                    DeviceClass = n["device_class"]?.GetValue<string>() ?? "",
+                });
+            }
+        }
+        return list;
+    }
+
     public async Task<JsonNode?> SendCommandAsync(string cmd, JsonObject? prms, CancellationToken ct = default)
     {
         await _lock.WaitAsync(ct);

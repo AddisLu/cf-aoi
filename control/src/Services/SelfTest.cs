@@ -39,6 +39,7 @@ public static class SelfTest
                 case "sort":   return await SortTest();
                 case "patches": return await PatchClassifyTest();
                 case "settings": return SettingsTest();
+                case "camera": return await CameraTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -114,6 +115,64 @@ public static class SelfTest
     // ---- 缺陷整理 Parse + Sort 複製 ----
     // 遠端 DefectSort：用 in-process 假 IP server 模擬 LIST_DEFECT_FOLDERS / SORT_DEFECTS，
     // 驗證 Control 端送命令 + 解析回應 + 填 DataGrid + log（不需 GPU/真 IP）。
+    // 相機陣列總覽：假 Grab server 回 LIST_CAMERAS 多台（bound + unbound）→ 驗 VM 填表/分群/KPI。
+    // 真硬體只有 1 台驗不到分群，正好用假 payload 補。離線群維持空（無 config 映射，不假造離線台 = #21）。
+    private static async Task<int> CameraTest()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var serverTask = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var cmd = req["cmd"]!.GetValue<string>();
+                var seq = (int?)req["seq"] ?? 0;
+                string resp;
+                if (cmd == "LIST_CAMERAS")
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"cameras\":[" +
+                           "{\"cam_id\":0,\"mac\":\"00:30:53:2A:0B:03\",\"model\":\"raL8192-12gm\",\"serial\":\"25445953\",\"ip\":\"192.168.5.10\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\"}," +
+                           "{\"cam_id\":1,\"mac\":\"00:30:53:2B:12:10\",\"model\":\"raL8192-12gm\",\"serial\":\"25445999\",\"ip\":\"169.254.20.5\",\"online\":true,\"persistent\":false,\"ip_config\":\"AutoIP\",\"device_class\":\"BaslerGigE\"}]}";
+                else resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        var svc = AppServices.Build();
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", port);
+
+        var vm = new ViewModels.SystemSettingsViewModel(svc);
+        await vm.LoadCamerasCommand.ExecuteAsync(null);
+
+        bool count   = vm.Cameras.Count == 2;
+        bool kpi      = vm.ConfiguredCount == 2 && vm.OnlineCount == 2
+                        && vm.BoundCount == 1 && vm.UnboundCount == 1 && vm.OfflineCount == 0;
+        bool grouping = vm.BoundCameras.Count == 1 && vm.BoundCameras[0].CamId == 0
+                        && vm.UnboundCameras.Count == 1 && vm.UnboundCameras[0].CamId == 1
+                        && vm.OfflineCameras.Count == 0;
+        bool selected = vm.SelectedCamera is { CamId: 0 } && vm.HasSelection;
+        bool fields   = vm.Cameras[1].Mac == "00:30:53:2B:12:10" && vm.Cameras[1].StatusLabel == "待綁定";
+
+        Console.WriteLine($"  列舉 2 台: {(count ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  KPI 配置=2 上線=2 已綁定=1 待綁定=1 離線=0: {(kpi ? "PASS" : "FAIL")} " +
+            $"(實得 cfg={vm.ConfiguredCount} on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount})");
+        Console.WriteLine($"  分群 bound[CCD00]/unbound[CCD01]/offline[空]: {(grouping ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  預選第一台 + HasSelection: {(selected ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  欄位解析 (MAC/狀態標籤): {(fields ? "PASS" : "FAIL")}");
+
+        svc.Connection.Grab.Disconnect();
+        listener.Stop();
+        bool ok = count && kpi && grouping && selected && fields;
+        Console.WriteLine(ok ? "✓ 相機總覽：LIST_CAMERAS 解析 + 分群 + KPI 正確（離線維持 0，不假造）"
+                             : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
     private static async Task<int> SortTest()
     {
         // ---- 假 IP server：回 newline-delimited JSON ----
