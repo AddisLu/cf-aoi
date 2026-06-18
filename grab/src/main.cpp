@@ -253,6 +253,27 @@ int main(int argc, char** argv) {
         return true;
     });
 
+    // 相機陣列總覽：LIST_CAMERAS（唯讀列舉，不開相機、不改相機）
+    ctrl.set_list_cameras_handler([&]() -> std::string {
+        auto cams = CamPylon::enumerate_cameras();
+        json arr = json::array();
+        for (const auto& c : cams) {
+            arr.push_back({
+                {"cam_id",       c.cam_id},
+                {"mac",          c.mac},
+                {"model",        c.model},
+                {"serial",       c.serial},
+                {"ip",           c.ip},
+                {"online",       c.online},
+                {"persistent",   c.persistent},
+                {"ip_config",    c.ip_config},
+                {"device_class", c.device_class}
+            });
+        }
+        printf("[main] LIST_CAMERAS → %zu 台\n", cams.size());
+        return arr.dump();
+    });
+
     ctrl.set_status_provider([&]() -> std::string {
         bool g;
         uint64_t grabbed, dropped, sent_f, sent_b;

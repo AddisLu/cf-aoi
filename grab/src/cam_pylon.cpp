@@ -11,6 +11,37 @@ using namespace Pylon;
 // camera_ptr_ 的真實型別
 static CInstantCamera* cam(void* p) { return static_cast<CInstantCamera*>(p); }
 
+// 列舉所有相機（唯讀，不開相機）。EnumerateDevices 後讀 CDeviceInfo 的網路欄位。
+// PylonInitialize/Terminate 為 ref-counted：與已開相機共存安全（grabbing 中並存須實測，見 STATUS）。
+std::vector<CamInfo> CamPylon::enumerate_cameras() {
+    std::vector<CamInfo> out;
+    PylonInitialize();
+    try {
+        DeviceInfoList_t devices;
+        CTlFactory::GetInstance().EnumerateDevices(devices);
+        for (size_t i = 0; i < devices.size(); ++i) {
+            const CDeviceInfo& di = devices[i];
+            CamInfo ci;
+            ci.cam_id       = (int)i;                       // 暫派；MAC 穩定映射 = #21
+            ci.model        = di.GetModelName().c_str();
+            ci.serial       = di.GetSerialNumber().c_str();
+            ci.device_class = di.GetDeviceClass().c_str();
+            ci.online       = true;                          // 出現在列舉 = online
+            if (di.IsMacAddressAvailable()) ci.mac = di.GetMacAddress().c_str();
+            if (di.IsIpAddressAvailable())  ci.ip  = di.GetIpAddress().c_str();
+            if (di.IsIpConfigCurrentAvailable())
+                ci.ip_config = di.GetIpConfigCurrent().c_str();
+            // persistent 狀態：非 GigE 可能無此屬性 → try/catch 守。
+            try { ci.persistent = di.IsPersistentIpActive(); } catch (...) {}
+            out.push_back(std::move(ci));
+        }
+    } catch (const GenericException& e) {
+        fprintf(stderr, "[cam_pylon] enumerate 失敗：%s\n", e.GetDescription());
+    }
+    PylonTerminate();   // ref-counted：相機已開時 ref 仍 >0，相機不受影響
+    return out;
+}
+
 bool CamPylon::open(const std::string& serial, int64_t pkt_size) {
     if (opened_) return true;
 

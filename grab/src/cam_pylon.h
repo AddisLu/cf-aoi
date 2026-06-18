@@ -8,16 +8,35 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include <vector>
 
 // 每幀回呼：cam_id / raw pixels / 位元組數 / 寬 / 高
 using FrameCb = std::function<void(uint16_t cam_id,
                                    const uint8_t* data, uint32_t bytes,
                                    uint32_t width, uint32_t height)>;
 
+// 相機列舉結果（CTlFactory::EnumerateDevices 後讀 CDeviceInfo，不需開相機）。
+// 只用 std 型別，不洩漏 pylon header 給非 pylon 檔。供 LIST_CAMERAS 用。
+struct CamInfo {
+    int         cam_id      = 0;     // 暫以列舉 index 派；MAC 穩定映射 = Gap #21
+    std::string model;               // GetModelName 例 raL8192-12gm
+    std::string serial;              // GetSerialNumber
+    std::string device_class;        // GetDeviceClass 例 BaslerGigE
+    std::string mac;                 // GetMacAddress（GigE；非 GigE 空）
+    std::string ip;                  // GetIpAddress（空 = N/A）
+    bool        online     = true;   // 出現在列舉即視為 online
+    bool        persistent = false;  // IsPersistentIpActive()（有 persistent IP = 已綁定）
+    std::string ip_config;           // GetIpConfigCurrent（Persistent/DHCP/AutoIP…）
+};
+
 class CamPylon {
 public:
     CamPylon() = default;
     ~CamPylon() { stop(); }
+
+    // 列舉主機看得到的所有相機（不需 open；EnumerateDevices + 讀 CDeviceInfo）。
+    // 唯讀，不改任何相機；可在 idle 或（待實測）grabbing 中呼叫。供 LIST_CAMERAS。
+    static std::vector<CamInfo> enumerate_cameras();
 
     // open：初始化相機（auto = 第一台，或給序號）、設 GevSCPSPacketSize。
     // 成功後可呼叫 payload_size() 取得幀大小，再去連 RDMA。

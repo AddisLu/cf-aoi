@@ -231,6 +231,17 @@ void ControlServer::handle_client(int fd) {
                     }
                 }
 
+            } else if (cmd == "LIST_CAMERAS") {
+                if (!list_cam_fn_) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "no handler";
+                } else {
+                    resp["status"] = "OK";
+                    // list_cam_fn_ 回傳 cameras JSON array 字串，嵌入 cameras 欄位
+                    try { resp["cameras"] = json::parse(list_cam_fn_()); }
+                    catch (...) { resp["cameras"] = json::array(); }
+                }
+
             } else {
                 resp["status"] = "ERR";
                 resp["error"]  = "unknown command: " + cmd;

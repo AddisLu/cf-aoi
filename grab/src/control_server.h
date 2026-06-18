@@ -9,6 +9,7 @@
 //   GRAB_STOP                                    → grab_stop callback
 //   SET_CAM_PARAMS    params{cam_id,exposure_us,gain_raw} → set_cam callback
 //   GET_CAM_PARAMS    params{cam_id}             → get_cam callback
+//   LIST_CAMERAS      （唯讀列舉）→ {"status":"OK","cameras":[{cam_id,mac,model,ip,online,persistent,...}]}
 
 #include <atomic>
 #include <functional>
@@ -32,6 +33,8 @@ public:
     using GetCamFn = std::function<bool(int cam_id,
                                         float& exp_actual, int& gain_actual,
                                         std::string& err)>;
+    // LIST_CAMERAS：回傳 cameras JSON array 字串（唯讀列舉，不開相機）
+    using ListCamFn = std::function<std::string()>;
 
     explicit ControlServer(int port);
     ~ControlServer();
@@ -42,6 +45,7 @@ public:
     void set_status_provider(StatusFn fn)  { status_fn_  = std::move(fn); }
     void set_cam_params_handler(SetCamFn fn) { set_cam_fn_ = std::move(fn); }
     void get_cam_params_handler(GetCamFn fn) { get_cam_fn_ = std::move(fn); }
+    void set_list_cameras_handler(ListCamFn fn) { list_cam_fn_ = std::move(fn); }
 
     bool start();   // 建立 listener，開接受 thread
     void stop();    // 關閉 listener，join thread
@@ -61,4 +65,5 @@ private:
     StatusFn     status_fn_;
     SetCamFn     set_cam_fn_;
     GetCamFn     get_cam_fn_;
+    ListCamFn    list_cam_fn_;
 };
