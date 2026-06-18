@@ -27,7 +27,20 @@ std::vector<CamInfo> CamPylon::enumerate_cameras() {
             ci.serial       = di.GetSerialNumber().c_str();
             ci.device_class = di.GetDeviceClass().c_str();
             ci.online       = true;                          // 出現在列舉 = online
-            if (di.IsMacAddressAvailable()) ci.mac = di.GetMacAddress().c_str();
+            if (di.IsMacAddressAvailable()) {
+                std::string raw = di.GetMacAddress().c_str();   // 例 "003053531941"
+                // 12 碼純 hex → 補冒號 "00:30:53:53:19:41"（顯示用）
+                if (raw.size() == 12 && raw.find(':') == std::string::npos) {
+                    std::string m;
+                    for (size_t k = 0; k < raw.size(); k += 2) {
+                        if (k) m += ':';
+                        m += raw.substr(k, 2);
+                    }
+                    ci.mac = m;
+                } else {
+                    ci.mac = raw;
+                }
+            }
             if (di.IsIpAddressAvailable())  ci.ip  = di.GetIpAddress().c_str();
             if (di.IsIpConfigCurrentAvailable())
                 ci.ip_config = di.GetIpConfigCurrent().c_str();
