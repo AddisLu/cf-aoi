@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-17**（① 二次考古：Reference 源碼回頭驗 #1–#28 → 100% 一致,補登 #29–#31,見表四。② UI 設定專項複查：legacy 15 表單 ↔ 新版 5 View 逐控制項對照,補登 #32–#33,見表五/表六。前次：Gap #2 CCD 參數 UI — Grab 側 Stage 0+1+4 實機驗通 → L3）
+> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,待實作 A1/A2,見表六。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。）
 
 ## 分級定義
 
@@ -345,6 +345,7 @@
 |---|---|---|---|---|
 | **#32** | **RecipeSetting 部分欄位無對應 UI/model**（BypassEdgeX/Y 邊界略過 + OfflineLoadImageFolder + KernalValue/File2/Value2）| `RecipeSetting.cs:55-68,90-91`(BypassEdge/OfflineFolder) + `:52-60`(Kernal*) | **L0/部分** | **BypassEdgeX/Y**（邊界略過距離,影響檢測有效區）`RecipeSavingModel.cs` **完全無欄位**、無 UI、IP 不消費(grep 0 命中);**OfflineLoadImageFolder** 無（Step1 直接 browse 取代,可接受）;**KernalValue/KernalFile2/KernalValue2** 有 model 無 MainWindow UI（KernalFile 僅停用顯示「MIL 前處理,IP 未接」→ 本質即 #29 Smooth 的 MIL Gaussian kernel 機制）。`M_AiGroup`/`ImageRule*` 另計 #24/#16。|
 | **#33** | **配方管理操作不全**（Delete / SaveAll / 開資料夾）| `frmAoiSettingEditor.cs:154-168` | **L0（缺）** | 新版 `MainWindow` 只有配方下拉+Save;legacy 的 **刪除配方 / 全部另存 / 開配方資料夾** 無對應 UI。（新建/重命名/另存 = #30、跨配方複製 = #7,功能獨立分列。）|
+| **#34** | **per-camera ROI 底圖 + per-IP 對位 Mark 編輯**（每台相機不同起始點 → 各自 ROI）| `ClibCf/Recipe.cs:36-49`(本地 ROI)、`MainProc.cs:441`(per-IP 配方)、`CamProc.cs:386-485`+`Recipe.cs:143-151`(per-camera 對位 `AlignedStartX=StartX+ShiftX`)、`LibAoiSetting/Configuration.cs:29-95`(CcdPitch/Overlap=全域拼接,與 ROI 無關) | **L0（設計已定案,待實作）** | **考古結論**:legacy = **每台相機本地像素 ROI + 每台自己的對位 Mark(M_AlignRoi)吸收起始點差異**;ROI 不用全域、不靠 CcdPitch 換算。**已選模型 A(legacy 原汁)**+**底圖兩來源都支援(接相機即時抓幀 + Step4 存的該台 TIFF)**。骨架已具(#6 per-IP 配方 + #1 per-IP 對位),三塊待補:**A1(核心)** #8 視覺框 ROI 底圖綁到選中的 IP/CCD 的實拍幀(現為隨機載入圖);**A2** per-IP M_AlignRoi 編輯/套用/存回 `{recipe}/{IP}/RecipeInfo.xml` 流程+UI(golden_maker 已能產 Mark);**A3(可選,回報用)** per-CCD 全域偏移=#5 多 CCD,與 ROI 解耦可延後。模型 B(全域定義自動分配)legacy 沒做,暫不採。|
 
 > **UI 複查結論**：標「缺」的 UI 全部對得上既有/新增 gap#（無「有 UI 但漏記」的反向落差）。新版**未引入** legacy 沒有的多餘 UI 設定。
 > 多數「停用顯示」（IsEnabled=False + tooltip）屬刻意保留版面 1:1、標明 MIL/新流程不適用,**非缺漏**。
