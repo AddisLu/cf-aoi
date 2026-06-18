@@ -37,6 +37,32 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
     → RDMA libibverbs →
 ```
 
+### 多 CCD 陣列：三層模型（運算單元 / CCD / per-CCD 配方）— 基礎概念，所有 session 繼承
+
+「IP」一詞在本專案有三義，易混。固定用下列三層詞彙，**勿再混用「IP」一詞**：
+
+1. **運算單元（Compute Unit）** — 實體運算機（DGX Spark / RTX）。跑 IP 程式、對 Control 走 8200 JSON。
+   現 **1 台即可算全 37 CCD**：**7.4ms/張為實測**；全 37 CCD 約 8.2s/面板、餘裕 ~73% **係據此投影**
+   （假設 ~1110 張/面板、單運算單元序列處理；**未實機跑滿 37 CCD**）。見 verification/verification_report_arm_20260615。
+   可水平擴充（預留 GPU 給外圍 AI 區）。Control 現只連單一 `ActiveIpNode`。
+2. **CCD / 相機** — 37 個實體插槽 **CCD00–CCD36**。每槽一台相機，有 MAC、綁到某運算單元、狀態 線上/離線 × 已綁/未綁。
+   由 Grab `LIST_CAMERAS` 列舉（MAC keying）。
+3. **per-CCD 配方分區** — `{recipe}/{分區}/RecipeInfo.xml` = 該 CCD 的本地像素 ROI + 參數 + 對位 Mark(M_AlignRoi)。
+   每台 CCD 各自一份（legacy 模型 A：本地 ROI + 各自對位 Mark 吸收起始點差異，見 STATUS #34）。
+
+> 關係：N 顆 CCD : M 台運算單元（現 M=1，1 台算全 37）；每顆 CCD 一份 per-CCD 配方分區。
+
+**約束①（命名 vs 儲存鍵，勿糊改名）**：UI/docs 一律用 **CCD** 詞；但**目前儲存鍵仍是 `IP0`(IpName)**
+（`RecipeStore.SelectedIp`、`RecipeService` 寫 `{recipe}/{IpName}/RecipeInfo.xml`）。
+**「IP0→CCD 路徑改名」是另一塊、尚未做的 migration，本階段不做**；改名要做時必須：保留 IP 別名讀相容、
+驗 IP 端仍載得到配方 + 配方 round-trip + 全引用更新無 drift。→ follow-up，待 Addis 決定時機。
+（資料上：`ccd_id`=CCD 概念/UI 名、`recipe_partition`=現行 IpName(如 "IP0")，兩者並存解耦。）
+
+**約束②（拓樸宣告 ≠ live 綁定，勿假 merge）**：`array_topology.json`（機台層）**宣告** 37 槽結構
+（ccd_id + 運算單元 + recipe 分區，MAC 多為 TBD）是**真 config**；但「哪台 `LIST_CAMERAS` 列舉到的真相機 = 哪個槽」
+的 **live 綁定 = #21（尚未做）**。**不可**把「宣告的 37 槽」與「列舉到的相機」假裝 merge 成 live 狀態：
+宣告狀態(config) 與 偵測狀態(runtime) 分開呈現，未綁定前不得標「線上」。
+
 ---
 
 ## 3. 5 步驟驗證流程

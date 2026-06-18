@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。）
+> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。）
 
 ## 分級定義
 
@@ -349,6 +349,49 @@
 
 > **UI 複查結論**：標「缺」的 UI 全部對得上既有/新增 gap#（無「有 UI 但漏記」的反向落差）。新版**未引入** legacy 沒有的多餘 UI 設定。
 > 多數「停用顯示」（IsEnabled=False + tooltip）屬刻意保留版面 1:1、標明 MIL/新流程不適用,**非缺漏**。
+
+---
+
+## 多 CCD 陣列 UI — Phase 1 拆塊（塊1/2/3；關聯 #6 / #34 / #21，不重編既有號）
+
+> 三層模型見 docs/CLAUDE.md §2「多 CCD 陣列三層模型」（運算單元 / CCD / per-CCD 配方）。
+> Phase 1 **在家可驗**（無相機，底圖先用載入 TIFF）；綁定動作 / A1 實拍底圖 / 離線偵測 = **Phase 2（待相機/Switch）**。
+> 約束①(不做 IP0→CCD 改名)、約束②(拓樸宣告≠live 綁定) 全程適用。
+
+| 塊 | 內容 | 關聯/依賴 | L（目標） | 在家可驗 |
+|---|---|---|---|---|
+| **塊1** | ArrayTopology 資料模型 + `array_topology.json` 載入 + 陣列 render（**宣告狀態**；運算單元帶骨架） | 新；約束②「宣告≠綁定」；per-CCD 分區沿用 **#6** 的 per-IP RecipeStore | **L2 ✓(2026-06-19 selftest)** / L1(待 Mac 目視) | ✅ |
+| **塊2** | 運算單元帶細節（每台 Spark 卡：連線燈 / 處理 N 顆 CCD / 負載%） | 關聯 `ActiveIpNode`；**負載% 標「估算」**（家裡 1 台量不到 37 CCD 吞吐，非實測；與 CLAUDE.md §2 容量「投影」一致） | L0→ **L1** | ✅（數字=估算） |
+| **塊3** | 單 CCD 設定整合頁（左 Step1 影像/ROI + 右 ZoneParamEditor 27 欄 + 對位 Mark card） | **組合既有控制項**(Step1ViewModel / ZoneParamEditorViewModel / #34 A2 AlignRoi VM)，**非重做**；須確認三既有面板(Step1/ZoneParamEditor/MainWindow)不 regression。含 **#34 A2 視覺對位 Mark 編輯補完**（現只數值卡）+驗 | L0→ **L2/L1** | ✅（底圖載入 TIFF） |
+
+**`array_topology.json` schema（機台層；版控模板 `array_topology.example.json`，本機值不版控，比照 `cam_config.json`）**
+
+- `ccd_total_count` (int)：陣列 CCD 總數（37）。
+- `compute_units[]`：`id`(顯示名 "Spark1") + `node`(對映 `appsettings.Nodes` 鍵 "IpOffline"… = 連線目標) + `role`("aoi"/未來 "ai")。
+- `slots[]`（37 槽）：`ccd_id`(CCD 概念/UI 名 "CCD00"…) + `compute_unit`(指向某 `compute_units[].id`) + `expected_mac`(string|null，**可 null=TBD**，實際 MAC↔CCD 綁定 = #21/Phase 2) + `recipe_partition`(**現行儲存鍵=IpName** "IP0"… → `{recipe}/{recipe_partition}/RecipeInfo.xml`，約束①與 ccd_id 解耦並存)。
+- 只**宣告結構**（拓樸）；MAC 多 TBD；列舉相機↔槽的 live 綁定 = #21（約束②，勿 merge）。
+
+```json
+{
+  "ccd_total_count": 37,
+  "compute_units": [
+    { "id": "Spark1", "node": "IpOffline", "role": "aoi" }
+  ],
+  "slots": [
+    { "ccd_id": "CCD00", "compute_unit": "Spark1", "expected_mac": null, "recipe_partition": "IP0" },
+    { "ccd_id": "CCD01", "compute_unit": "Spark1", "expected_mac": null, "recipe_partition": "IP1" },
+    { "ccd_id": "CCD36", "compute_unit": "Spark1", "expected_mac": "00:30:53:2A:0B:24", "recipe_partition": "IP36" }
+  ]
+}
+```
+
+**關聯註腳（誠實，不糊）：**
+- **#34**：A2 **數值** M_AlignRoi 卡已完成（`control/src/Views/ZoneParamEditorView.axaml:81-100`，L2/L1）→ 塊3 **複用**；塊3 補 A2 的「影像上視覺定位對位 Mark」(現缺) + A1 底圖綁實拍(=Phase 2)。
+- **#21**：`array_topology.json` 宣告 `expected_mac` 槽位 = #21 的資料前置；實際 MAC↔CCD **live 綁定動作仍 = #21/Phase 2**（約束②）。
+- **#6**：per-CCD 配方分區沿用 #6 已建 per-IP RecipeStore（`RecipeStore.cs:43-74` IpNames/SelectedIp、`{recipe}/{IpName}/RecipeInfo.xml`）。
+- **命名**：本拆塊**不做** IP0→CCD 路徑改名（約束①，follow-up 待 Addis）；CCD=UI 名、IP0=儲存鍵並存。
+
+**塊1 完成（2026-06-19，L2）**：`Models/ArrayTopologyModel.cs`(ComputeUnits/Slots + Load 本機優先回退 .example) + `config/array_topology.example.json`(37 槽 CCD00–36→IP0–36，expected_mac 全 null=TBD，本機檔 .gitignore) + `SystemSettingsViewModel.ApplyTopology`(依 compute_unit 分群成運算單元帶) + `SystemSettingsView` 相機 tab：上半「運算單元·宣告陣列」(宣告槽=黃點未綁) / 下半「偵測到的相機(runtime)」分開呈現。`--selftest topology` 4 case PASS（① 載入 3 槽/2 單元+欄位 ② 分群 Spark1[2]/Spark2[1]+DeclaredSlotCount ③ 全槽「已宣告·未綁」無人線上 ④ 假 LIST_CAMERAS 1 台獨立、宣告槽未因列舉而變=不假 merge）；`--selftest camera` 回歸全 PASS（無 regression）。版面待 Mac 目視→L1。塊2(運算單元連線/負載%)、塊3(單 CCD 整合頁)、綁定(#21) 未動。
 
 ---
 
