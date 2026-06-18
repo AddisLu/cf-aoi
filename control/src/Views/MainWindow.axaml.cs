@@ -56,7 +56,8 @@ public partial class MainWindow : Window
         _sortWin = new Window
         {
             Title = "Sort Defect",
-            Width = 1103, Height = 542,
+            Width = 1103, Height = 600,
+            MinWidth = 900, MinHeight = 480,
             FontFamily = new Avalonia.Media.FontFamily("Arial"),
             Content = new DefectSortView { DataContext = vm.DefectSort },
         };
@@ -74,6 +75,7 @@ public partial class MainWindow : Window
         {
             Title = "Ip Params Editor",
             Width = 1280, Height = 797,
+            MinWidth = 1040, MinHeight = 620,
             FontFamily = new Avalonia.Media.FontFamily("Arial"),
             Content = new ZoneParamEditorView { DataContext = vm.ZoneEditor },
         };
@@ -90,6 +92,7 @@ public partial class MainWindow : Window
         {
             Title = "Algorithm Test Tools",
             Width = 1064, Height = 681,
+            MinWidth = 900, MinHeight = 560,
             FontFamily = new Avalonia.Media.FontFamily("Arial"),
             Content = new Step1View { DataContext = vm.Step1 },
         };

@@ -4,7 +4,7 @@
         xmlns:svc="using:CfAoiControl.Services"
         x:Class="CfAoiControl.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Width="1424" Height="881"
+        Width="1424" Height="881" MinWidth="1120" MinHeight="720"
         FontFamily="Arial" Title="CF_AOI">
 
   <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
@@ -37,8 +37,9 @@
     </Border>
 
     <Grid ColumnDefinitions="*,*">
-      <!-- ===== 左欄：Status / Reserve / SysLog / Error-Warning ===== -->
-      <Grid Grid.Column="0" RowDefinitions="*,*,*,*">
+      <!-- ===== 左欄：Status / Reserve / SysLog / Error-Warning =====
+           Status/Reserve = Auto（隨內容長高，進階鈕展開不被切掉）；兩個 log 區 = * 分剩餘 -->
+      <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*,*">
         <!-- Status -->
         <HeaderedContentControl Grid.Row="0" Classes="gbx" Header="Status">
           <StackPanel Margin="6,2" Spacing="2">

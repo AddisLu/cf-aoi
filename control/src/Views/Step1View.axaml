@@ -71,8 +71,8 @@
         </Border>
       </Grid>
 
-      <!-- ===== 右欄：Action 按鈕 + 參數 ===== -->
-      <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="3">
+      <!-- ===== 右欄：Action 按鈕 + 參數（ScrollViewer 包覆，視窗縮小時捲動不切功能）===== -->
+      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"><Grid RowDefinitions="Auto,Auto" Margin="3">
         <!-- Action -->
         <Border Grid.Row="0" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Padding="4" Margin="1">
           <StackPanel Spacing="4">
@@ -138,7 +138,7 @@
                        Text="（完整 32 參數編輯在第二批 ZoneParamEditor；此處為快速調參）"/>
           </StackPanel>
         </Border>
-      </Grid>
+      </Grid></ScrollViewer>
     </Grid>
   </DockPanel>
 </UserControl>
