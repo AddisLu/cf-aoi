@@ -46,6 +46,36 @@ static void probe_int(INodeMap& nm, const char* name) {
     }
 }
 
+static void probe_enum(INodeMap& nm, const char* name) {
+    try {
+        CEnumParameter p(nm, name);
+        EAccessMode acc = p.GetNode()->GetAccessMode();
+        GenApi::StringList_t syms;
+        try { p.GetSettableValues(syms); } catch (...) {}
+        std::string opts;
+        for (size_t i = 0; i < syms.size(); ++i) { if (i) opts += ","; opts += syms[i].c_str(); }
+        printf("  [Enum ] %-30s  val=%-16s  access=%s  options={%s}\n",
+               name, p.GetValue().c_str(),
+               (acc == RW) ? "RW" : (acc == RO) ? "RO" : (acc == NA) ? "NA" : "??",
+               opts.c_str());
+    } catch (...) {
+        printf("  [Enum ] %-30s  NOT FOUND\n", name);
+    }
+}
+
+static void probe_ip(INodeMap& nm, const char* name) {
+    try {
+        CIntegerParameter p(nm, name);
+        EAccessMode acc = p.GetNode()->GetAccessMode();
+        long long v = (long long)p.GetValue();
+        printf("  [IP   ] %-30s  %lld.%lld.%lld.%lld  access=%s\n",
+               name, (v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF,
+               (acc == RW) ? "RW" : (acc == RO) ? "RO" : (acc == NA) ? "NA" : "??");
+    } catch (...) {
+        printf("  [IP   ] %-30s  NOT FOUND\n", name);
+    }
+}
+
 int main(int argc, char** argv) {
     const char* serial = (argc > 1) ? argv[1] : nullptr;
 
@@ -90,6 +120,36 @@ int main(int argc, char** argv) {
         probe_float(nm, "AcquisitionLineRate");
         probe_float(nm, "LineRate");
         probe_float(nm, "ResultingLineRatePeriodAbs");
+
+        printf("\n=== PixelFormat（須為 Mono8）===\n");
+        probe_enum(nm, "PixelFormat");
+
+        printf("\n=== Auto（須 Off，否則手動曝光/增益被蓋）===\n");
+        probe_enum(nm, "ExposureAuto");
+        probe_enum(nm, "GainAuto");
+
+        printf("\n=== Trigger（線掃：free-run vs encoder 行觸發）===\n");
+        probe_enum(nm, "AcquisitionMode");
+        probe_enum(nm, "TriggerSelector");
+        probe_enum(nm, "TriggerMode");
+        probe_enum(nm, "TriggerSource");
+
+        printf("\n=== ROI ===\n");
+        probe_int(nm, "Width");
+        probe_int(nm, "Height");
+        probe_int(nm, "OffsetX");
+        probe_int(nm, "OffsetY");
+
+        printf("\n=== GigE 傳輸（封包/頻寬）===\n");
+        probe_int(nm, "GevSCPSPacketSize");
+        probe_int(nm, "GevSCPD");
+
+        printf("\n=== GigE 網路 / 綁定（persistent IP）===\n");
+        probe_ip(nm, "GevCurrentIPAddress");
+        probe_ip(nm, "GevPersistentIPAddress");
+        probe_ip(nm, "GevPersistentSubnetMask");
+        probe_ip(nm, "GevPersistentDefaultGateway");
+        probe_int(nm, "GevCurrentIPConfiguration");
 
         printf("\n=== TLParamsLocked（Acquisition 中是否鎖定）===\n");
         probe_int(nm, "TLParamsLocked");
