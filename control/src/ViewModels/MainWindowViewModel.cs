@@ -25,6 +25,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public ZoneParamEditorViewModel ZoneEditor { get; }
     public DefectSortViewModel DefectSort { get; }
     public SystemSettingsViewModel SysSettings { get; }
+    public SingleCcdSetupViewModel SingleCcdSetup { get; }   // 塊3：單 CCD 設定整合頁
     public SystemConfigModel Config => _svc.Config;
     public RecipeStore Store => _svc.RecipeStore;   // 配方共用來源（主視窗 Recipe 區預覽）
     public ShareSettingModel ShareSetting => _svc.Config.ShareSetting;   // 全域旗標（ShareSetting 面板）
@@ -67,6 +68,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsZone))]
     [NotifyPropertyChangedFor(nameof(IsSort))]
     [NotifyPropertyChangedFor(nameof(IsSettings))]
+    [NotifyPropertyChangedFor(nameof(IsSingleCcd))]
     private string currentScreen = "dashboard";
 
     public bool IsDashboard => CurrentScreen == "dashboard";
@@ -74,6 +76,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsZone      => CurrentScreen == "zone";
     public bool IsSort      => CurrentScreen == "sort";
     public bool IsSettings  => CurrentScreen == "settings";
+    public bool IsSingleCcd => CurrentScreen == "singleccd";   // 塊3：單 CCD 設定整合頁
 
     [RelayCommand] private void Navigate(string? screen)
     { if (!string.IsNullOrEmpty(screen)) CurrentScreen = screen!; }
@@ -107,6 +110,18 @@ public partial class MainWindowViewModel : ViewModelBase
         ZoneEditor = new ZoneParamEditorViewModel(svc);
         DefectSort = new DefectSortViewModel(svc);
         SysSettings = new SystemSettingsViewModel(svc);
+        SingleCcdSetup = new SingleCcdSetupViewModel(svc);
+
+        // master→detail：宣告陣列點 CCD 槽（SystemSettings.SelectedSlot）→ 進單 CCD 設定整合頁。
+        // 無帶參導覽 → 用屬性訂閱；不改既有 NavigateCommand。
+        SysSettings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SystemSettingsViewModel.SelectedSlot) && SysSettings.SelectedSlot is { } slot)
+            {
+                SingleCcdSetup.LoadSlot(slot);
+                CurrentScreen = "singleccd";
+            }
+        };
 
         OfflineFolder = svc.Config.Paths.ImageDir;
         Store.RecipeReloaded += () => CurRecipe = Store.SelectedRecipe;

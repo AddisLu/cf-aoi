@@ -126,6 +126,9 @@
                     Command="{Binding NavigateCommand}" CommandParameter="sort" Content="缺陷分類"/>
             <Button Classes="nav" Classes.active="{Binding IsSettings}"
                     Command="{Binding NavigateCommand}" CommandParameter="settings" Content="系統設定"/>
+            <Button Classes="nav" Classes.active="{Binding IsSingleCcd}"
+                    Command="{Binding NavigateCommand}" CommandParameter="singleccd"
+                    ToolTip.Tip="從系統設定的宣告陣列點一顆 CCD 進入；可直接開啟（未選則顯提示）" Content="單 CCD 設定"/>
             <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="機況確認　(未啟用)"/>
           </StackPanel>
         </DockPanel>
@@ -283,6 +286,11 @@
         <!-- ============ 系統設定 ============ -->
         <Panel IsVisible="{Binding IsSettings}">
           <views:SystemSettingsView DataContext="{Binding SysSettings}"/>
+        </Panel>
+
+        <!-- ============ 單 CCD 設定（塊3：薄殼嵌 Step1View + ZoneParamEditorView） ============ -->
+        <Panel IsVisible="{Binding IsSingleCcd}">
+          <views:SingleCcdSetupView DataContext="{Binding SingleCcdSetup}"/>
         </Panel>
 
       </Panel>

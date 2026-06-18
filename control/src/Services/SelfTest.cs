@@ -41,6 +41,7 @@ public static class SelfTest
                 case "settings": return SettingsTest();
                 case "camera": return await CameraTest();
                 case "topology": return await TopologyTest();
+                case "singleccd": return SingleCcdTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -274,6 +275,33 @@ public static class SelfTest
         bool block2 = procN && loadCalc && connDefault && connRule;
         bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2 && block2;
         Console.WriteLine(ok ? "✓ 塊1+2：拓樸/分群/配置=宣告數/偵測runtime-only/不假merge + 處理N真/負載估算公式/連線真不假綠"
+                             : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    // ---- 塊3-子塊1：單 CCD 設定整合頁（A 版薄殼）----
+    // 驗：① VM 組合既有 Step1ViewModel + ZoneParamEditorViewModel 實例（非重做）
+    //     ② 進頁前 HasSlot=false ③ LoadSlot 設對 RecipeStore.SelectedIp=recipe_partition(IP0 儲存鍵,約束①)
+    //     ④ header 顯 ccd_id(CCD05)+運算單元。不動偵測 section（不在此測 SystemSettings）。
+    private static int SingleCcdTest()
+    {
+        var svc = AppServices.Build();
+        var vm = new ViewModels.SingleCcdSetupViewModel(svc);
+
+        bool composed   = vm.Step1 is not null && vm.ZoneEditor is not null;        // 組合既有 VM 實例
+        bool beforeSlot = !vm.HasSlot;
+
+        var slot = new Models.CcdSlotModel { CcdId = "CCD05", ComputeUnit = "Spark1", RecipePartition = "IP5" };
+        vm.LoadSlot(slot);
+        bool ipSet     = svc.RecipeStore.SelectedIp == "IP5";                         // 儲存鍵走 recipe_partition
+        bool headerCcd = vm.HeaderText.Contains("CCD05") && vm.HeaderText.Contains("Spark1") && vm.HasSlot;
+
+        Console.WriteLine($"  ① 組合既有 Step1/ZoneEditor 實例(非重做): {(composed ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  ② 進頁前 HasSlot=false: {(beforeSlot ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  ③ LoadSlot → SelectedIp=IP5(儲存鍵,不改名): {(ipSet ? "PASS" : "FAIL")} (實得 {svc.RecipeStore.SelectedIp})");
+        Console.WriteLine($"  ④ header 顯 ccd_id+運算單元(CCD05/Spark1): {(headerCcd ? "PASS" : "FAIL")} (\"{vm.HeaderText}\")");
+        bool ok = composed && beforeSlot && ipSet && headerCcd;
+        Console.WriteLine(ok ? "✓ 子塊1：整合頁 VM 組合既有實例 + LoadSlot 設對儲存鍵(IP) + header 顯 CCD 名(約束①不改名)"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }

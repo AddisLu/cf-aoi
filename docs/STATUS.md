@@ -362,7 +362,7 @@
 |---|---|---|---|---|
 | **塊1** | ArrayTopology 資料模型 + `array_topology.json` 載入 + 陣列 render（**宣告狀態**；運算單元帶骨架） | 新；約束②「宣告≠綁定」；per-CCD 分區沿用 **#6** 的 per-IP RecipeStore | **L2 ✓(2026-06-19 selftest)** / L1(待 Mac 目視) | ✅ |
 | **塊2** | 運算單元帶細節（每台 Spark 卡：連線燈 / 處理 N 顆 CCD / 負載%） | 關聯 `ActiveIpNode`；**負載% 標「估算」**（家裡 1 台量不到 37 CCD 吞吐，非實測；與 CLAUDE.md §2 容量「投影」一致） | **L2 ✓(2026-06-19 selftest) / L1(待目視)** | ✅（數字=估算） |
-| **塊3** | 單 CCD 設定整合頁（左 Step1 影像/ROI + 右 ZoneParamEditor 27 欄 + 對位 Mark card） | **組合既有控制項**(Step1ViewModel / ZoneParamEditorViewModel / #34 A2 AlignRoi VM)，**非重做**；須確認三既有面板(Step1/ZoneParamEditor/MainWindow)不 regression。含 **#34 A2 視覺對位 Mark 編輯補完**（現只數值卡）+驗 | L0→ **L2/L1** | ✅（底圖載入 TIFF） |
+| **塊3** | 單 CCD 設定整合頁（左 Step1 影像/ROI + 右 ZoneParamEditor 27 欄 + 對位 Mark card） | **組合既有控制項**(Step1ViewModel / ZoneParamEditorViewModel)，**非重做**；reuse=A 薄殼嵌入(三既有面板不改) | **子塊1 L2 ✓(2026-06-19 selftest) / L1(待目視)** | ✅（底圖載入 TIFF） |
 
 **`array_topology.json` schema（機台層；版控模板 `array_topology.example.json`，本機值不版控，比照 `cam_config.json`）**
 
@@ -394,6 +394,8 @@
 **塊1 完成（2026-06-19，L2）**：`Models/ArrayTopologyModel.cs`(ComputeUnits/Slots + Load 本機優先回退 .example) + `config/array_topology.example.json`(37 槽 CCD00–36→IP0–36，expected_mac 全 null=TBD，本機檔 .gitignore) + `SystemSettingsViewModel.ApplyTopology`(依 compute_unit 分群成運算單元帶) + `SystemSettingsView` 相機 tab：上半「運算單元·宣告陣列」(宣告槽=黃點未綁) / 下半「偵測到的相機(runtime)」分開呈現。`--selftest topology` 4 case PASS（① 載入 3 槽/2 單元+欄位 ② 分群 Spark1[2]/Spark2[1]+DeclaredSlotCount ③ 全槽「已宣告·未綁」無人線上 ④ 假 LIST_CAMERAS 1 台獨立、宣告槽未因列舉而變=不假 merge）；`--selftest camera` 回歸全 PASS（無 regression）。版面待 Mac 目視→L1。塊3(單 CCD 整合頁)、綁定(#21) 未動。
 
 **塊2 完成（2026-06-19，L2）**：運算單元卡補三項——① **連線燈(真)** = `ComputeUnitGroup.UnitConnected(Node==ActiveIpNode && IsIpConnected)`，`BoolToGreenRed`+`.live` 呼吸燈，預設未連顯灰**不假綠**、連線變化即時刷新（`RefreshUnitConnectivity`，結構未假設永遠單台 active）；② **處理 N(真)** = SlotCount（拓樸槽數，不寫死）；③ **負載%(估算投影)** = `SlotCount×30×7.4ms/30000`（37 CCD→~27%/餘裕~73%；LoadText 標「估算」、tooltip 寫投影算式「7.4ms 實測、37CCD 吞吐未實機跑滿」，與連線無關）。`--selftest topology` 加塊2-a/b/c PASS（處理 N=槽數、負載公式非寫死且含估算旗標、連線預設不假綠+active 才綠）；camera 回歸不破。**負載%=估算非即時量測**；不碰約束②（偵測 section 未動）。版面待 Mac 目視→L1。
+
+**塊3 子塊1 完成（2026-06-19，L2；reuse=A 薄殼）**：新增第 6 螢幕 `SingleCcdSetupView`(薄殼) + `SingleCcdSetupViewModel`——**組合既有 Step1ViewModel + ZoneParamEditorViewModel 獨立新實例**（影像視埠獨立、recipe/zone/align 經共用 RecipeStore 同步），左嵌 `Step1View`、右嵌 `ZoneParamEditorView`(**兩既有檔不改**)；header 顯 `slot.CcdId`("CCD05")+運算單元(唯讀)，`LoadSlot` 設 `RecipeStore.SelectedIp=slot.RecipePartition`("IP5" 儲存鍵,約束①不改名)；master→detail = `SystemSettings` 宣告槽 chip `Tapped`→`SelectedSlot`→MainWindowVM 訂閱→進頁。MainWindow **僅 +1 nav/Panel**(既有 5 個未改)。`--selftest singleccd` 4 case PASS（組合既有實例/進頁前 HasSlot=false/SelectedIp=IP5/header 顯 CCD05）；store/topology/camera 回歸全綠。**deferred（未來 B/Phase 2）**：對位 Mark 視覺定位、嵌入編輯器內 IP0→CCD0 顯示、重複 chrome 收斂（皆需動 View）；A1 實拍底圖、#21。
 
 ---
 

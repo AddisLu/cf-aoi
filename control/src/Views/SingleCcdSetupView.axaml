@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CfAoiControl.ViewModels"
+             xmlns:views="using:CfAoiControl.Views"
+             x:Class="CfAoiControl.Views.SingleCcdSetupView"
+             x:DataType="vm:SingleCcdSetupViewModel">
+
+  <DockPanel Margin="18" Background="{DynamicResource Bg}" TextElement.Foreground="{DynamicResource Txt}">
+    <!-- header：CCD 名(顯 ccd_id) + 運算單元(唯讀) + 儲存(沿用 ZoneEditor.SaveCommand) -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <TextBlock Classes="h1" Text="單 CCD 設定"/>
+        <TextBlock Text="{Binding HeaderText}" Classes="mono" FontSize="13" FontWeight="SemiBold"
+                   Foreground="{DynamicResource Accent}" VerticalAlignment="Center"/>
+      </StackPanel>
+      <Button Grid.Column="1" Classes="primary" Content="儲存配方" Command="{Binding ZoneEditor.SaveCommand}"/>
+    </Grid>
+
+    <!-- 左：影像/ROI(嵌既有 Step1View，不改) ｜ 右：27 參數+對位卡(嵌既有 ZoneParamEditorView，不改) -->
+    <Grid ColumnDefinitions="*,560">
+      <views:Step1View Grid.Column="0" DataContext="{Binding Step1}"/>
+      <views:ZoneParamEditorView Grid.Column="1" Margin="12,0,0,0" DataContext="{Binding ZoneEditor}"/>
+    </Grid>
+  </DockPanel>
+</UserControl>
