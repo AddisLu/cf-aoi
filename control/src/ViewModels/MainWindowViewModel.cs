@@ -54,6 +54,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string aiModel = "—";
     [ObservableProperty] private string offlineFolder = "";
     [ObservableProperty] private bool isIpConnected;
+    [ObservableProperty] private bool isGrabConnected;
+    [ObservableProperty] private bool isUpstreamConnected;
 
     // ===== Reserve 按鈕區 =====
     [ObservableProperty] private bool showAdvanced;   // Ctrl+F 切換（沿用舊版隱藏慣例）
@@ -94,6 +96,8 @@ public partial class MainWindowViewModel : ViewModelBase
         timer.Tick += (_, _) =>
         {
             IsIpConnected = _conn.IsIpConnected;
+            IsGrabConnected = _conn.IsGrabConnected;
+            IsUpstreamConnected = _conn.IsUpstreamConnected;
             CurCamStatus = _conn.IsIpConnected ? "IP Connected" : "IP Disconnected";
         };
         timer.Start();

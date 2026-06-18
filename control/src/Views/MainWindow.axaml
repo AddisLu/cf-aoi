@@ -48,10 +48,22 @@
             <TextBlock FontSize="13" Text="{Binding CurRecipe, StringFormat='Cur Recipe : {0}'}"/>
             <TextBlock FontSize="13" Text="{Binding CurPanelId, StringFormat='Cur Panel ID : {0}'}"/>
             <TextBlock FontSize="13" Text="{Binding CurDetectMode, StringFormat='Cur Detect Mode : {0}'}"/>
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <Ellipse Width="11" Height="11" VerticalAlignment="Center"
-                       Fill="{Binding IsIpConnected, Converter={StaticResource BoolToGreenRed}}"/>
-              <TextBlock FontSize="13" Text="IP 連線"/>
+            <StackPanel Orientation="Horizontal" Spacing="14">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="11" Height="11" VerticalAlignment="Center"
+                         Fill="{Binding IsIpConnected, Converter={StaticResource BoolToGreenRed}}"/>
+                <TextBlock FontSize="13" Text="IP"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="11" Height="11" VerticalAlignment="Center"
+                         Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
+                <TextBlock FontSize="13" Text="Grab"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="11" Height="11" VerticalAlignment="Center"
+                         Fill="{Binding IsUpstreamConnected, Converter={StaticResource BoolToGreenRed}}"/>
+                <TextBlock FontSize="13" Text="上位機"/>
+              </StackPanel>
             </StackPanel>
           </StackPanel>
         </HeaderedContentControl>
