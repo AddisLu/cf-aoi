@@ -76,8 +76,26 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size) {
         if (pkt_size > 0)
             CIntegerParameter(nm, "GevSCPSPacketSize").TrySetValue(pkt_size);
 
+        // GigE 無 .dcf：機器層基本參數須顯式設定（全 TrySetValue/guard，失敗不中斷）。
+        // 1) PixelFormat 鎖 Mono8（可被改成 Mono12/YUV → 資料格式錯）
+        // 2) ExposureAuto/GainAuto 關（否則自動曝光蓋掉手動值 = 設了沒用）
+        // 3) TriggerMode 顯式 Off = free-run（現況；encoder 行觸發為未來生產配置）
+        CEnumParameter(nm, "PixelFormat").TrySetValue("Mono8");
+        CEnumParameter(nm, "ExposureAuto").TrySetValue("Off");
+        CEnumParameter(nm, "GainAuto").TrySetValue("Off");
+        CEnumParameter(nm, "TriggerMode").TrySetValue("Off");
+
         payload_ = CIntegerParameter(nm, "PayloadSize").GetValue();
         opened_  = true;
+
+        // 印出實際生效值（確認真的設成功，非只送指令）
+        auto enumOr = [&](const char* n) -> std::string {
+            try { return std::string(CEnumParameter(nm, n).GetValue().c_str()); }
+            catch (...) { return "?"; }
+        };
+        printf("[cam_pylon] 機器層: PixelFormat=%s ExposureAuto=%s GainAuto=%s TriggerMode=%s\n",
+               enumOr("PixelFormat").c_str(), enumOr("ExposureAuto").c_str(),
+               enumOr("GainAuto").c_str(), enumOr("TriggerMode").c_str());
 
         printf("[cam_pylon] 開啟 %s SN=%s  PayloadSize=%lld\n",
                c->GetDeviceInfo().GetModelName().c_str(),
