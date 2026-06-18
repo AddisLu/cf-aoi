@@ -1,0 +1,212 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- ============================================================
+       共用控制項樣式（以 DynamicResource token 取色 → A/B 即時換膚）。
+       對應 Claude Design 設計稿的按鈕 / 卡片 / 導覽 / 分頁等視覺元素。
+       ============================================================ -->
+
+  <!-- ===== 卡片 / 面板 ===== -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource Bg2}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+    <Setter Property="BoxShadow" Value="{DynamicResource CardShadow}"/>
+    <Setter Property="Padding" Value="14"/>
+  </Style>
+
+  <!-- ===== 文字 ===== -->
+  <Style Selector="TextBlock.h1">
+    <Setter Property="FontFamily" Value="{DynamicResource HeadFont}"/>
+    <Setter Property="FontSize" Value="19"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt}"/>
+  </Style>
+  <Style Selector="TextBlock.cardHead">
+    <Setter Property="FontFamily" Value="{DynamicResource HeadFont}"/>
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt2}"/>
+  </Style>
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
+  </Style>
+  <Style Selector="TextBlock.dim">
+    <Setter Property="Foreground" Value="{DynamicResource Txt3}"/>
+  </Style>
+  <Style Selector="TextBlock.dim2">
+    <Setter Property="Foreground" Value="{DynamicResource Txt2}"/>
+  </Style>
+
+  <!-- ===== 按鈕：基礎尺寸 ===== -->
+  <Style Selector="Button.primary, Button.ghost, Button.cmd, Button.pill, Button.gold, Button.pink, Button.green, Button.ok, Button.bad">
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+    <Setter Property="Padding" Value="13,8"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource Accent}"/>
+    <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Accent}"/>
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource AccentInk}"/>
+  </Style>
+
+  <Style Selector="Button.ghost, Button.cmd">
+    <Setter Property="Background" Value="{DynamicResource Bg3}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line2}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+  </Style>
+  <Style Selector="Button.cmd">
+    <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
+    <Setter Property="FontSize" Value="12"/>
+  </Style>
+
+  <Style Selector="Button.gold">
+    <Setter Property="Background" Value="{DynamicResource Gold}"/>
+    <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+  <Style Selector="Button.pink">
+    <Setter Property="Background" Value="{DynamicResource Pink}"/>
+    <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+  <Style Selector="Button.green">
+    <Setter Property="Background" Value="{DynamicResource Green}"/>
+    <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+  <Style Selector="Button.ok">
+    <Setter Property="Background" Value="{DynamicResource Ok}"/>
+    <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+  <Style Selector="Button.bad">
+    <Setter Property="Background" Value="{DynamicResource Bad}"/>
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+
+  <!-- 命令鈕停用：虛線框 + 半透明（MIL 專屬，新版未啟用）-->
+  <Style Selector="Button.cmd:disabled /template/ ContentPresenter">
+    <Setter Property="Opacity" Value="0.5"/>
+  </Style>
+
+  <!-- ===== 側欄導覽鈕 ===== -->
+  <Style Selector="Button.nav">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt2}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+    <Setter Property="Padding" Value="11,8"/>
+    <Setter Property="FontSize" Value="12.5"/>
+  </Style>
+  <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Bg3}"/>
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource Txt}"/>
+  </Style>
+  <Style Selector="Button.nav.active">
+    <Setter Property="Background" Value="{DynamicResource AccentSoft}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <Style Selector="Button.nav.active:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentSoft}"/>
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource Accent}"/>
+  </Style>
+
+  <!-- ===== A/B 切換 + 分頁鈕 ===== -->
+  <Style Selector="Button.seg">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt2}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+    <Setter Property="Padding" Value="11,5"/>
+    <Setter Property="FontSize" Value="11.5"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <Style Selector="Button.seg.active">
+    <Setter Property="Background" Value="{DynamicResource Accent}"/>
+    <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+  </Style>
+  <Style Selector="Button.seg.active:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Accent}"/>
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource AccentInk}"/>
+  </Style>
+
+  <Style Selector="Button.tab">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt3}"/>
+    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="CornerRadius" Value="0"/>
+    <Setter Property="Padding" Value="13,7"/>
+    <Setter Property="FontSize" Value="12.5"/>
+  </Style>
+  <Style Selector="Button.tab.active">
+    <Setter Property="Foreground" Value="{DynamicResource Txt}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+
+  <!-- 篩選膠囊 -->
+  <Style Selector="Button.chip">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt2}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line2}"/>
+    <Setter Property="CornerRadius" Value="999"/>
+    <Setter Property="Padding" Value="12,4"/>
+    <Setter Property="FontSize" Value="11"/>
+  </Style>
+  <Style Selector="Button.chip.active">
+    <Setter Property="Background" Value="{DynamicResource AccentSoft}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+
+  <!-- ===== 輸入控制項：套深淺色 token ===== -->
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{DynamicResource Bg3}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource Bg3}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+  </Style>
+  <Style Selector="NumericUpDown">
+    <Setter Property="Background" Value="{DynamicResource Bg3}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Txt}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+    <Setter Property="CornerRadius" Value="{DynamicResource Rad}"/>
+  </Style>
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource Txt2}"/>
+  </Style>
+
+  <!-- 連線燈呼吸動畫（已連線 2.4s 緩慢明滅）-->
+  <Style Selector="Ellipse.live">
+    <Style.Animations>
+      <Animation Duration="0:0:2.4" IterationCount="INFINITE">
+        <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1"/></KeyFrame>
+        <KeyFrame Cue="50%"><Setter Property="Opacity" Value="0.45"/></KeyFrame>
+        <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1"/></KeyFrame>
+      </Animation>
+    </Style.Animations>
+  </Style>
+</Styles>

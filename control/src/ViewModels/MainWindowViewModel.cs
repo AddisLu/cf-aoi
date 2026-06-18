@@ -60,6 +60,35 @@ public partial class MainWindowViewModel : ViewModelBase
     // ===== Reserve 按鈕區 =====
     [ObservableProperty] private bool showAdvanced;   // Ctrl+F 切換（沿用舊版隱藏慣例）
 
+    // ===== 導覽：單一視窗側欄切換 5 畫面（純 UI 狀態；對應設計稿 screen）=====
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDashboard))]
+    [NotifyPropertyChangedFor(nameof(IsStep1))]
+    [NotifyPropertyChangedFor(nameof(IsZone))]
+    [NotifyPropertyChangedFor(nameof(IsSort))]
+    [NotifyPropertyChangedFor(nameof(IsSettings))]
+    private string currentScreen = "dashboard";
+
+    public bool IsDashboard => CurrentScreen == "dashboard";
+    public bool IsStep1     => CurrentScreen == "step1";
+    public bool IsZone      => CurrentScreen == "zone";
+    public bool IsSort      => CurrentScreen == "sort";
+    public bool IsSettings  => CurrentScreen == "settings";
+
+    [RelayCommand] private void Navigate(string? screen)
+    { if (!string.IsNullOrEmpty(screen)) CurrentScreen = screen!; }
+
+    // 系統 log 分頁（系統 / 錯誤 / 警告）— 純 UI 狀態
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLogSys))]
+    [NotifyPropertyChangedFor(nameof(IsLogError))]
+    [NotifyPropertyChangedFor(nameof(IsLogWarn))]
+    private string logTab = "sys";
+    public bool IsLogSys   => LogTab == "sys";
+    public bool IsLogError => LogTab == "error";
+    public bool IsLogWarn  => LogTab == "warn";
+    [RelayCommand] private void SetLogTab(string? t) { if (!string.IsNullOrEmpty(t)) LogTab = t!; }
+
     // ===== Recipe 區：用共用 Store（下拉 + PrimaryZone 預覽）=====
 
     // ===== Log 三區（對應 rtbSys / rtbError / rtbWarning）=====

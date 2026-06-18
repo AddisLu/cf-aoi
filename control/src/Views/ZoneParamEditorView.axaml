@@ -1,92 +1,111 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="CfAoiControl.Views.ZoneParamEditorView"
-             x:Name="Root" x:CompileBindings="False" FontFamily="Arial">
+             x:Name="Root" x:CompileBindings="False">
 
-  <DockPanel Margin="8">
-    <!-- 頂列：配方 / 儲存 / 確認模式 -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
-      <TextBlock Text="配方" VerticalAlignment="Center"/>
-      <ComboBox Width="180" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
-      <TextBlock Text="IP/CCD" VerticalAlignment="Center"
-                 ToolTip.Tip="多 IP/CCD 配方單一入口:切 IP 編該台的 {recipe}/{IP}/RecipeInfo.xml。現預設 IP0,多台可由 appsettings RecipeIps 擴充。"/>
-      <ComboBox Width="110" ItemsSource="{Binding Store.IpNames}" SelectedItem="{Binding Store.SelectedIp}"/>
-      <Button Content="儲存配方" Command="{Binding SaveCommand}"/>
-      <CheckBox Content="批次更新前確認" IsChecked="{Binding UpdateWithAsk}"/>
-    </StackPanel>
+  <DockPanel Margin="18" Background="{DynamicResource Bg}" TextElement.Foreground="{DynamicResource Txt}">
+    <!-- 標題列 -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <TextBlock Grid.Column="0" Classes="h1" Text="配方編輯 · Zone 參數" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="1" Classes="mono dim" FontSize="12" VerticalAlignment="Center" Text="frmIpParamEditor · DetectRoi 32 欄"/>
+    </Grid>
 
-    <!-- 狀態列 -->
-    <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusMessage}" Foreground="#555" Margin="0,6,0,0"/>
-
-    <!-- 確認列（chkUpdateWithAsk）-->
-    <Border DockPanel.Dock="Bottom" Background="#FFF3CD" CornerRadius="4" Padding="8,6" Margin="0,6,0,0"
-            IsVisible="{Binding AwaitingConfirm}">
-      <StackPanel Orientation="Horizontal" Spacing="10">
-        <TextBlock Text="{Binding ConfirmText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-        <Button Content="確認套用" Background="{StaticResource ColLightGreen}" Command="{Binding ConfirmApplyCommand}"/>
-        <Button Content="取消" Background="{StaticResource ColPink}" Command="{Binding CancelApplyCommand}"/>
+    <!-- 頂列：配方 / IP / 儲存 / 確認模式 -->
+    <Border DockPanel.Dock="Top" Classes="card" Padding="12,10" Margin="0,0,0,12">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Text="配方" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+        <ComboBox Width="180" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
+        <TextBlock Text="IP/CCD" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"
+                   ToolTip.Tip="多 IP/CCD 配方單一入口:切 IP 編該台的 {recipe}/{IP}/RecipeInfo.xml。"/>
+        <ComboBox Width="110" ItemsSource="{Binding Store.IpNames}" SelectedItem="{Binding Store.SelectedIp}"/>
+        <Button Classes="primary" Content="儲存配方" Command="{Binding SaveCommand}"/>
+        <CheckBox Content="批次更新前確認" IsChecked="{Binding UpdateWithAsk}"/>
       </StackPanel>
     </Border>
 
-    <Grid ColumnDefinitions="190,*,210">
-      <!-- ===== 左：Region ===== -->
-      <Border Grid.Column="0" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Padding="6" Margin="0,0,4,0">
-        <StackPanel Spacing="6">
-          <TextBlock Text="Region" FontWeight="Bold"/>
-          <Grid ColumnDefinitions="Auto,*" >
-            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="StartX" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="0" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.StartX}" Increment="1"/>
-            <TextBlock Grid.Row="1" Text="StartY" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="1" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.StartY}" Increment="1"/>
-            <TextBlock Grid.Row="2" Text="EndX" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="2" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.EndX}" Increment="1"/>
-            <TextBlock Grid.Row="3" Text="EndY" VerticalAlignment="Center" Margin="0,2,6,2"/>
-            <NumericUpDown Grid.Row="3" Grid.Column="1" Margin="0,2" Value="{Binding EditZone.EndY}" Increment="1"/>
-          </Grid>
-          <Button Content="套用範圍到勾選 ROI" HorizontalAlignment="Stretch" Command="{Binding ApplyRoiRangeCommand}"/>
+    <!-- 狀態列 -->
+    <TextBlock DockPanel.Dock="Bottom" Classes="mono dim2" Text="{Binding StatusMessage}" Margin="0,8,0,0"/>
 
-          <Separator/>
-          <TextBlock Text="批次位移（勾選 ROI，X 夾 0~8160）" FontSize="11" Foreground="#666" TextWrapping="Wrap"/>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Text="步進" VerticalAlignment="Center"/>
-            <NumericUpDown Width="90" Value="{Binding ShiftStep}" Increment="1" Minimum="1"/>
+    <!-- 確認列 -->
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource WarnBg}" BorderBrush="{DynamicResource Warn}" BorderThickness="1"
+            CornerRadius="{DynamicResource Rad}" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding AwaitingConfirm}">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="{Binding ConfirmText}" Foreground="{DynamicResource WarnTx}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        <Button Classes="green" Content="確認套用" Command="{Binding ConfirmApplyCommand}"/>
+        <Button Classes="pink" Content="取消" Command="{Binding CancelApplyCommand}"/>
+      </StackPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="210,*,200">
+      <!-- ===== 左：ROI 位移 + Region ===== -->
+      <StackPanel Grid.Column="0" Spacing="12" Margin="0,0,12,0">
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="cardHead" Text="ROI 位移"/>
+            <UniformGrid Columns="3" Rows="3">
+              <Panel/>
+              <Button Classes="ghost" Margin="2" Content="↑" Command="{Binding ShiftRoiCommand}" CommandParameter="y-"/>
+              <Panel/>
+              <Button Classes="ghost" Margin="2" Content="←" Command="{Binding ShiftRoiCommand}" CommandParameter="x-"/>
+              <TextBlock Classes="mono dim" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Text="{Binding ShiftStep, StringFormat='±{0}'}"/>
+              <Button Classes="ghost" Margin="2" Content="→" Command="{Binding ShiftRoiCommand}" CommandParameter="x+"/>
+              <Panel/>
+              <Button Classes="ghost" Margin="2" Content="↓" Command="{Binding ShiftRoiCommand}" CommandParameter="y+"/>
+              <Panel/>
+            </UniformGrid>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="步距 px" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Width="110" Value="{Binding ShiftStep}" Increment="1" Minimum="1"/>
+            </StackPanel>
           </StackPanel>
-          <UniformGrid Columns="2" >
-            <Button Content="X −" Margin="2" Command="{Binding ShiftRoiCommand}" CommandParameter="x-"/>
-            <Button Content="X +" Margin="2" Command="{Binding ShiftRoiCommand}" CommandParameter="x+"/>
-            <Button Content="Y −" Margin="2" Command="{Binding ShiftRoiCommand}" CommandParameter="y-"/>
-            <Button Content="Y +" Margin="2" Command="{Binding ShiftRoiCommand}" CommandParameter="y+"/>
-          </UniformGrid>
-        </StackPanel>
-      </Border>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="cardHead" Text="選取 ROI 範圍"/>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Text="StartX" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding EditZone.StartX}" Increment="1"/>
+              <TextBlock Grid.Row="1" Text="StartY" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding EditZone.StartY}" Increment="1"/>
+              <TextBlock Grid.Row="2" Text="EndX" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding EditZone.EndX}" Increment="1"/>
+              <TextBlock Grid.Row="3" Text="EndY" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding EditZone.EndY}" Increment="1"/>
+            </Grid>
+            <Button Classes="ghost" HorizontalAlignment="Stretch" Content="套用範圍到勾選 ROI" Command="{Binding ApplyRoiRangeCommand}"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
 
       <!-- ===== 中：27 列參數 ===== -->
-      <Border Grid.Column="1" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Padding="6" Margin="2,0">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="Parameters（勾選欲套用者 → Update）" FontWeight="Bold" Margin="0,0,0,4"/>
-          <!-- 底部 3 鈕 -->
-          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-            <Button Content="Clear All" Background="{StaticResource ColPink}" Command="{Binding ClearAllChkCommand}"/>
-            <Button Content="Select All" Background="{StaticResource ColLightGreen}" Command="{Binding SelectAllChkCommand}"/>
-            <Button Content="Update Params" Background="{StaticResource ColGoldenrod}" Foreground="White" Command="{Binding UpdateCheckedParamsCommand}"/>
+      <Border Grid.Column="1" Classes="card" Margin="0,0,12,0" Padding="0">
+        <DockPanel Margin="14">
+          <TextBlock DockPanel.Dock="Top" Classes="cardHead" Text="參數（勾選欲套用者 → Update）" Margin="0,0,0,8"/>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+            <Button Classes="pink" Content="Clear" Command="{Binding ClearAllChkCommand}"/>
+            <Button Classes="green" Content="Select All" Command="{Binding SelectAllChkCommand}"/>
+            <Button Classes="gold" Content="Update Chk" Command="{Binding UpdateCheckedParamsCommand}"/>
           </StackPanel>
 
           <ScrollViewer>
             <ItemsControl ItemsSource="{Binding ParamRows}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Grid ColumnDefinitions="Auto,150,*,Auto,Auto" Margin="0,1">
+                  <Grid ColumnDefinitions="Auto,150,*,Auto,Auto" Margin="0,2" Height="30">
                     <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked}" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" Text="{Binding Display}" VerticalAlignment="Center"/>
-                    <!-- 輸入：text / bool / combo 三選一 -->
+                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Display}" VerticalAlignment="Center" Foreground="{DynamicResource Txt}"/>
                     <TextBox Grid.Column="2" Margin="2,0" Text="{Binding TextValue}" IsVisible="{Binding IsText}" HorizontalContentAlignment="Center"/>
                     <CheckBox Grid.Column="2" Margin="2,0" IsChecked="{Binding BoolValue}" IsVisible="{Binding IsBool}"/>
                     <ComboBox Grid.Column="2" Margin="2,0" HorizontalAlignment="Stretch"
                               ItemsSource="{Binding Options}" SelectedItem="{Binding EnumValue}" IsVisible="{Binding IsCombo}"/>
-                    <TextBlock Grid.Column="3" Text="{Binding IpTag}" Foreground="#E07000" FontSize="10"
-                               VerticalAlignment="Center" Margin="4,0"/>
-                    <Button Grid.Column="4" Content="Update" Margin="2,0"
+                    <Border Grid.Column="3" Background="{DynamicResource WarnBg}" BorderBrush="{DynamicResource Warn}" BorderThickness="1"
+                            CornerRadius="3" Padding="4,1" Margin="4,0" VerticalAlignment="Center"
+                            IsVisible="{Binding IpConsumed, Converter={StaticResource InverseBool}}">
+                      <TextBlock Text="{Binding IpTag}" Foreground="{DynamicResource WarnTx}" FontSize="9" FontFamily="{DynamicResource MonoFont}"/>
+                    </Border>
+                    <Button Grid.Column="4" Classes="ghost" Content="Update" Margin="2,0" Padding="8,3" FontSize="10"
                             Command="{Binding #Root.DataContext.UpdateParamCommand}" CommandParameter="{Binding}"/>
                   </Grid>
                 </DataTemplate>
@@ -97,18 +116,19 @@
       </Border>
 
       <!-- ===== 右：ROI 勾選 ===== -->
-      <Border Grid.Column="2" BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Padding="6" Margin="4,0,0,0">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="ROI（勾選 = 套用目標；點選載入參數）" FontWeight="Bold" Margin="0,0,0,4" TextWrapping="Wrap"/>
+      <Border Grid.Column="2" Classes="card" Padding="0">
+        <DockPanel Margin="12">
+          <TextBlock DockPanel.Dock="Top" Classes="cardHead" Text="ROI 清單" Margin="0,0,0,8" TextWrapping="Wrap"/>
+          <Button DockPanel.Dock="Bottom" Classes="primary" Content="儲存配方" HorizontalAlignment="Stretch" Margin="0,8,0,0" Command="{Binding SaveCommand}"/>
           <ScrollViewer>
             <ItemsControl ItemsSource="{Binding Rois}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2">
-                    <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Center"/>
-                    <Button Content="{Binding Label}" Background="Transparent"
+                  <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                    <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="nav" Content="{Binding Label}" FontFamily="{DynamicResource MonoFont}"
                             Command="{Binding #Root.DataContext.SelectRoiCommand}" CommandParameter="{Binding}"/>
-                  </StackPanel>
+                  </Grid>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>

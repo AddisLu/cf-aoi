@@ -1,0 +1,63 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- ============================================================
+       外觀 B · 實驗室（淺色）— 對應 Claude Design 設計稿 Lab
+       同一組 key，淺色 token；圓角 9 + 卡片淡浮起陰影。
+       ============================================================ -->
+
+  <Color x:Key="BgColor">#F5F4F1</Color>
+  <Color x:Key="BarColor">#FEFEFD</Color>
+  <Color x:Key="Bg2Color">#FFFFFF</Color>
+  <Color x:Key="Bg3Color">#F7F6F3</Color>
+  <Color x:Key="LineColor">#E2E0DB</Color>
+  <Color x:Key="Line2Color">#CDC9C2</Color>
+  <Color x:Key="TxtColor">#36322C</Color>
+  <Color x:Key="Txt2Color">#66615A</Color>
+  <Color x:Key="Txt3Color">#908B83</Color>
+  <Color x:Key="AccentColor">#5659CE</Color>
+  <Color x:Key="AccentInkColor">#FFFFFF</Color>
+  <Color x:Key="AccentSoftColor">#E6E6F7</Color>
+  <Color x:Key="OkColor">#2E9B63</Color>
+  <Color x:Key="BadColor">#C6483A</Color>
+  <Color x:Key="WarnColor">#C7913F</Color>
+  <Color x:Key="WarnBgColor">#F8EFD8</Color>
+  <Color x:Key="WarnTxColor">#8A6A2E</Color>
+  <Color x:Key="OvBrightColor">#CF4632</Color>
+  <Color x:Key="OvDarkColor">#3E6FC4</Color>
+  <Color x:Key="PinkColor">#C2547F</Color>
+  <Color x:Key="GoldColor">#C08A3A</Color>
+  <Color x:Key="GreenColor">#2E9B63</Color>
+  <Color x:Key="ImageBackdropColor">#0A0B0D</Color>
+
+  <SolidColorBrush x:Key="Bg"        Color="{StaticResource BgColor}"/>
+  <SolidColorBrush x:Key="Bar"       Color="{StaticResource BarColor}"/>
+  <SolidColorBrush x:Key="Bg2"       Color="{StaticResource Bg2Color}"/>
+  <SolidColorBrush x:Key="Bg3"       Color="{StaticResource Bg3Color}"/>
+  <SolidColorBrush x:Key="Line"      Color="{StaticResource LineColor}"/>
+  <SolidColorBrush x:Key="Line2"     Color="{StaticResource Line2Color}"/>
+  <SolidColorBrush x:Key="Txt"       Color="{StaticResource TxtColor}"/>
+  <SolidColorBrush x:Key="Txt2"      Color="{StaticResource Txt2Color}"/>
+  <SolidColorBrush x:Key="Txt3"      Color="{StaticResource Txt3Color}"/>
+  <SolidColorBrush x:Key="Accent"    Color="{StaticResource AccentColor}"/>
+  <SolidColorBrush x:Key="AccentInk" Color="{StaticResource AccentInkColor}"/>
+  <SolidColorBrush x:Key="AccentSoft" Color="{StaticResource AccentSoftColor}"/>
+  <SolidColorBrush x:Key="Ok"        Color="{StaticResource OkColor}"/>
+  <SolidColorBrush x:Key="Bad"       Color="{StaticResource BadColor}"/>
+  <SolidColorBrush x:Key="Warn"      Color="{StaticResource WarnColor}"/>
+  <SolidColorBrush x:Key="WarnBg"    Color="{StaticResource WarnBgColor}"/>
+  <SolidColorBrush x:Key="WarnTx"    Color="{StaticResource WarnTxColor}"/>
+  <SolidColorBrush x:Key="OvBright"  Color="{StaticResource OvBrightColor}"/>
+  <SolidColorBrush x:Key="OvDark"    Color="{StaticResource OvDarkColor}"/>
+  <SolidColorBrush x:Key="Pink"      Color="{StaticResource PinkColor}"/>
+  <SolidColorBrush x:Key="Gold"      Color="{StaticResource GoldColor}"/>
+  <SolidColorBrush x:Key="Green"     Color="{StaticResource GreenColor}"/>
+  <SolidColorBrush x:Key="ImageBackdrop" Color="{StaticResource ImageBackdropColor}"/>
+
+  <CornerRadius x:Key="Rad">9</CornerRadius>
+  <CornerRadius x:Key="RadPill">999</CornerRadius>
+  <FontFamily x:Key="MonoFont">Menlo,Consolas,monospace</FontFamily>
+  <FontFamily x:Key="HeadFont">$Default</FontFamily>
+  <FontFamily x:Key="UiFont">$Default</FontFamily>
+  <BoxShadows x:Key="CardShadow">0 1 2 #0D000000</BoxShadows>
+  <x:Double x:Key="HeadLetterSpacing">0</x:Double>
+</ResourceDictionary>

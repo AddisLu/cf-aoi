@@ -1,102 +1,37 @@
+using System;
+using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Interactivity;
-using CfAoiControl.ViewModels;
+using Avalonia.Markup.Xaml.Styling;
 
 namespace CfAoiControl.Views;
 
 public partial class MainWindow : Window
 {
-    private Window? _algoWin;
-
     public MainWindow()
     {
         InitializeComponent();
-        // Ctrl+F：切換進階按鈕顯示（沿用舊版慣例）
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control)
-                && DataContext is MainWindowViewModel vm)
-                vm.ToggleAdvancedCommand.Execute(null);
-        };
-        var btn = this.FindControl<Button>("BtnOpenAlgoTest");
-        if (btn != null) btn.Click += OpenAlgoTest;
-        var btn2 = this.FindControl<Button>("BtnOpenParamEditor");
-        if (btn2 != null) btn2.Click += OpenParamEditor;
-        var btn3 = this.FindControl<Button>("BtnOpenSortDefect");
-        if (btn3 != null) btn3.Click += OpenSortDefect;
-        var btn4 = this.FindControl<Button>("BtnOpenSysSettings");
-        if (btn4 != null) btn4.Click += OpenSysSettings;
+
+        // A/B 外觀切換：抽換 Application.Resources 第一個 MergedDictionary（ThemeConsole/ThemeLab）。
+        // 所有 View 以 DynamicResource 取 token → 即時換膚。
+        if (this.FindControl<Button>("BtnVariantA") is { } a) a.Click += (_, _) => SetVariant(console: true);
+        if (this.FindControl<Button>("BtnVariantB") is { } b) b.Click += (_, _) => SetVariant(console: false);
     }
 
-    private Window? _sysWin;
-    // 開「系統設定」(連線設定 + 相機參數 Gap #2)，獨立視窗
-    private void OpenSysSettings(object? sender, RoutedEventArgs e)
+    private void SetVariant(bool console)
     {
-        if (DataContext is not MainWindowViewModel vm) return;
-        if (_sysWin is { IsVisible: true } w) { w.Activate(); return; }
-        _sysWin = new Window
-        {
-            Title = "系統設定 (Settings)",
-            Width = 1060, Height = 720,
-            MinWidth = 880, MinHeight = 560,
-            FontFamily = new Avalonia.Media.FontFamily("Arial"),
-            Content = new SystemSettingsView { DataContext = vm.SysSettings },
-        };
-        _sysWin.Closed += (_, _) => _sysWin = null;
-        _sysWin.Show(this);
-    }
+        var app = Application.Current;
+        if (app is null) return;
 
-    private Window? _sortWin;
-    // 開「缺陷整理」(對應 legacy frmSortDefect)，獨立視窗 1103×542
-    private void OpenSortDefect(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is not MainWindowViewModel vm) return;
-        if (_sortWin is { IsVisible: true } w) { w.Activate(); return; }
-        _sortWin = new Window
-        {
-            Title = "Sort Defect",
-            Width = 1103, Height = 600,
-            MinWidth = 900, MinHeight = 480,
-            FontFamily = new Avalonia.Media.FontFamily("Arial"),
-            Content = new DefectSortView { DataContext = vm.DefectSort },
-        };
-        _sortWin.Closed += (_, _) => _sortWin = null;
-        _sortWin.Show(this);
-    }
+        var uri = new Uri(console
+            ? "avares://CfAoiControl/Styles/ThemeConsole.axaml"
+            : "avares://CfAoiControl/Styles/ThemeLab.axaml");
+        var theme = new ResourceInclude(uri) { Source = uri };
 
-    private Window? _paramWin;
-    // 開「配方編輯」(對應 legacy frmIpParamEditor)，獨立視窗 1280×797
-    private void OpenParamEditor(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is not MainWindowViewModel vm) return;
-        if (_paramWin is { IsVisible: true } w) { w.Activate(); return; }
-        _paramWin = new Window
-        {
-            Title = "Ip Params Editor",
-            Width = 1280, Height = 797,
-            MinWidth = 1040, MinHeight = 620,
-            FontFamily = new Avalonia.Media.FontFamily("Arial"),
-            Content = new ZoneParamEditorView { DataContext = vm.ZoneEditor },
-        };
-        _paramWin.Closed += (_, _) => _paramWin = null;
-        _paramWin.Show(this);
-    }
+        var md = app.Resources.MergedDictionaries;
+        if (md.Count > 0) md[0] = theme; else md.Add(theme);
 
-    // 開「離線分析工具」(對應 legacy frmAlgorithmTestTools)，獨立視窗 1064×681
-    private void OpenAlgoTest(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is not MainWindowViewModel vm) return;
-        if (_algoWin is { IsVisible: true } w) { w.Activate(); return; }
-        _algoWin = new Window
-        {
-            Title = "Algorithm Test Tools",
-            Width = 1064, Height = 681,
-            MinWidth = 900, MinHeight = 560,
-            FontFamily = new Avalonia.Media.FontFamily("Arial"),
-            Content = new Step1View { DataContext = vm.Step1 },
-        };
-        _algoWin.Closed += (_, _) => _algoWin = null;
-        _algoWin.Show(this);
+        // 視窗背景非 token 控制項 → 直接更新；分段鈕 active 狀態
+        if (this.FindControl<Button>("BtnVariantA") is { } a) a.Classes.Set("active", console);
+        if (this.FindControl<Button>("BtnVariantB") is { } b) b.Classes.Set("active", !console);
     }
 }

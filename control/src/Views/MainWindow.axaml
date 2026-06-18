@@ -2,230 +2,290 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:CfAoiControl.ViewModels"
         xmlns:svc="using:CfAoiControl.Services"
+        xmlns:views="using:CfAoiControl.Views"
         x:Class="CfAoiControl.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Width="1424" Height="881" MinWidth="1120" MinHeight="720"
-        FontFamily="Arial" Title="CF_AOI">
+        Width="1280" Height="800" MinWidth="1100" MinHeight="700"
+        Background="{DynamicResource Bg}"
+        TransparencyLevelHint="None"
+        Title="CF-AOI Control">
 
   <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
 
-  <Window.Styles>
-    <!-- 仿 WinForms GroupBox 外框 -->
-    <Style Selector="HeaderedContentControl.gbx">
-      <Setter Property="Template">
-        <ControlTemplate>
-          <Border BorderBrush="#A0A0A0" BorderThickness="1" CornerRadius="2" Margin="3" Padding="2">
-            <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="{TemplateBinding Header}" FontWeight="Bold" Margin="4,2"/>
-              <ContentPresenter Content="{TemplateBinding Content}"/>
-            </DockPanel>
-          </Border>
-        </ControlTemplate>
-      </Setter>
-    </Style>
-    <Style Selector="Button.cf"><Setter Property="Width" Value="90"/><Setter Property="Height" Value="52"/><Setter Property="Margin" Value="3"/></Style>
-    <Style Selector="Button.sv"><Setter Property="Width" Value="75"/><Setter Property="Height" Value="52"/><Setter Property="Margin" Value="3"/></Style>
-  </Window.Styles>
+  <DockPanel LastChildFill="True">
 
-  <DockPanel>
-    <!-- StatusStrip -->
-    <Border DockPanel.Dock="Bottom" Background="#F0F0F0" BorderBrush="#C0C0C0" BorderThickness="0,1,0,0" Padding="8,3">
-      <StackPanel Orientation="Horizontal" Spacing="16">
-        <TextBlock Text="{Binding AiModel, StringFormat='AiModel: {0}'}"/>
-        <TextBlock Text="{Binding OfflineFolder, StringFormat='| OfflineFolder: {0}'}"/>
-      </StackPanel>
-    </Border>
+    <!-- ===================== 頂列 ===================== -->
+    <Border DockPanel.Dock="Top" Height="52" Background="{DynamicResource Bar}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
+      <Grid Margin="16,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+        <!-- logo + title -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <Border Width="22" Height="22" CornerRadius="{DynamicResource Rad}" Background="{DynamicResource Accent}"/>
+          <TextBlock Text="CF-AOI Control" FontFamily="{DynamicResource HeadFont}" FontWeight="Bold"
+                     FontSize="15" Foreground="{DynamicResource Txt}" VerticalAlignment="Center"/>
+        </StackPanel>
 
-    <Grid ColumnDefinitions="*,*">
-      <!-- ===== 左欄：Status / Reserve / SysLog / Error-Warning =====
-           Status/Reserve = Auto（隨內容長高，進階鈕展開不被切掉）；兩個 log 區 = * 分剩餘 -->
-      <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*,*">
-        <!-- Status -->
-        <HeaderedContentControl Grid.Row="0" Classes="gbx" Header="Status">
-          <StackPanel Margin="6,2" Spacing="2">
-            <TextBlock FontSize="13" Text="{Binding CurCommand, StringFormat='Cur Command : {0}'}"/>
-            <TextBlock FontSize="13" Text="{Binding CurCamStatus, StringFormat='Cur Status : {0}'}"/>
-            <TextBlock FontSize="13" Text="{Binding CurRecipe, StringFormat='Cur Recipe : {0}'}"/>
-            <TextBlock FontSize="13" Text="{Binding CurPanelId, StringFormat='Cur Panel ID : {0}'}"/>
-            <TextBlock FontSize="13" Text="{Binding CurDetectMode, StringFormat='Cur Detect Mode : {0}'}"/>
-            <StackPanel Orientation="Horizontal" Spacing="14">
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Ellipse Width="11" Height="11" VerticalAlignment="Center"
-                         Fill="{Binding IsIpConnected, Converter={StaticResource BoolToGreenRed}}"/>
-                <TextBlock FontSize="13" Text="IP"/>
-              </StackPanel>
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Ellipse Width="11" Height="11" VerticalAlignment="Center"
-                         Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
-                <TextBlock FontSize="13" Text="Grab"/>
-              </StackPanel>
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Ellipse Width="11" Height="11" VerticalAlignment="Center"
-                         Fill="{Binding IsUpstreamConnected, Converter={StaticResource BoolToGreenRed}}"/>
-                <TextBlock FontSize="13" Text="上位機"/>
-              </StackPanel>
-            </StackPanel>
+        <!-- 檢測模式徽章 -->
+        <Border Grid.Column="1" Margin="18,0,0,0" VerticalAlignment="Center"
+                Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line2}" BorderThickness="1"
+                CornerRadius="999" Padding="10,3">
+          <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+            <Ellipse Width="6" Height="6" Fill="{DynamicResource Warn}"/>
+            <TextBlock Text="{Binding CurDetectMode}" Classes="mono" FontSize="11" Foreground="{DynamicResource Txt2}"/>
           </StackPanel>
-        </HeaderedContentControl>
-
-        <!-- Reserve（按鈕區）-->
-        <HeaderedContentControl Grid.Row="1" Classes="gbx" Header="Reserve">
-          <StackPanel Margin="4" Spacing="6">
-            <!-- 進階 CF 按鈕：Ctrl+F / 切換鈕顯示（隱藏時收合，不佔位）-->
-            <WrapPanel IsVisible="{Binding ShowAdvanced}">
-              <Button Classes="cf" Command="{Binding CfLoadRecipeCommand}" Content="CF&#10;Load Recipe"/>
-              <Button Classes="cf" IsEnabled="False" ToolTip.Tip="offline 模式不取像" Content="CF&#10;Grab Start"/>
-              <Button Classes="cf" IsEnabled="False" ToolTip.Tip="新流程無對位(MIL)" Content="CF&#10;Check Align"/>
-              <Button Classes="cf" IsEnabled="False" ToolTip.Tip="新流程無對位(MIL)" Content="CF&#10;Set Align"/>
-              <Button Classes="cf" Command="{Binding CfGetResultCommand}" Content="CF&#10;Get Result"/>
-              <Button Classes="cf" IsEnabled="False" ToolTip.Tip="offline 無停止對象" Content="CF&#10;Stop"/>
-              <Button Classes="sv" Command="{Binding CfSaveConfigCommand}" Content="Save&#10;Config"/>
-              <Button Classes="sv" Command="{Binding CfSaveRecipeCommand}" Content="Save&#10;Recipe"/>
-              <Button Classes="sv" Command="{Binding RefreshCommand}" Content="Refresh"/>
-            </WrapPanel>
-            <!-- 常駐：開各工具視窗（WrapPanel 自動換行，疊在進階列下方不重疊）-->
-            <WrapPanel Orientation="Horizontal">
-              <Button Name="BtnOpenAlgoTest" Content="離線分析工具 (Algorithm Test)"
-                      Background="{StaticResource ColLightGreen}" Padding="12,8" Margin="0,0,8,8"/>
-              <Button Name="BtnOpenParamEditor" Content="配方編輯 (IP Param Editor)" Padding="12,8" Margin="0,0,8,8"/>
-              <Button Name="BtnOpenSortDefect" Content="缺陷整理 (Sort Defect)" Padding="12,8" Margin="0,0,8,8"/>
-              <Button Name="BtnOpenSysSettings" Content="系統設定 (Settings)" Padding="12,8" Margin="0,0,8,8"/>
-              <Button Command="{Binding ToggleAdvancedCommand}" Content="顯示/隱藏進階 (Ctrl+F)" Padding="12,8" Margin="0,0,8,8"/>
-            </WrapPanel>
-          </StackPanel>
-        </HeaderedContentControl>
-
-        <!-- 系統 log（rtbSys，淡黃底）-->
-        <Border Grid.Row="2" Margin="3" BorderBrush="#A0A0A0" BorderThickness="1" Background="{StaticResource ColInfoBg}">
-          <ListBox ItemsSource="{Binding SysLog}" Background="Transparent">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="svc:LogEntry">
-                <TextBlock FontSize="11" Text="{Binding Display}"
-                           Foreground="{Binding Level, Converter={StaticResource LogLevelToBrush}}"/>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
         </Border>
 
-        <!-- Error / Warning 分頁 -->
-        <TabControl Grid.Row="3" Margin="3">
-          <TabItem Header="Error">
-            <Border Background="{StaticResource ColInfoBg}">
-              <ListBox ItemsSource="{Binding ErrorLog}" Background="Transparent">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="svc:LogEntry">
-                    <TextBlock FontSize="11" Foreground="{StaticResource ColErrorRed}" Text="{Binding Display}"/>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-            </Border>
-          </TabItem>
-          <TabItem Header="Warning">
-            <Border Background="{StaticResource ColInfoBg}">
-              <ListBox ItemsSource="{Binding WarningLog}" Background="Transparent">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="svc:LogEntry">
-                    <TextBlock FontSize="11" Foreground="{StaticResource ColWarnBlue}" Text="{Binding Display}"/>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-            </Border>
-          </TabItem>
-        </TabControl>
-      </Grid>
+        <!-- 命令 -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="16,0,0,0" VerticalAlignment="Center">
+          <TextBlock Text="命令" Classes="mono" FontSize="12" Foreground="{DynamicResource Txt2}"/>
+          <TextBlock Text="{Binding CurCommand}" Classes="mono" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/>
+        </StackPanel>
 
-      <!-- ===== 右欄：Config / Recipe / Share / RecipeSetting（2×2）===== -->
-      <Grid Grid.Column="1" RowDefinitions="*,*" ColumnDefinitions="*,*">
-        <HeaderedContentControl Grid.Row="0" Grid.Column="0" Classes="gbx" Header="Config">
-          <StackPanel Margin="6" Spacing="3">
-            <TextBlock Text="{Binding Config.ActiveIpNode, StringFormat='ActiveIpNode: {0}'}"/>
-            <TextBlock Text="{Binding Config.Paths.RecipeDir, StringFormat='RecipeDir: {0}'}"/>
-            <TextBlock Text="{Binding Config.Paths.OutputDir, StringFormat='OutputDir: {0}'}"/>
-            <TextBlock Text="{Binding Config.Paths.ImageDir, StringFormat='ImageDir: {0}'}"/>
-            <TextBlock Text="{Binding Config.UpstreamServer.ListenPort, StringFormat='上位機 Port: {0}'}"/>
+        <!-- 連線指示燈 -->
+        <Border Grid.Column="4" VerticalAlignment="Center" Margin="0,0,12,0"
+                Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                CornerRadius="{DynamicResource Rad}" Padding="12,5">
+          <StackPanel Orientation="Horizontal" Spacing="14">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Ellipse Width="9" Height="9" VerticalAlignment="Center" Classes="live"
+                       Fill="{Binding IsIpConnected, Converter={StaticResource BoolToGreenRed}}"/>
+              <TextBlock Text="IP" FontSize="11.5" Foreground="{DynamicResource Txt2}"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Ellipse Width="9" Height="9" VerticalAlignment="Center" Classes="live"
+                       Fill="{Binding IsGrabConnected, Converter={StaticResource BoolToGreenRed}}"/>
+              <TextBlock Text="Grab" FontSize="11.5" Foreground="{DynamicResource Txt2}"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Ellipse Width="9" Height="9" VerticalAlignment="Center" Classes="live"
+                       Fill="{Binding IsUpstreamConnected, Converter={StaticResource BoolToGreenRed}}"/>
+              <TextBlock Text="上位機" FontSize="11.5" Foreground="{DynamicResource Txt2}"/>
+            </StackPanel>
           </StackPanel>
-        </HeaderedContentControl>
+        </Border>
 
-        <HeaderedContentControl Grid.Row="0" Grid.Column="1" Classes="gbx" Header="Recipe">
-          <StackPanel Margin="6" Spacing="6">
-            <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
-            <TextBlock Text="第一個 DetectRoi（唯讀預覽，共用來源）" FontSize="11" Foreground="#888"/>
-            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
-              <TextBlock Grid.Row="0" Grid.Column="0" Text="BrightThreshold：" Margin="0,1,6,1"/>
-              <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Store.PrimaryZone.BrightThreshold}"/>
-              <TextBlock Grid.Row="1" Grid.Column="0" Text="DarkThreshold：" Margin="0,1,6,1"/>
-              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Store.PrimaryZone.DarkThreshold}"/>
-              <TextBlock Grid.Row="2" Grid.Column="0" Text="PitchX：" Margin="0,1,6,1"/>
-              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Store.PrimaryZone.PitchX}"/>
-              <TextBlock Grid.Row="3" Grid.Column="0" Text="PitchY：" Margin="0,1,6,1"/>
-              <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Store.PrimaryZone.PitchY}"/>
+        <!-- A / B 外觀切換 -->
+        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <TextBlock Text="外觀" Classes="mono" FontSize="10" Foreground="{DynamicResource Txt3}" VerticalAlignment="Center"/>
+          <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                  CornerRadius="{DynamicResource Rad}" Padding="2">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="BtnVariantA" Classes="seg active" Content="A 控制室"/>
+              <Button x:Name="BtnVariantB" Classes="seg" Content="B 實驗室"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ===================== 底部狀態列 ===================== -->
+    <Border DockPanel.Dock="Bottom" Height="28" Background="{DynamicResource Bar}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0">
+      <Grid Margin="16,0" ColumnDefinitions="Auto,*,Auto,Auto">
+        <TextBlock Grid.Column="0" Classes="mono dim" FontSize="11" VerticalAlignment="Center"
+                   Text="{Binding CurRecipe, StringFormat='Recipe : {0}'}"/>
+        <TextBlock Grid.Column="2" Classes="mono dim" FontSize="11" VerticalAlignment="Center" Margin="0,0,16,0" Text="就緒"/>
+        <TextBlock Grid.Column="3" Classes="mono" FontSize="11" VerticalAlignment="Center"
+                   Foreground="{DynamicResource Accent}" Text="CF-AOI · .NET 8 · Avalonia"/>
+      </Grid>
+    </Border>
+
+    <!-- ===================== 主體：側欄 + 內容 ===================== -->
+    <Grid ColumnDefinitions="212,*">
+
+      <!-- 側欄 -->
+      <Border Grid.Column="0" Background="{DynamicResource Bar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
+        <DockPanel Margin="10,14">
+          <!-- 底部：作用中配方 -->
+          <Border DockPanel.Dock="Bottom" Classes="card" Padding="10" Margin="0,10,0,0">
+            <StackPanel>
+              <TextBlock Text="作用中配方" FontSize="10" Foreground="{DynamicResource Txt3}" Margin="0,0,0,5"/>
+              <TextBlock Text="{Binding Store.SelectedRecipe}" Classes="mono" FontSize="13" FontWeight="SemiBold"
+                         Foreground="{DynamicResource Accent}"/>
+            </StackPanel>
+          </Border>
+
+          <StackPanel Spacing="4">
+            <TextBlock Text="驗證步驟" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Txt3}" Margin="10,6,0,4"/>
+            <Button Classes="nav" Classes.active="{Binding IsDashboard}"
+                    Command="{Binding NavigateCommand}" CommandParameter="dashboard" Content="主控台"/>
+            <Button Classes="nav" Classes.active="{Binding IsStep1}"
+                    Command="{Binding NavigateCommand}" CommandParameter="step1" Content="Step 1：演算法驗證"/>
+            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 對位專屬，新版未啟用" Content="Step 2-3：RDMA 驗證　(未啟用)"/>
+            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 對位專屬，新版未啟用" Content="Step 4：存圖模式　(未啟用)"/>
+            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 對位專屬，新版未啟用" Content="Step 5：完整生產　(未啟用)"/>
+
+            <Border Height="1" Background="{DynamicResource Line}" Margin="6,10"/>
+
+            <TextBlock Text="工具" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Txt3}" Margin="10,2,0,4"/>
+            <Button Classes="nav" Classes.active="{Binding IsZone}"
+                    Command="{Binding NavigateCommand}" CommandParameter="zone" Content="配方編輯"/>
+            <Button Classes="nav" Classes.active="{Binding IsSort}"
+                    Command="{Binding NavigateCommand}" CommandParameter="sort" Content="缺陷分類"/>
+            <Button Classes="nav" Classes.active="{Binding IsSettings}"
+                    Command="{Binding NavigateCommand}" CommandParameter="settings" Content="系統設定"/>
+            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="機況確認　(未啟用)"/>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- 內容區 -->
+      <Panel Grid.Column="1" Background="{DynamicResource Bg}">
+
+        <!-- ============ 主控台 ============ -->
+        <Grid IsVisible="{Binding IsDashboard}" Margin="18" RowDefinitions="Auto,Auto,*" >
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+            <TextBlock Grid.Column="0" Classes="h1" Text="主控台" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Classes="mono dim" FontSize="12" VerticalAlignment="Center"
+                       Text="frmCfAoi · 上位機介面"/>
+          </Grid>
+
+          <!-- 狀態磚 -->
+          <UniformGrid Grid.Row="1" Columns="6" Margin="0,0,0,14">
+            <Border Classes="card" Margin="0,0,10,0" Padding="11,13">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="目前命令" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" Text="{Binding CurCommand}"/></StackPanel>
+            </Border>
+            <Border Classes="card" Margin="0,0,10,0" Padding="11,13">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="相機狀態" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ok}" Text="{Binding CurCamStatus}"/></StackPanel>
+            </Border>
+            <Border Classes="card" Margin="0,0,10,0" Padding="11,13">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="目前配方" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Txt}" Text="{Binding Store.SelectedRecipe}"/></StackPanel>
+            </Border>
+            <Border Classes="card" Margin="0,0,10,0" Padding="11,13">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="Panel ID" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Txt}" Text="{Binding CurPanelId}"/></StackPanel>
+            </Border>
+            <Border Classes="card" Margin="0,0,10,0" Padding="11,13">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="檢測模式" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Warn}" Text="{Binding CurDetectMode}"/></StackPanel>
+            </Border>
+            <Border Classes="card" Padding="11,13">
+              <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="AI 模型" Margin="0,0,0,6"/>
+                <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Txt2}" Text="{Binding AiModel}"/></StackPanel>
+            </Border>
+          </UniformGrid>
+
+          <Grid Grid.Row="2" ColumnDefinitions="360,*" >
+            <!-- 左：命令 + 配方 -->
+            <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="0,0,14,0">
+              <Border Grid.Row="0" Classes="card" Margin="0,0,0,14">
+                <StackPanel Spacing="11">
+                  <TextBlock Classes="cardHead" Text="CF 命令"/>
+                  <UniformGrid Columns="2">
+                    <Button Classes="cmd" Margin="0,0,4,7" Content="LOAD_RECIPE" Command="{Binding CfLoadRecipeCommand}"/>
+                    <Button Classes="cmd" Margin="4,0,0,7" Content="GET_RESULT" Command="{Binding CfGetResultCommand}"/>
+                    <Button Classes="cmd" Margin="0,0,4,7" Content="SAVE_CONFIG" Command="{Binding CfSaveConfigCommand}"/>
+                    <Button Classes="cmd" Margin="4,0,0,7" Content="SAVE_RECIPE" Command="{Binding CfSaveRecipeCommand}"/>
+                    <Button Classes="cmd" Margin="0,0,4,0" Content="REFRESH" Command="{Binding RefreshCommand}"/>
+                    <Button Classes="cmd" Margin="4,0,0,0" Content="GRAB" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用"/>
+                    <Button Classes="cmd" Margin="0,7,4,0" Content="ALIGN" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用"/>
+                    <Button Classes="cmd" Margin="4,7,0,0" Content="STOP" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用"/>
+                  </UniformGrid>
+                </StackPanel>
+              </Border>
+              <Border Grid.Row="1" Classes="card">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Classes="cardHead" Text="配方" Margin="0,0,0,10"/>
+                  <Button DockPanel.Dock="Bottom" Classes="primary" Content="儲存配方" HorizontalAlignment="Stretch"
+                          Command="{Binding CfSaveRecipeCommand}"/>
+                  <StackPanel Spacing="10">
+                    <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Store.RecipeNames}"
+                              SelectedItem="{Binding Store.SelectedRecipe}"/>
+                    <UniformGrid Columns="2">
+                      <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                              CornerRadius="{DynamicResource Rad}" Padding="8,10" Margin="0,0,4,8">
+                        <StackPanel><TextBlock Classes="dim" FontSize="10" Text="BTH" Margin="0,0,0,3"/>
+                          <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Text="{Binding Store.PrimaryZone.BrightThreshold}"/></StackPanel>
+                      </Border>
+                      <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                              CornerRadius="{DynamicResource Rad}" Padding="8,10" Margin="4,0,0,8">
+                        <StackPanel><TextBlock Classes="dim" FontSize="10" Text="DTH" Margin="0,0,0,3"/>
+                          <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Text="{Binding Store.PrimaryZone.DarkThreshold}"/></StackPanel>
+                      </Border>
+                      <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                              CornerRadius="{DynamicResource Rad}" Padding="8,10" Margin="0,0,4,0">
+                        <StackPanel><TextBlock Classes="dim" FontSize="10" Text="PitchX" Margin="0,0,0,3"/>
+                          <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Text="{Binding Store.PrimaryZone.PitchX}"/></StackPanel>
+                      </Border>
+                      <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                              CornerRadius="{DynamicResource Rad}" Padding="8,10" Margin="4,0,0,0">
+                        <StackPanel><TextBlock Classes="dim" FontSize="10" Text="PitchY" Margin="0,0,0,3"/>
+                          <TextBlock Classes="mono" FontSize="14" FontWeight="SemiBold" Text="{Binding Store.PrimaryZone.PitchY}"/></StackPanel>
+                      </Border>
+                    </UniformGrid>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
             </Grid>
-          </StackPanel>
-        </HeaderedContentControl>
 
-        <!-- ShareSetting：全域旗標（存 appsettings.json）。可編輯 3 項 + 3 項停用 -->
-        <HeaderedContentControl Grid.Row="1" Grid.Column="0" Classes="gbx" Header="ShareSetting">
-          <ScrollViewer>
-            <StackPanel Margin="6" Spacing="3">
-              <CheckBox Content="SaveSourceImage（存原圖）" IsChecked="{Binding ShareSetting.SaveSourceImage}"/>
-              <CheckBox Content="DebugAlgorithm（全域預設：存全部缺陷小圖）"
-                        IsChecked="{Binding ShareSetting.DebugAlgorithm}"
-                        ToolTip.Tip="全域預設。Step1 Test 開窗以此為初值，當次可勾選覆寫，不回寫全域。"/>
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="AiRootPath：" VerticalAlignment="Center"/>
-                <TextBox Width="150" Text="{Binding ShareSetting.AiRootPath}" Watermark="留空＝用 RecipeDir"
-                         ToolTip.Tip="AI/配方根目錄，依平台填寫；留空＝用 appsettings Paths.RecipeDir。"/>
-              </StackPanel>
-              <TextBlock Text="以下為 legacy 旗標，新版未啟用：" FontSize="11" Foreground="#888" Margin="0,4,0,0"/>
-              <CheckBox Content="TuningRecipe" IsEnabled="False" IsChecked="{Binding ShareSetting.TuningRecipe}"
-                        ToolTip.Tip="空跑不檢測：新流程未啟用"/>
-              <CheckBox Content="SaveFullImage" IsEnabled="False" IsChecked="{Binding ShareSetting.SaveFullImage}"
-                        ToolTip.Tip="存合圖：多-frame 合圖/MIL，未啟用"/>
-              <CheckBox Content="BypassAlignment" IsEnabled="False" IsChecked="{Binding ShareSetting.BypassAlignment}"
-                        ToolTip.Tip="略過對位：新版無 MIL 對位"/>
-              <Button Content="儲存" HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding SaveShareSettingCommand}"/>
-            </StackPanel>
-          </ScrollViewer>
-        </HeaderedContentControl>
+            <!-- 右：系統 log -->
+            <Border Grid.Column="1" Classes="card" Padding="0">
+              <DockPanel>
+                <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="8,4,8,0">
+                  <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button Classes="tab" Classes.active="{Binding IsLogSys}" Command="{Binding SetLogTabCommand}" CommandParameter="sys"
+                            Content="{Binding SysLog.Count, StringFormat='系統 {0}'}"/>
+                    <Button Classes="tab" Classes.active="{Binding IsLogError}" Command="{Binding SetLogTabCommand}" CommandParameter="error"
+                            Content="{Binding ErrorLog.Count, StringFormat='錯誤 {0}'}"/>
+                    <Button Classes="tab" Classes.active="{Binding IsLogWarn}" Command="{Binding SetLogTabCommand}" CommandParameter="warn"
+                            Content="{Binding WarningLog.Count, StringFormat='警告 {0}'}"/>
+                  </StackPanel>
+                </Border>
+                <Panel>
+                  <ListBox IsVisible="{Binding IsLogSys}" ItemsSource="{Binding SysLog}" Background="Transparent" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="svc:LogEntry">
+                        <TextBlock FontFamily="{DynamicResource MonoFont}" FontSize="11.5" Text="{Binding Display}"
+                                   Foreground="{Binding Level, Converter={StaticResource LogLevelToBrush}}"/>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <ListBox IsVisible="{Binding IsLogError}" ItemsSource="{Binding ErrorLog}" Background="Transparent" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="svc:LogEntry">
+                        <TextBlock FontFamily="{DynamicResource MonoFont}" FontSize="11.5" Foreground="{DynamicResource Bad}" Text="{Binding Display}"/>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <ListBox IsVisible="{Binding IsLogWarn}" ItemsSource="{Binding WarningLog}" Background="Transparent" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="svc:LogEntry">
+                        <TextBlock FontFamily="{DynamicResource MonoFont}" FontSize="11.5" Foreground="{DynamicResource Warn}" Text="{Binding Display}"/>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </Panel>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </Grid>
 
-        <!-- RecipeSetting：per-recipe 存圖設定（存 {RecipeDir}/{recipe}/RecipeSetting.xml）。IP 待接 -->
-        <HeaderedContentControl Grid.Row="1" Grid.Column="1" Classes="gbx" Header="RecipeSetting">
-          <ScrollViewer>
-            <StackPanel Margin="6" Spacing="2">
-              <TextBlock Text="{Binding Store.SelectedRecipe, StringFormat='配方：{0}'}" FontWeight="Bold"/>
-              <TextBlock Text="（以下欄位 IP 待接，僅存檔未生效）" FontSize="11" Foreground="#888"/>
-              <Grid ColumnDefinitions="Auto,90" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,2,0,0">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="MaxSaveDefectCount" Margin="0,1,6,1"/>
-                <TextBox    Grid.Row="0" Grid.Column="1" Text="{Binding Store.RecipeSaving.MaxSaveDefectCount}"/>
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="MaxSaveAiOkCount" Margin="0,1,6,1"/>
-                <TextBox    Grid.Row="1" Grid.Column="1" Text="{Binding Store.RecipeSaving.MaxSaveAiOkCount}"/>
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="MaxSaveRuleOkCount" Margin="0,1,6,1"/>
-                <TextBox    Grid.Row="2" Grid.Column="1" Text="{Binding Store.RecipeSaving.MaxSaveRuleOkCount}"/>
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="MaxDefectCountPass" Margin="0,1,6,1"
-                           ToolTip.Tip="IP 端固定 = cuda_kernels MAX_DEFECTS，唯讀不可改"/>
-                <TextBlock Grid.Row="3" Grid.Column="1" Foreground="#888"
-                           Text="{Binding Store.RecipeSaving.MaxDefectCountPass, StringFormat='{}{0}（IP固定）'}"
-                           ToolTip.Tip="IP 端固定 = cuda_kernels MAX_DEFECTS"/>
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="SaveDefectWidth" Margin="0,1,6,1"
-                           ToolTip.Tip="legacy 預設 64；IP 目前實際存 100×100，此欄未接 IP"/>
-                <TextBox    Grid.Row="4" Grid.Column="1" Text="{Binding Store.RecipeSaving.SaveDefectWidth}"
-                           ToolTip.Tip="legacy 預設 64；IP 目前實際存 100×100，此欄未接 IP"/>
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="SaveDefectHeight" Margin="0,1,6,1"/>
-                <TextBox    Grid.Row="5" Grid.Column="1" Text="{Binding Store.RecipeSaving.SaveDefectHeight}"/>
-                <TextBlock Grid.Row="6" Grid.Column="0" Text="AiDefectWidth" Margin="0,1,6,1"/>
-                <TextBox    Grid.Row="6" Grid.Column="1" Text="{Binding Store.RecipeSaving.AiDefectWidth}"/>
-                <TextBlock Grid.Row="7" Grid.Column="0" Text="AiDefectHeight" Margin="0,1,6,1"/>
-                <TextBox    Grid.Row="7" Grid.Column="1" Text="{Binding Store.RecipeSaving.AiDefectHeight}"/>
-              </Grid>
-              <CheckBox Content="SaveAiTrain（存 AI 訓練小圖）" IsChecked="{Binding Store.RecipeSaving.SaveAiTrain}"
-                        ToolTip.Tip="AI 目前停用；存檔未生效"/>
-              <TextBlock Text="Kernal（MIL 前處理，IP 未接）" FontSize="11" Foreground="#888" Margin="0,2,0,0"/>
-              <TextBox Text="{Binding Store.RecipeSaving.KernalFile}" IsEnabled="False"/>
-              <Button Content="儲存" HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding SaveRecipeSettingCommand}"/>
-            </StackPanel>
-          </ScrollViewer>
-        </HeaderedContentControl>
-      </Grid>
+        <!-- ============ Step 1 ============ -->
+        <Panel IsVisible="{Binding IsStep1}">
+          <views:Step1View DataContext="{Binding Step1}"/>
+        </Panel>
+
+        <!-- ============ 配方編輯 ============ -->
+        <Panel IsVisible="{Binding IsZone}">
+          <views:ZoneParamEditorView DataContext="{Binding ZoneEditor}"/>
+        </Panel>
+
+        <!-- ============ 缺陷分類 ============ -->
+        <Panel IsVisible="{Binding IsSort}">
+          <views:DefectSortView DataContext="{Binding DefectSort}"/>
+        </Panel>
+
+        <!-- ============ 系統設定 ============ -->
+        <Panel IsVisible="{Binding IsSettings}">
+          <views:SystemSettingsView DataContext="{Binding SysSettings}"/>
+        </Panel>
+
+      </Panel>
     </Grid>
   </DockPanel>
 </Window>

@@ -10,6 +10,11 @@
     </Application.DataTemplates>
 
     <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 預設外觀 A（控制室／深色）。MainWindow 切 A/B 時於 code-behind 換掉此項。 -->
+                <ResourceInclude Source="avares://CfAoiControl/Styles/ThemeConsole.axaml"/>
+            </ResourceDictionary.MergedDictionaries>
         <conv:BoolToGreenRedConverter x:Key="BoolToGreenRed"/>
         <conv:LogLevelToBrushConverter x:Key="LogLevelToBrush"/>
         <conv:DefectTypeToBrushConverter x:Key="DefectTypeToBrush"/>
@@ -32,10 +37,12 @@
         <SolidColorBrush x:Key="ColGoldenrod"  Color="#DAA520"/>  <!-- Update Chk Params 鈕 -->
         <SolidColorBrush x:Key="ColDarkGray"   Color="#A9A9A9"/>  <!-- 停用鈕 -->
         <SolidColorBrush x:Key="ColBlack"      Color="#000000"/>  <!-- 影像區底 -->
+        </ResourceDictionary>
     </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+        <StyleInclude Source="avares://CfAoiControl/Styles/Controls.axaml"/>
     </Application.Styles>
 </Application>

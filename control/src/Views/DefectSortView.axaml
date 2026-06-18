@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="CfAoiControl.Views.DefectSortView"
-             x:CompileBindings="False" FontFamily="Arial" Focusable="True">
+             x:CompileBindings="False" Focusable="True">
 
   <UserControl.Styles>
     <Style Selector="DataGridColumnHeader">
@@ -10,126 +10,161 @@
     </Style>
   </UserControl.Styles>
 
-  <Grid>
-    <!-- ============ 第一層：資料夾列表（Parse / Sort 批次歸檔） ============ -->
-    <Grid ColumnDefinitions="*,484" Margin="8"
-          IsVisible="{Binding InPatchView, Converter={StaticResource InverseBool}}">
-      <!-- 左：控制 + log -->
-      <DockPanel Grid.Column="0" Margin="0,0,8,0">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
-          <DatePicker SelectedDate="{Binding SelectedDate}"/>
-          <Button Content="Parse" Width="120" Height="46" Command="{Binding ParseCommand}"/>
-        </StackPanel>
-        <StackPanel DockPanel.Dock="Top" Spacing="3" Margin="0,0,0,6">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <TextBlock Text="輸出子目錄（運算端 output 下）" VerticalAlignment="Center"/>
-            <CheckBox Content="By ID Folder" IsChecked="{Binding ByIdFolder}"/>
+  <DockPanel Margin="18" Background="{DynamicResource Bg}" TextElement.Foreground="{DynamicResource Txt}">
+    <!-- 標題列 -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <TextBlock Grid.Column="0" Classes="h1" Text="缺陷分類" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="1" Classes="mono dim" FontSize="12" VerticalAlignment="Center" Text="frmSortDefect · 遠端歸檔 + 人工標註"/>
+    </Grid>
+
+    <Grid>
+      <!-- ============ 第一層：資料夾列表 ============ -->
+      <DockPanel IsVisible="{Binding InPatchView, Converter={StaticResource InverseBool}}">
+        <!-- 工具列 -->
+        <Border DockPanel.Dock="Top" Classes="card" Padding="12,10" Margin="0,0,0,12">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="dim" FontSize="10.5" Text="日期"/>
+              <DatePicker SelectedDate="{Binding SelectedDate}"/>
+            </StackPanel>
+            <StackPanel Spacing="4">
+              <TextBlock Classes="dim" FontSize="10.5" Text="輸出夾 (output/)"/>
+              <TextBox Width="150" Text="{Binding OutputFolder}" Watermark="sorted"/>
+            </StackPanel>
+            <CheckBox Content="By ID 分組" IsChecked="{Binding ByIdFolder}" VerticalAlignment="Bottom"/>
+            <CheckBox Content="Sort All（全選）" IsChecked="{Binding SortAll}" VerticalAlignment="Bottom"/>
+            <Panel Width="20"/>
+            <Button Classes="ghost" Content="Parse" VerticalAlignment="Bottom" Command="{Binding ParseCommand}"/>
+            <Button Classes="gold" Content="Sort Defect" VerticalAlignment="Bottom"
+                    IsEnabled="{Binding CanSort}" Command="{Binding SortCommand}"/>
           </StackPanel>
-          <TextBox Text="{Binding OutputFolder}" Watermark="sorted"/>
+        </Border>
+        <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" IsVisible="{Binding IsSorting}" Height="4" Margin="0,0,0,8"/>
+
+        <!-- DataGrid（雙擊 → 進入小圖分類）+ log -->
+        <Border Classes="card" Padding="0">
+          <DockPanel>
+            <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="14,8">
+              <TextBlock Classes="mono dim" FontSize="11" Text="（雙擊資料夾 → 進入小圖人工分類）"/>
+            </Border>
+            <DataGrid x:Name="FolderGrid" ItemsSource="{Binding Folders}" AutoGenerateColumns="False"
+                      GridLinesVisibility="Horizontal" HeadersVisibility="Column" CanUserSortColumns="True"
+                      IsReadOnly="False" Background="Transparent" BorderThickness="0">
+              <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Sort" Binding="{Binding Sort}" Width="70"/>
+                <DataGridTextColumn Header="資料夾名稱" Binding="{Binding FolderName}" IsReadOnly="True" Width="*"/>
+                <DataGridTextColumn Header="Panel ID" Binding="{Binding PanelId}" IsReadOnly="True" Width="220"/>
+                <DataGridTextColumn Header="缺陷數" Binding="{Binding DefectCount}" IsReadOnly="True" Width="90"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </Border>
+      </DockPanel>
+
+      <!-- ============ 第二層：小圖人工分類檢視 ============ -->
+      <DockPanel IsVisible="{Binding InPatchView}">
+        <!-- 頂部：返回 + 資料夾 + 統計 -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,11">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+            <Button Classes="ghost" Content="← 返回" Command="{Binding BackToFoldersCommand}"/>
+            <TextBlock Text="{Binding CurrentFolder}" Classes="mono" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource Txt}"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Border Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="999" Padding="11,4">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="7" Height="7" Fill="{DynamicResource Txt3}" VerticalAlignment="Center"/>
+                <TextBlock Text="全部" FontSize="11" Foreground="{DynamicResource Txt2}"/>
+                <TextBlock Classes="mono" FontWeight="Bold" Text="{Binding TotalCount}"/>
+              </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="999" Padding="11,4">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="7" Height="7" Fill="{DynamicResource Bad}" VerticalAlignment="Center"/>
+                <TextBlock Text="TrueDefect" FontSize="11" Foreground="{DynamicResource Txt2}"/>
+                <TextBlock Classes="mono" FontWeight="Bold" Text="{Binding TrueDefectCount}"/>
+              </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="999" Padding="11,4">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="7" Height="7" Fill="{DynamicResource Accent}" VerticalAlignment="Center"/>
+                <TextBlock Text="Particle" FontSize="11" Foreground="{DynamicResource Txt2}"/>
+                <TextBlock Classes="mono" FontWeight="Bold" Text="{Binding ParticleCount}"/>
+              </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="999" Padding="11,4">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="7" Height="7" Fill="{DynamicResource Warn}" VerticalAlignment="Center"/>
+                <TextBlock Text="未分類" FontSize="11" Foreground="{DynamicResource Txt2}"/>
+                <TextBlock Classes="mono" FontWeight="Bold" Text="{Binding UnclassifiedCount}"/>
+              </StackPanel>
+            </Border>
+            <Button Classes="gold" Content="Sort（存分類歸檔）" Command="{Binding SaveClassificationCommand}"/>
+          </StackPanel>
+        </Grid>
+        <!-- 篩選列 -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+          <TextBlock Text="篩選" VerticalAlignment="Center" Foreground="{DynamicResource Txt3}" FontSize="11"/>
+          <ComboBox ItemsSource="{Binding Filters}" SelectedItem="{Binding SelectedFilter}" MinWidth="150"/>
+          <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"
+                     Text="鍵盤 T=TrueDefect · P=Particle · ←→ 切換"/>
         </StackPanel>
-        <Button DockPanel.Dock="Top" Content="Sort（批次歸檔）" Height="50" Margin="0,0,0,6"
-                HorizontalAlignment="Stretch" Foreground="White" FontWeight="Bold"
-                IsEnabled="{Binding CanSort}"
-                Background="{Binding CanSort, Converter={StaticResource CanSortToBrush}}"
-                Command="{Binding SortCommand}"/>
-        <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" IsVisible="{Binding IsSorting}" Height="4" Margin="0,0,0,4"/>
-        <Border BorderBrush="#A0A0A0" BorderThickness="1" Background="{StaticResource ColInfoBg}">
-          <ListBox ItemsSource="{Binding LogLines}" Background="Transparent" FontSize="11">
+        <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" IsVisible="{Binding IsLoadingPatches}" Height="4" Margin="0,0,0,8"/>
+
+        <!-- 右：選中小圖放大 + 分類按鈕 -->
+        <Border DockPanel.Dock="Right" Width="260" Classes="card" Margin="13,0,0,0">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Classes="cardHead" Text="選中小圖（放大看細節）" Margin="0,0,0,8"/>
+            <Border DockPanel.Dock="Top" Width="240" Height="240" Background="{DynamicResource ImageBackdrop}"
+                    CornerRadius="{DynamicResource Rad}" BorderThickness="3"
+                    BorderBrush="{Binding SelectedPatch.CurrentClass, Converter={StaticResource ClassToBorderBrush}}">
+              <Image Source="{Binding SelectedPatch.Thumb}" Stretch="Uniform" RenderOptions.BitmapInterpolationMode="None"/>
+            </Border>
+            <TextBlock DockPanel.Dock="Top" Classes="mono" Text="{Binding SelectedPatch.Caption}" Margin="0,6" TextWrapping="Wrap" Foreground="{DynamicResource Txt2}"/>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding SelectedPatch.CurrentClass}" FontWeight="Bold"
+                       Foreground="{Binding SelectedPatch.CurrentClass, Converter={StaticResource ClassToBorderBrush}}"/>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,8">
+              <Button Classes="bad" Content="TrueDefect (T)" Command="{Binding MarkTrueCommand}" CommandParameter="{Binding SelectedPatch}"/>
+              <Button Classes="green" Content="Particle (P)" Command="{Binding MarkParticleCommand}" CommandParameter="{Binding SelectedPatch}"/>
+            </StackPanel>
+            <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="{DynamicResource Txt3}" FontSize="11"
+                       Text="鍵盤：T=TrueDefect、P=Particle（標完自動下一張）；←→ 切換小圖。"/>
+            <TextBlock/>
+          </DockPanel>
+        </Border>
+
+        <!-- 中：縮圖牆 -->
+        <Border Classes="card" Padding="2">
+          <ListBox x:Name="PatchList" ItemsSource="{Binding Patches}" SelectedItem="{Binding SelectedPatch}"
+                   Background="Transparent" BorderThickness="0"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
-              <DataTemplate><TextBlock Text="{Binding}"/></DataTemplate>
+              <DataTemplate>
+                <Border BorderThickness="2" Margin="3" Padding="6" Background="{DynamicResource Bg3}"
+                        CornerRadius="{DynamicResource Rad}"
+                        BorderBrush="{Binding CurrentClass, Converter={StaticResource ClassToBorderBrush}}">
+                  <StackPanel Width="106">
+                    <Border Height="88" Background="{DynamicResource ImageBackdrop}" CornerRadius="{DynamicResource Rad}" ClipToBounds="True">
+                      <Image Source="{Binding Thumb}" Width="88" Height="88" Stretch="Uniform"
+                             RenderOptions.BitmapInterpolationMode="None"/>
+                    </Border>
+                    <TextBlock Text="{Binding Caption}" Classes="mono" FontSize="9" Foreground="{DynamicResource Txt2}"
+                               HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,5,0,4"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
+                      <Button Classes="bad" Content="T" FontSize="10" Padding="10,1"
+                              Command="{Binding $parent[ListBox].DataContext.MarkTrueCommand}" CommandParameter="{Binding}"/>
+                      <Button Classes="green" Content="P" FontSize="10" Padding="10,1"
+                              Command="{Binding $parent[ListBox].DataContext.MarkParticleCommand}" CommandParameter="{Binding}"/>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
         </Border>
       </DockPanel>
-
-      <!-- 右：SortAll + DataGrid（雙擊資料夾 → 進入小圖分類） -->
-      <DockPanel Grid.Column="1">
-        <CheckBox DockPanel.Dock="Top" Content="SortAll（全選）" IsChecked="{Binding SortAll}" Margin="0,0,0,2"/>
-        <TextBlock DockPanel.Dock="Top" Text="（雙擊資料夾 → 進入小圖人工分類）" FontSize="11" Foreground="#666" Margin="0,0,0,4"/>
-        <DataGrid x:Name="FolderGrid" ItemsSource="{Binding Folders}" AutoGenerateColumns="False"
-                  GridLinesVisibility="All" HeadersVisibility="Column" CanUserSortColumns="True"
-                  IsReadOnly="False" BorderBrush="#A0A0A0" BorderThickness="1">
-          <DataGrid.Columns>
-            <DataGridCheckBoxColumn Header="Sort" Binding="{Binding Sort}" Width="60"/>
-            <DataGridTextColumn Header="FolderName" Binding="{Binding FolderName}" IsReadOnly="True" Width="*"/>
-            <DataGridTextColumn Header="Defects" Binding="{Binding DefectCount}" IsReadOnly="True" Width="80"/>
-          </DataGrid.Columns>
-        </DataGrid>
-      </DockPanel>
     </Grid>
-
-    <!-- ============ 第二層：小圖人工分類檢視 ============ -->
-    <DockPanel Margin="8" IsVisible="{Binding InPatchView}">
-      <!-- 頂部：返回 + 資料夾 + 統計 + 存分類 -->
-      <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,6">
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-          <Button Content="← 返回" Command="{Binding BackToFoldersCommand}"/>
-          <TextBlock Text="{Binding CurrentFolder}" FontWeight="Bold" VerticalAlignment="Center"/>
-          <TextBlock Text="顯示：" VerticalAlignment="Center"/>
-          <ComboBox ItemsSource="{Binding Filters}" SelectedItem="{Binding SelectedFilter}" MinWidth="150"/>
-        </StackPanel>
-        <TextBlock Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="14">
-          <Run Text="已分類"/><Run Text="{Binding ClassifiedCount}"/><Run Text="/"/><Run Text="{Binding TotalCount}"/>
-          <Run Text="  TrueDefect:" Foreground="#FF0000"/><Run Text="{Binding TrueDefectCount}" Foreground="#FF0000"/>
-          <Run Text="  Particle:" Foreground="#00C000"/><Run Text="{Binding ParticleCount}" Foreground="#00C000"/>
-          <Run Text="  未分類:" Foreground="#888"/><Run Text="{Binding UnclassifiedCount}" Foreground="#888"/>
-        </TextBlock>
-        <Button Grid.Column="2" Content="Sort（存分類歸檔）" Foreground="White" FontWeight="Bold"
-                Background="{StaticResource ColOrange}" Command="{Binding SaveClassificationCommand}"/>
-      </Grid>
-      <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" IsVisible="{Binding IsLoadingPatches}" Height="4" Margin="0,0,0,4"/>
-
-      <!-- 右：選中小圖放大 + 分類按鈕 -->
-      <Border DockPanel.Dock="Right" Width="260" BorderBrush="#A0A0A0" BorderThickness="1" Margin="6,0,0,0" Padding="8">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="選中小圖（放大看細節）" FontWeight="Bold" Margin="0,0,0,6"/>
-          <Border DockPanel.Dock="Top" Width="240" Height="240" Background="Black"
-                  BorderThickness="3"
-                  BorderBrush="{Binding SelectedPatch.CurrentClass, Converter={StaticResource ClassToBorderBrush}}">
-            <Image Source="{Binding SelectedPatch.Thumb}" Stretch="Uniform" RenderOptions.BitmapInterpolationMode="None"/>
-          </Border>
-          <TextBlock DockPanel.Dock="Top" Text="{Binding SelectedPatch.Caption}" Margin="0,6" TextWrapping="Wrap"/>
-          <TextBlock DockPanel.Dock="Top" Text="{Binding SelectedPatch.CurrentClass}" FontWeight="Bold"
-                     Foreground="{Binding SelectedPatch.CurrentClass, Converter={StaticResource ClassToBorderBrush}}"/>
-          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,8">
-            <Button Content="TrueDefect (T)" Foreground="White" Background="#FF0000"
-                    Command="{Binding MarkTrueCommand}" CommandParameter="{Binding SelectedPatch}"/>
-            <Button Content="Particle (P)" Foreground="White" Background="#00C000"
-                    Command="{Binding MarkParticleCommand}" CommandParameter="{Binding SelectedPatch}"/>
-          </StackPanel>
-          <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#666" FontSize="11"
-                     Text="鍵盤：T=TrueDefect、P=Particle（標完自動下一張）；←→ 切換小圖。"/>
-          <TextBlock/>
-        </DockPanel>
-      </Border>
-
-      <!-- 中：縮圖牆（WrapPanel；邊框色＝分類） -->
-      <ListBox x:Name="PatchList" ItemsSource="{Binding Patches}" SelectedItem="{Binding SelectedPatch}"
-               Background="#222" BorderBrush="#A0A0A0" BorderThickness="1"
-               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-        <ListBox.ItemsPanel>
-          <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-        </ListBox.ItemsPanel>
-        <ListBox.ItemTemplate>
-          <DataTemplate>
-            <Border BorderThickness="3" Margin="2" Padding="2" Background="#333"
-                    BorderBrush="{Binding CurrentClass, Converter={StaticResource ClassToBorderBrush}}">
-              <StackPanel Width="96">
-                <Image Source="{Binding Thumb}" Width="88" Height="88" Stretch="Uniform"
-                       RenderOptions.BitmapInterpolationMode="None"/>
-                <TextBlock Text="{Binding Caption}" FontSize="9" Foreground="White"
-                           HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2">
-                  <Button Content="T" FontSize="9" Padding="4,0" Foreground="White" Background="#FF0000"
-                          Command="{Binding $parent[ListBox].DataContext.MarkTrueCommand}" CommandParameter="{Binding}"/>
-                  <Button Content="P" FontSize="9" Padding="4,0" Foreground="White" Background="#00C000"
-                          Command="{Binding $parent[ListBox].DataContext.MarkParticleCommand}" CommandParameter="{Binding}"/>
-                </StackPanel>
-              </StackPanel>
-            </Border>
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
-    </DockPanel>
-  </Grid>
+  </DockPanel>
 </UserControl>
