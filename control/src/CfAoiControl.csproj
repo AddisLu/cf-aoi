@@ -12,6 +12,8 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="config\array_topology.example.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="config\array_topology.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('config\array_topology.json')" />
   </ItemGroup>
 
   <ItemGroup>

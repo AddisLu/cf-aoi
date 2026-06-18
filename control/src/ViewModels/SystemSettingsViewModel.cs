@@ -30,7 +30,46 @@ public partial class SystemSettingsViewModel : ViewModelBase
 
         // 轉發 ConnectionManager.IsGrabConnected 的 PropertyChanged → 本 VM 的 IsGrabConnected
         svc.Connection.PropertyChanged += OnConnectionPropertyChanged;
+
+        LoadTopology();   // 塊1：開機載入機台層宣告槽（config/array_topology.json，缺則回退 .example）
     }
+
+    // ── 塊1：多 CCD 陣列「宣告」拓樸（topology 驅動，與下方「偵測到的相機」分開；綁定=#21）──
+    // 約束②：宣告槽來自 array_topology.json，全部「已宣告·未綁」，未綁前不得標線上；
+    //         絕不把 LIST_CAMERAS 列舉到的相機 merge 進任何槽（填槽=綁定=#21，本輪不做）。
+    public ArrayTopologyModel Topology { get; private set; } = new();
+    /// <summary>依運算單元分群的宣告槽（運算單元帶）。</summary>
+    public ObservableCollection<ComputeUnitGroup> ComputeUnits { get; } = new();
+    [ObservableProperty] private int declaredSlotCount;
+    [ObservableProperty] private string topologyStatus = "";
+    [ObservableProperty] private CcdSlotModel? selectedSlot;
+
+    private void LoadTopology() => ApplyTopology(ArrayTopologyModel.Load());
+
+    /// <summary>套用拓樸 → 依 compute_unit 分群建運算單元帶（selftest 也走此入口餵 fixture）。</summary>
+    public void ApplyTopology(ArrayTopologyModel topo)
+    {
+        Topology = topo;
+        ComputeUnits.Clear();
+        foreach (var u in topo.ComputeUnits)
+        {
+            var g = new ComputeUnitGroup { Unit = u };
+            foreach (var s in topo.Slots.Where(s => s.ComputeUnit == u.Id)) g.Slots.Add(s);
+            ComputeUnits.Add(g);
+        }
+        // 防呆：宣告了 compute_unit 但 compute_units[] 沒列到的槽 → 歸「(未指派)」群，不靜默吞掉
+        var orphan = topo.Slots.Where(s => topo.ComputeUnits.All(u => u.Id != s.ComputeUnit)).ToList();
+        if (orphan.Count > 0)
+        {
+            var g = new ComputeUnitGroup { Unit = new ComputeUnitModel { Id = "(未指派運算單元)" } };
+            foreach (var s in orphan) g.Slots.Add(s);
+            ComputeUnits.Add(g);
+        }
+        DeclaredSlotCount = topo.Slots.Count;
+        TopologyStatus = $"宣告 {DeclaredSlotCount} 槽 / {topo.ComputeUnits.Count} 運算單元 · 全部未綁（綁定動作 = #21）";
+    }
+
+    [RelayCommand] private void SelectSlot(CcdSlotModel? s) { if (s is not null) SelectedSlot = s; }
 
     // ── 連線設定 tab ──────────────────────────────────────────────
     [ObservableProperty] private string ipHost = "";
@@ -71,6 +110,8 @@ public partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int boundCount;
     [ObservableProperty] private int unboundCount;
     [ObservableProperty] private int offlineCount;
+    // 偵測側說明：強調與「宣告槽」分開、未對映（約束②，對映=綁定=#21）。
+    [ObservableProperty] private string detectedCamerasNote = "尚未列舉（與上方宣告槽分開；對映到槽位 = #21）";
 
     [ObservableProperty] private CameraInfoModel? selectedCamera;
     public bool HasSelection => SelectedCamera is not null;
@@ -111,6 +152,8 @@ public partial class SystemSettingsViewModel : ViewModelBase
             UnboundCount    = UnboundCameras.Count;
             OfflineCount    = OfflineCameras.Count;          // 0（無 config 映射，不假造離線台）
             SelectedCamera  = Cameras.FirstOrDefault();
+            // 約束②：列舉到的相機獨立呈現，未 merge 進任何宣告槽（對映=綁定=#21）。
+            DetectedCamerasNote = $"偵測到 {Cameras.Count} 台 · 尚未對映到宣告槽（綁定 = #21）";
             CamStatus = $"列舉到 {Cameras.Count} 台";
         }
         catch (Exception ex) { CamStatus = $"ERR：{ex.Message}"; }
@@ -221,4 +264,14 @@ public partial class SystemSettingsViewModel : ViewModelBase
         if (e.PropertyName == nameof(ConnectionManager.IsGrabConnected))
             OnPropertyChanged(nameof(IsGrabConnected));
     }
+}
+
+/// <summary>運算單元帶的一張卡：某運算單元 + 它宣告的 CCD 槽（塊1 骨架；連線/負載% = 塊2）。</summary>
+public sealed class ComputeUnitGroup
+{
+    public ComputeUnitModel Unit { get; init; } = new();
+    public ObservableCollection<CcdSlotModel> Slots { get; } = new();
+    public string Title => Unit.Id;
+    public string SubTitle => string.IsNullOrEmpty(Unit.Node) ? Unit.Role : $"node={Unit.Node} · {Unit.Role}";
+    public string SlotCountText => $"宣告 {Slots.Count} 顆 CCD";
 }

@@ -66,17 +66,69 @@
         </Grid>
       </TabItem>
 
-      <!-- ── 相機參數 ─── -->
+      <!-- ── 相機參數（塊1：宣告陣列 + 偵測相機，兩者分開呈現） ─── -->
       <TabItem Header="相機參數">
-        <Grid Margin="0,12,0,0" RowDefinitions="Auto,Auto,*">
+        <ScrollViewer Margin="0,12,0,0">
+        <StackPanel Spacing="12">
 
-          <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
-            <Button Classes="ghost" Content="↻ 列舉相機" Command="{Binding LoadCamerasCommand}" IsEnabled="{Binding IsGrabConnected}"/>
-            <TextBlock Text="{Binding CamStatus}" VerticalAlignment="Center" Foreground="{DynamicResource Txt3}"/>
-          </StackPanel>
+          <!-- 塊1：運算單元帶（宣告陣列，array_topology.json 驅動；全部未綁，綁定=#21） -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="cardHead" Text="運算單元 · 宣告陣列"/>
+                <TextBlock Grid.Column="1" Classes="mono dim" FontSize="11" VerticalAlignment="Center" Text="{Binding TopologyStatus}"/>
+              </Grid>
+              <ItemsControl ItemsSource="{Binding ComputeUnits}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ComputeUnitGroup">
+                    <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                            CornerRadius="{DynamicResource Rad}" Padding="11" Margin="0,0,0,8">
+                      <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                          <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{DynamicResource Txt3}"/>
+                          <TextBlock Text="{Binding Title}" FontWeight="Bold" Foreground="{DynamicResource Txt}" VerticalAlignment="Center"/>
+                          <TextBlock Text="{Binding SubTitle}" Classes="mono dim" FontSize="11" VerticalAlignment="Center"/>
+                          <TextBlock Text="{Binding SlotCountText}" Classes="dim" FontSize="11" VerticalAlignment="Center"/>
+                          <TextBlock Text="· 連線/負載 = 塊2" Classes="dim" FontSize="10" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{Binding Slots}">
+                          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="m:CcdSlotModel">
+                              <Border Classes="chip" ToolTip.Tip="{Binding SlotStatusLabel}">
+                                <StackPanel HorizontalAlignment="Center" Spacing="3">
+                                  <Ellipse Width="14" Height="14" HorizontalAlignment="Center" Fill="{DynamicResource Warn}"/>
+                                  <TextBlock Text="{Binding CcdId}" FontSize="10" FontFamily="{DynamicResource MonoFont}"
+                                             HorizontalAlignment="Center" Foreground="{DynamicResource Txt}"/>
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
+                         Text="宣告槽全部「已宣告·未綁」（黃點）。實際 MAC↔CCD 綁定、線上/離線判定 = #21（Phase 2），不在此把列舉相機填進槽。"/>
+            </StackPanel>
+          </Border>
+
+          <!-- 偵測到的相機（runtime；與上方宣告槽分開、未對映 = #21） -->
+          <Border Classes="card">
+          <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <TextBlock Classes="cardHead" Text="偵測到的相機（runtime）" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Margin="10,0,0,0" Classes="mono dim" FontSize="11" VerticalAlignment="Center" Text="{Binding DetectedCamerasNote}"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
+              <TextBlock Text="{Binding CamStatus}" VerticalAlignment="Center" Foreground="{DynamicResource Txt3}" FontSize="11"/>
+              <Button Classes="ghost" Content="↻ 列舉相機" Command="{Binding LoadCamerasCommand}" IsEnabled="{Binding IsGrabConnected}"/>
+            </StackPanel>
+          </Grid>
 
           <!-- KPI 列 -->
-          <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,12">
+          <UniformGrid Columns="5">
             <Border Classes="card" Margin="0,0,8,0" Padding="13">
               <StackPanel><TextBlock Classes="dim" FontSize="10.5" Text="配置" Margin="0,0,0,6"/>
                 <TextBlock Classes="mono" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Txt}" Text="{Binding ConfiguredCount}"/></StackPanel>
@@ -100,7 +152,7 @@
           </UniformGrid>
 
           <!-- 陣列 + 明細 -->
-          <Grid Grid.Row="2" ColumnDefinitions="*,320">
+          <Grid ColumnDefinitions="*,320" MinHeight="300">
             <Border Grid.Column="0" Classes="card" Margin="0,0,12,0" Padding="6">
               <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                 <ListBox Classes="camStrip" ItemsSource="{Binding Cameras}" SelectedItem="{Binding SelectedCamera}"
@@ -175,7 +227,10 @@
               </StackPanel>
             </Border>
           </Grid>
-        </Grid>
+          </StackPanel>
+          </Border>
+        </StackPanel>
+        </ScrollViewer>
       </TabItem>
     </TabControl>
   </DockPanel>

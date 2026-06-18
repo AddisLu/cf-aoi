@@ -40,6 +40,7 @@ public static class SelfTest
                 case "patches": return await PatchClassifyTest();
                 case "settings": return SettingsTest();
                 case "camera": return await CameraTest();
+                case "topology": return await TopologyTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -169,6 +170,76 @@ public static class SelfTest
         listener.Stop();
         bool ok = count && kpi && grouping && selected && fields;
         Console.WriteLine(ok ? "✓ 相機總覽：LIST_CAMERAS 解析 + 分群 + KPI 正確（離線維持 0，不假造）"
+                             : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    // ---- 塊1：多 CCD 陣列「宣告」拓樸 + 與「偵測相機」分開（約束②不假 merge）----
+    // 餵 fixture topology（部分 expected_mac null/部分有值）+ 假 LIST_CAMERAS（1 台）→ 驗：
+    //  ① 槽載入 + 依 compute_unit 分群；② 全部「已宣告·未綁」無人線上；③ 列舉相機獨立、未 merge 進槽。
+    private static async Task<int> TopologyTest()
+    {
+        var json = """
+        { "ccd_total_count": 3,
+          "compute_units": [ {"id":"Spark1","node":"IpOffline","role":"aoi"}, {"id":"Spark2","node":"IpOnline","role":"ai"} ],
+          "slots": [
+            {"ccd_id":"CCD00","compute_unit":"Spark1","expected_mac":null,"recipe_partition":"IP0"},
+            {"ccd_id":"CCD01","compute_unit":"Spark1","expected_mac":"00:30:53:2A:0B:03","recipe_partition":"IP1"},
+            {"ccd_id":"CCD02","compute_unit":"Spark2","expected_mac":null,"recipe_partition":"IP2"} ] }
+        """;
+        var topo = Models.ArrayTopologyModel.Parse(json);
+        bool load = topo.CcdTotalCount == 3 && topo.Slots.Count == 3 && topo.ComputeUnits.Count == 2;
+        // 約束①：ccd_id(UI) 與 recipe_partition(儲存鍵) 並存解耦；expected_mac 可 null=TBD
+        bool keys = topo.Slots[0].CcdId == "CCD00" && topo.Slots[0].RecipePartition == "IP0"
+                    && topo.Slots[0].ExpectedMac is null && topo.Slots[0].ExpectedMacDisplay == "TBD"
+                    && topo.Slots[1].ExpectedMac == "00:30:53:2A:0B:03";
+
+        var svc = AppServices.Build();
+        var vm = new ViewModels.SystemSettingsViewModel(svc);
+        vm.ApplyTopology(topo);
+        var g1 = vm.ComputeUnits.FirstOrDefault(g => g.Unit.Id == "Spark1");
+        var g2 = vm.ComputeUnits.FirstOrDefault(g => g.Unit.Id == "Spark2");
+        bool group = vm.ComputeUnits.Count == 2 && vm.DeclaredSlotCount == 3
+                     && g1 is { } && g1.Slots.Count == 2 && g2 is { } && g2.Slots.Count == 1;
+        // 約束②：全部宣告槽「已宣告·未綁」，無人標線上
+        bool noOnline = vm.ComputeUnits.SelectMany(g => g.Slots).All(s => s.SlotStatusLabel == "已宣告 · 未綁");
+
+        // 假 LIST_CAMERAS：1 台 → 偵測側單獨呈現，且宣告槽不因列舉而改變（未 merge）
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var serverTask = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var seq = (int?)req["seq"] ?? 0;
+                string resp = req["cmd"]!.GetValue<string>() == "LIST_CAMERAS"
+                    ? $"{{\"seq\":{seq},\"status\":\"OK\",\"cameras\":[{{\"cam_id\":0,\"mac\":\"00:30:53:2B:12:10\",\"model\":\"raL8192-12gm\",\"serial\":\"X\",\"ip\":\"169.254.20.5\",\"online\":true,\"persistent\":false,\"ip_config\":\"AutoIP\",\"device_class\":\"BaslerGigE\"}}]}}"
+                    : $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", port);
+        await vm.LoadCamerasCommand.ExecuteAsync(null);
+
+        bool detectedSeparate = vm.Cameras.Count == 1                                  // 偵測側有 1 台
+            && vm.ComputeUnits.SelectMany(g => g.Slots).Count() == 3                    // 宣告槽數不因列舉而變
+            && vm.ComputeUnits.SelectMany(g => g.Slots).All(s => s.SlotStatusLabel == "已宣告 · 未綁");  // 列舉後槽仍未綁（未 merge）
+
+        svc.Connection.Grab.Disconnect();
+        listener.Stop();
+
+        Console.WriteLine($"  ① 載入 3 槽/2 運算單元 + 欄位(ccd_id/recipe_partition/expected_mac): {(load && keys ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  ② 依 compute_unit 分群 Spark1[2]/Spark2[1] + DeclaredSlotCount=3: {(group ? "PASS" : "FAIL")} (實得 units={vm.ComputeUnits.Count} declared={vm.DeclaredSlotCount})");
+        Console.WriteLine($"  ③ 全部宣告槽「已宣告·未綁」無人線上: {(noOnline ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  ④ 列舉相機獨立呈現({vm.Cameras.Count} 台)且未 merge 進宣告槽: {(detectedSeparate ? "PASS" : "FAIL")}");
+        bool ok = load && keys && group && noOnline && detectedSeparate;
+        Console.WriteLine(ok ? "✓ 塊1：拓樸宣告載入 + compute_unit 分群 + 未綁不標線上 + 宣告≠綁定(不假 merge)"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }
