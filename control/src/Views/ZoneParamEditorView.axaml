@@ -37,8 +37,9 @@
     </Border>
 
     <Grid ColumnDefinitions="210,*,200">
-      <!-- ===== 左：ROI 位移 + Region ===== -->
-      <StackPanel Grid.Column="0" Spacing="12" Margin="0,0,12,0">
+      <!-- ===== 左：ROI 位移 + Region + 對位 Mark（ScrollViewer：視窗變矮時可捲，不切掉底部） ===== -->
+      <ScrollViewer Grid.Column="0" Margin="0,0,12,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="12">
         <Border Classes="card">
           <StackPanel Spacing="8">
             <TextBlock Classes="cardHead" Text="ROI 位移"/>
@@ -102,6 +103,7 @@
           </StackPanel>
         </Border>
       </StackPanel>
+      </ScrollViewer>
 
       <!-- ===== 中：27 列參數 ===== -->
       <Border Grid.Column="1" Classes="card" Margin="0,0,12,0" Padding="0">

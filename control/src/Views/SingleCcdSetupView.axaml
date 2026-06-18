@@ -16,10 +16,14 @@
       <Button Grid.Column="1" Classes="primary" Content="儲存配方" Command="{Binding ZoneEditor.SaveCommand}"/>
     </Grid>
 
-    <!-- 左：影像/ROI(嵌既有 Step1View，不改) ｜ 右：27 參數+對位卡(嵌既有 ZoneParamEditorView，不改) -->
-    <Grid ColumnDefinitions="*,560">
+    <!-- 左：影像/ROI(嵌既有 Step1View，不改) ｜ 右：27 參數+對位卡(嵌既有 ZoneParamEditorView，不改)
+         右半給 60% 並用水平 ScrollViewer + MinWidth：窗窄時整塊編輯器「捲動」而非截斷/隱藏按鈕。 -->
+    <Grid ColumnDefinitions="2*,3*">
       <views:Step1View Grid.Column="0" DataContext="{Binding Step1}"/>
-      <views:ZoneParamEditorView Grid.Column="1" Margin="12,0,0,0" DataContext="{Binding ZoneEditor}"/>
+      <ScrollViewer Grid.Column="1" Margin="12,0,0,0"
+                    HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <views:ZoneParamEditorView MinWidth="820" DataContext="{Binding ZoneEditor}"/>
+      </ScrollViewer>
     </Grid>
   </DockPanel>
 </UserControl>
