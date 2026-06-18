@@ -42,6 +42,7 @@ public static class SelfTest
                 case "camera": return await CameraTest();
                 case "topology": return await TopologyTest();
                 case "singleccd": return SingleCcdTest();
+                case "upstream": return await UpstreamTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -302,6 +303,80 @@ public static class SelfTest
         Console.WriteLine($"  ④ header 顯 ccd_id+運算單元(CCD05/Spark1): {(headerCcd ? "PASS" : "FAIL")} (\"{vm.HeaderText}\")");
         bool ok = composed && beforeSlot && ipSet && headerCcd;
         Console.WriteLine(ok ? "✓ 子塊1：整合頁 VM 組合既有實例 + LoadSlot 設對儲存鍵(IP) + header 顯 CCD 名(約束①不改名)"
+                             : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    // ---- 上位機 CF_/8787 接線 + 回呼 + 交握（in-process，L2 護欄）----
+    // 假上位機 client 連自起的 UpstreamServer（接線 UpstreamWiring）；OnLoadRecipe/OnGetResult 接到「假 IP server」；
+    // align/grab 刻意不綁 → 驗：LoadRecipe 接通(OK)、GetResult 回 path+count、CHECK/SET_ALIGN 回誠實失敗(ERR 非假 OK)、連線燈轉綠。
+    private static async Task<int> UpstreamTest()
+    {
+        // 假 IP server（loopback）：回 CHECK_HEALTH/LOAD_RECIPE OK、LIST_DEFECT_FOLDERS 兩夾
+        var ipL = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        ipL.Start();
+        int ipPort = ((System.Net.IPEndPoint)ipL.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await ipL.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var cmd = req["cmd"]!.GetValue<string>();
+                var seq = (int?)req["seq"] ?? 0;
+                string resp = cmd == "LIST_DEFECT_FOLDERS"
+                    ? $"{{\"seq\":{seq},\"status\":\"OK\",\"folders\":[{{\"folder_name\":\"IP0_panelA_DEFAULT\",\"defect_count\":3}},{{\"folder_name\":\"IP1_panelB_DEFAULT\",\"defect_count\":5}}]}}"
+                    : $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        var svc = AppServices.Build();
+        await svc.Connection.Ip.ConnectAsync("127.0.0.1", ipPort);
+
+        // 自起 UpstreamServer（取空閒 port，避免撞 8787）+ 真接線
+        var fp = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        fp.Start(); int upPort = ((System.Net.IPEndPoint)fp.LocalEndpoint).Port; fp.Stop();
+        var server = new Controllers.UpstreamServer(upPort);
+        Controllers.UpstreamWiring.Bind(server, svc);
+        server.Start();
+
+        // 假上位機 client：送 CF_ 讀 9 參數回應
+        System.Net.Sockets.TcpClient up = new();
+        for (int i = 0; i < 20 && !up.Connected; i++)
+        { try { await up.ConnectAsync("127.0.0.1", upPort); } catch { await Task.Delay(50); } }
+        using var us = up.GetStream();
+        var ur = new System.IO.StreamReader(us, System.Text.Encoding.UTF8);
+        var uw = new System.IO.StreamWriter(us, new System.Text.UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
+        async Task<string> Cmd(string l) { await uw.WriteLineAsync(l); return await ur.ReadLineAsync() ?? ""; }
+
+        var rReady  = await Cmd("CF_READY");
+        var rLoad   = await Cmd("CF_LOAD_RECIPE|DEFAULT|panelA|2026-06-19-00-00-00|||||||0");
+        var rGet    = await Cmd("CF_GET_RESULT");
+        var rCheck  = await Cmd("CF_CHECK_ALIGN");
+        var rSet    = await Cmd("CF_SET_ALIGN|Cs_AlignSet|1|2");
+        await Task.Delay(50);
+        bool lampGreen = svc.Connection.IsUpstreamConnected;   // 連上時 OnConnectedChanged→燈轉綠
+
+        up.Dispose(); server.Dispose(); svc.Connection.Ip.Disconnect(); ipL.Stop();
+
+        bool ready = rReady.StartsWith("OK");
+        bool load  = rLoad.StartsWith("OK");                                          // OnLoadRecipe→假 IP OK
+        bool get   = rGet.StartsWith("OK") && rGet.Contains("IP0_panelA_DEFAULT") && rGet.Contains("3,5"); // path+count 非 JSON
+        bool checkFail = rCheck.StartsWith("ERR");                                    // ★A 誠實失敗(非假 OK)
+        bool setFail   = rSet.StartsWith("ERR");                                      // ★A 誠實失敗(非假 OK)
+
+        Console.WriteLine($"  CF_READY → OK: {(ready ? "PASS" : "FAIL")} (\"{rReady}\")");
+        Console.WriteLine($"  CF_LOAD_RECIPE → OK(接 IP): {(load ? "PASS" : "FAIL")} (\"{rLoad}\")");
+        Console.WriteLine($"  CF_GET_RESULT → OK|path|count 非JSON: {(get ? "PASS" : "FAIL")} (\"{rGet}\")");
+        Console.WriteLine($"  CF_CHECK_ALIGN → ERR 誠實失敗(非假OK): {(checkFail ? "PASS" : "FAIL")} (\"{rCheck}\")");
+        Console.WriteLine($"  CF_SET_ALIGN → ERR 誠實失敗(非假OK): {(setFail ? "PASS" : "FAIL")} (\"{rSet}\")");
+        Console.WriteLine($"  上位機連線燈轉綠(OnConnectedChanged): {(lampGreen ? "PASS" : "FAIL")}");
+        bool ok = ready && load && get && checkFail && setFail && lampGreen;
+        Console.WriteLine(ok ? "✓ 上位機 CF_：接線啟動+回呼接 IP+9參數交握；align/grab 誠實失敗(非假OK)；燈轉綠 (L2 in-process)"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }

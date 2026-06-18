@@ -136,6 +136,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _conn.Start(svc.Config, _log);
 
+        // 上位機 CF_/8787：接線回呼（重用 IP 流程）+ 啟動 listener（Optional → 監聽失敗不阻塞）。
+        // 連上時 OnConnectedChanged → SetUpstreamConnected(true) → 上位機燈轉綠。
+        UpstreamWiring.Bind(svc.Upstream, svc);
+        svc.Upstream.Start();
+
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         timer.Tick += (_, _) =>
         {

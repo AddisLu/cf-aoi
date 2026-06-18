@@ -46,6 +46,8 @@ public sealed class UpstreamServer : IDisposable
     public Func<Task<CheckAlignPayload>>? OnCheckAlign { get; set; }
     // SET_ALIGN：把上位機傳來的 shiftX/Y 轉給 IP 套回 zones
     public Func<double, double, Task>? OnSetAlign { get; set; }
+    // 上位機 client 連上(true)/斷線(false) → 連線燈（真狀態）
+    public Action<bool>? OnConnectedChanged { get; set; }
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -83,6 +85,9 @@ public sealed class UpstreamServer : IDisposable
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
     {
+        OnConnectedChanged?.Invoke(true);
+        try
+        {
         using (client)
         await using (var stream = client.GetStream())
         using (var reader = new StreamReader(stream, Encoding.UTF8))
@@ -107,16 +112,22 @@ public sealed class UpstreamServer : IDisposable
                         }
                         case CF_GRAB_START:
                         {
-                            var ok = OnGrabStart is null || await OnGrabStart(P(1));
+                            // ★A 誠實失敗：offline 無取像對象，不假 OK（待 Step4+/相機）
+                            if (OnGrabStart is null)
+                            {
+                                await writer.WriteLineAsync(Resp(false, errMsg: "GRAB_START 未支援：offline 無取像對象（待 Step4+/相機）"));
+                                break;
+                            }
+                            var ok = await OnGrabStart(P(1));
                             await writer.WriteLineAsync(Resp(ok, errMsg: ok ? "" : "grab failed"));
                             break;
                         }
                         case CF_CHECK_ALIGN:
                         {
+                            // ★A 誠實失敗：未接對位（offline）不再回假 OK|0|0（會讓上位機誤判已對位）；待 #1/Step4
                             if (OnCheckAlign is null)
                             {
-                                // 未接線（Step 1 以前）：回 OK + 0 偏移
-                                await writer.WriteLineAsync(Resp(true, p1: "Cs_AlignSet", p2: "0", p3: "0"));
+                                await writer.WriteLineAsync(Resp(false, errMsg: "CHECK_ALIGN 未支援：offline 未執行對位（待 #1/Step4）"));
                                 break;
                             }
                             var ar = await OnCheckAlign();
@@ -137,11 +148,16 @@ public sealed class UpstreamServer : IDisposable
                         }
                         case CF_SET_ALIGN:
                         {
+                            // ★A 誠實失敗：未接對位（offline）不再永遠回 OK（假成功）；待 #1/Step4
+                            if (OnSetAlign is null)
+                            {
+                                await writer.WriteLineAsync(Resp(false, errMsg: "SET_ALIGN 未支援：offline 不套用對位（待 #1/Step4）"));
+                                break;
+                            }
                             // p2=shiftX, p3=shiftY（由上位機在 CF_CHECK_ALIGN 回應後決定是否套回）
-                            double sx = 0, sy = 0;
-                            double.TryParse(P(2), out sx);
-                            double.TryParse(P(3), out sy);
-                            if (OnSetAlign is not null) await OnSetAlign(sx, sy);
+                            double.TryParse(P(2), out double sx);
+                            double.TryParse(P(3), out double sy);
+                            await OnSetAlign(sx, sy);
                             await writer.WriteLineAsync(Resp(true));
                             break;
                         }
@@ -162,6 +178,8 @@ public sealed class UpstreamServer : IDisposable
                 catch (Exception ex) { await writer.WriteLineAsync(Resp(false, errMsg: ex.Message)); }
             }
         }
+        }
+        finally { OnConnectedChanged?.Invoke(false); }
     }
 
     // 9 參數回應：OK|p1|…|p8|{p9=errMsg} 或 ERR|…

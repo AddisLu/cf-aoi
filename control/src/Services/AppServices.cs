@@ -12,11 +12,14 @@ public sealed class AppServices
     public RecipeService Recipes { get; }
     public RecipeStore RecipeStore { get; }            // 配方單一資料來源（共用）
     public OfflineReviewService Review { get; }
+    public UpstreamServer Upstream { get; }            // 上位機 CF_/8787 server（接線見 UpstreamWiring）
 
     public AppServices(SystemConfigModel cfg, LogService log, ConnectionManager conn,
-                       RecipeService recipes, RecipeStore store, OfflineReviewService review)
+                       RecipeService recipes, RecipeStore store, OfflineReviewService review,
+                       UpstreamServer upstream)
     {
         Config = cfg; Log = log; Connection = conn; Recipes = recipes; RecipeStore = store; Review = review;
+        Upstream = upstream;
     }
 
     /// <summary>正式組裝（讀 appsettings.json）。</summary>
@@ -28,7 +31,8 @@ public sealed class AppServices
         var recipes = new RecipeService(cfg, log);
         var store = new RecipeStore(recipes, log, cfg.RecipeIps);
         var review = new OfflineReviewService(conn.Ip, recipes, cfg, log);
-        return new AppServices(cfg, log, conn, recipes, store, review);
+        var upstream = new UpstreamServer(cfg.UpstreamServer.ListenPort, log.Info);   // Optional → 監聽失敗不阻塞
+        return new AppServices(cfg, log, conn, recipes, store, review, upstream);
     }
 
     /// <summary>設計階段/預覽用（最小可運作，不連線）。</summary>
@@ -40,6 +44,7 @@ public sealed class AppServices
         var recipes = new RecipeService(cfg, log);
         var store = new RecipeStore(recipes, log, cfg.RecipeIps);
         var review = new OfflineReviewService(conn.Ip, recipes, cfg, log);
-        return new AppServices(cfg, log, conn, recipes, store, review);
+        var upstream = new UpstreamServer(cfg.UpstreamServer.ListenPort, log.Info);
+        return new AppServices(cfg, log, conn, recipes, store, review, upstream);
     }
 }
