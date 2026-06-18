@@ -32,6 +32,13 @@ public partial class Step1View : UserControl
     private bool _space, _measureKey;
     private readonly List<Point> _measurePts = new();   // content 座標
 
+    // #8 視覺 ROI 框選
+    private Canvas? _roiOverlay;
+    private Button? _btnRoi;
+    private bool _roiMode, _roiDragging;
+    private Point _roiStart, _roiCur;                   // content 座標
+    private Models.ZoneSettingModel? _roiZone;          // 目前監聽的 PrimaryZone
+
     public Step1View()
     {
         AvaloniaXamlLoader.Load(this);
@@ -43,6 +50,11 @@ public partial class Step1View : UserControl
         if (_thumbList != null) _thumbList.SelectionChanged += OnThumbSelectionChanged;
         var fit = this.FindControl<Button>("BtnFit");
         if (fit != null) fit.Click += (_, _) => Fit();
+        _roiOverlay = this.FindControl<Canvas>("RoiOverlay");
+        _btnRoi = this.FindControl<Button>("BtnRoi");
+        if (_btnRoi != null) _btnRoi.Click += (_, _) => ToggleRoiMode();
+        var btnRoiClear = this.FindControl<Button>("BtnRoiClear");
+        if (btnRoiClear != null) btnRoiClear.Click += (_, _) => ClearRoi();
 
         if (_viewport != null)
         {
@@ -70,7 +82,10 @@ public partial class Step1View : UserControl
             vm.PropertyChanged += OnVmPropertyChanged;
             vm.RefreshOverlayRequested -= RebuildOverlay;
             vm.RefreshOverlayRequested += RebuildOverlay;
+            vm.Store.RecipeReloaded -= HookRoiZone;
+            vm.Store.RecipeReloaded += HookRoiZone;
         }
+        HookRoiZone();   // 綁目前 PrimaryZone 的變更 → 重畫 ROI
         // 重新開啟視窗時 VM 仍持有缺陷資料 → 從記憶體重建大圖標示（不需重跑 Test）
         Dispatcher.UIThread.Post(RebuildOverlay);
     }
@@ -108,6 +123,7 @@ public partial class Step1View : UserControl
         if (_defectOverlay != null) _defectOverlay.StrokeScale = _scale;   // 框線維持約略固定螢幕粗細
         if (Vm != null) Vm.ZoomText = $"| Zoom : {_scale:F2}x";
         RedrawMeasure();
+        RedrawRoi();
     }
 
     private void Fit()
@@ -164,6 +180,17 @@ public partial class Step1View : UserControl
             e.Handled = true;
             return;
         }
+        // #8 ROI 框選模式：左鍵拖矩形
+        if (_roiMode && pt.Properties.IsLeftButtonPressed)
+        {
+            _roiDragging = true;
+            _roiStart = ScreenToContent(s);
+            _roiCur = _roiStart;
+            e.Pointer.Capture(_viewport);
+            RedrawRoi();
+            e.Handled = true;
+            return;
+        }
         // 點大圖缺陷框 → 選取（不平移大圖，捲動縮圖牆 + 高亮）
         if (pt.Properties.IsLeftButtonPressed)
         {
@@ -194,12 +221,18 @@ public partial class Step1View : UserControl
             _panLast = s;
             ApplyTransform();
         }
+        else if (_roiDragging)
+        {
+            _roiCur = ScreenToContent(s);
+            RedrawRoi();
+        }
         UpdateAxisValue(s);
     }
 
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (_panning) { _panning = false; e.Pointer.Capture(null); }
+        else if (_roiDragging) { _roiDragging = false; e.Pointer.Capture(null); CommitRoi(); }
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -303,6 +336,81 @@ public partial class Step1View : UserControl
                 _measureOverlay.Children.Add(new Line { StartPoint = p, EndPoint = sp, Stroke = brush, StrokeThickness = 1.5 });
             prev = sp;
         }
+    }
+
+    // ===== #8 視覺 ROI 框選（在影像上拖矩形 → 寫回 RecipeStore.PrimaryZone）=====
+    private void ToggleRoiMode()
+    {
+        _roiMode = !_roiMode;
+        if (_btnRoi != null)
+            _btnRoi.Background = _roiMode ? new SolidColorBrush(Color.Parse("#9CCC65")) : null;
+        if (Vm != null) Vm.RegionText = _roiMode ? "| ROI 框選中：拖矩形" : "";
+    }
+
+    private void ClearRoi()
+    {
+        if (Vm?.Store.PrimaryZone is { } z) { z.StartX = -1; z.StartY = -1; z.EndX = -1; z.EndY = -1; }
+        if (Vm != null) Vm.RegionText = "| ROI 全幅(-1)";
+        RedrawRoi();
+    }
+
+    // 綁目前 PrimaryZone 的 PropertyChanged → 數值改動(含 ZoneParamEditor 編輯)即重畫 ROI
+    private void HookRoiZone()
+    {
+        if (_roiZone != null) _roiZone.PropertyChanged -= OnRoiZoneChanged;
+        _roiZone = Vm?.Store.PrimaryZone;
+        if (_roiZone != null) _roiZone.PropertyChanged += OnRoiZoneChanged;
+        RedrawRoi();
+    }
+
+    private void OnRoiZoneChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is "StartX" or "StartY" or "EndX" or "EndY")
+            Dispatcher.UIThread.Post(RedrawRoi);
+    }
+
+    private void CommitRoi()
+    {
+        if (Vm is not { } vm || vm.Store.PrimaryZone is not { } z) return;
+        int iw = Math.Max(1, vm.ImageWidth), ih = Math.Max(1, vm.ImageHeight);
+        int x0 = (int)Math.Round(Math.Min(_roiStart.X, _roiCur.X));
+        int y0 = (int)Math.Round(Math.Min(_roiStart.Y, _roiCur.Y));
+        int x1 = (int)Math.Round(Math.Max(_roiStart.X, _roiCur.X));
+        int y1 = (int)Math.Round(Math.Max(_roiStart.Y, _roiCur.Y));
+        x0 = Math.Clamp(x0, 0, iw); x1 = Math.Clamp(x1, 0, iw);
+        y0 = Math.Clamp(y0, 0, ih); y1 = Math.Clamp(y1, 0, ih);
+        if (x1 - x0 < 2 || y1 - y0 < 2) { RedrawRoi(); return; }   // 太小 → 忽略
+        z.StartX = x0; z.StartY = y0; z.EndX = x1; z.EndY = y1;     // 寫回共用配方(單一資料來源)
+        if (Vm != null) Vm.RegionText = $"| ROI ({x0},{y0})-({x1},{y1})";
+        RedrawRoi();
+    }
+
+    private void RedrawRoi()
+    {
+        if (_roiOverlay is null) return;
+        _roiOverlay.Children.Clear();
+        if (Vm?.Store.PrimaryZone is { } z && z.StartX >= 0 && z.StartY >= 0 && z.EndX > z.StartX && z.EndY > z.StartY)
+            DrawRoiRect(z.StartX, z.StartY, z.EndX, z.EndY, "#00B0FF");   // 已設 ROI = 藍框
+        if (_roiDragging)
+            DrawRoiRect(Math.Min(_roiStart.X, _roiCur.X), Math.Min(_roiStart.Y, _roiCur.Y),
+                        Math.Max(_roiStart.X, _roiCur.X), Math.Max(_roiStart.Y, _roiCur.Y), "#FFC400"); // 拖曳中 = 黃框
+    }
+
+    private void DrawRoiRect(double x0, double y0, double x1, double y1, string color)
+    {
+        var p0 = ContentToScreen(new Point(x0, y0));
+        var p1 = ContentToScreen(new Point(x1, y1));
+        var rect = new Rectangle
+        {
+            Width = Math.Abs(p1.X - p0.X),
+            Height = Math.Abs(p1.Y - p0.Y),
+            Stroke = new SolidColorBrush(Color.Parse(color)),
+            StrokeThickness = 2,
+            Fill = Brushes.Transparent,
+        };
+        Canvas.SetLeft(rect, Math.Min(p0.X, p1.X));
+        Canvas.SetTop(rect, Math.Min(p0.Y, p1.Y));
+        _roiOverlay!.Children.Add(rect);
     }
 
     // 檔案選取（StorageProvider，需 TopLevel）注入 ViewModel，保持 VM 平台無關。

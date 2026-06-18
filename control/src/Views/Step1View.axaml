@@ -40,6 +40,8 @@
                   <ctrl:DefectOverlayControl Name="DefectOverlay" IsHitTestVisible="False"
                                              Width="{Binding ImageWidth}" Height="{Binding ImageHeight}"/>
                 </Canvas>
+                <!-- ROI 框選層（螢幕座標）-->
+                <Canvas Name="RoiOverlay" IsHitTestVisible="False"/>
                 <!-- 量測標記層（螢幕座標，不隨 content 變換縮放）-->
                 <Canvas Name="MeasureOverlay" IsHitTestVisible="False"/>
               </Panel>
@@ -49,8 +51,12 @@
               <Button Name="BtnFit" Content="Fit"/>
               <Button Content="刷新標示" Command="{Binding RefreshOverlayCommand}"
                       ToolTip.Tip="從目前缺陷清單重畫大圖圓圈（不需重跑 Test）"/>
+              <Button Name="BtnRoi" Content="框 ROI"
+                      ToolTip.Tip="開啟後在影像上拖矩形框出 ROI(寫回配方 StartX/Y/EndX/Y);再按一次關閉"/>
+              <Button Name="BtnRoiClear" Content="ROI 全幅(-1)"
+                      ToolTip.Tip="清除 ROI → -1 = 全幅檢測"/>
               <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#666"
-                         Text="滾輪縮放 · 中鍵/空白+拖曳平移 · 按住 M 點兩格量 Pitch"/>
+                         Text="滾輪縮放 · 中鍵/空白+拖曳平移 · 按住 M 量 Pitch · 框 ROI 拖矩形"/>
             </StackPanel>
           </Grid>
         </Border>
