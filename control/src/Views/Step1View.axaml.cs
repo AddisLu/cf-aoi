@@ -41,6 +41,9 @@ public partial class Step1View : UserControl
     private bool _roiMode, _roiDragging;
     private Point _roiStart, _roiCur;                   // content 座標
     private Models.ZoneSettingModel? _roiZone;          // 目前監聽的 PrimaryZone
+    private int _roiHandle = -1;                        // 拖曳中的把手 0..7；-1=無
+    private const double HandleHit = 10;                // px：命中半徑
+    private const double HandleSize = 9;                // px：把手方塊邊長
 
     public Step1View()
     {
@@ -183,9 +186,17 @@ public partial class Step1View : UserControl
             e.Handled = true;
             return;
         }
-        // #8 ROI 框選模式：左鍵拖矩形
+        // #8 ROI 框選模式：左鍵 → 命中既有 ROI 的把手則精修該邊/角，否則拖出新矩形
         if (_roiMode && pt.Properties.IsLeftButtonPressed)
         {
+            int h = HitTestRoiHandle(s);
+            if (h >= 0)
+            {
+                _roiHandle = h;
+                e.Pointer.Capture(_viewport);
+                e.Handled = true;
+                return;
+            }
             _roiDragging = true;
             _roiStart = ScreenToContent(s);
             _roiCur = _roiStart;
@@ -237,7 +248,13 @@ public partial class Step1View : UserControl
         else if (_roiDragging)
         {
             _roiCur = ScreenToContent(s);
+            ShowRoiReadout((int)Math.Round(Math.Min(_roiStart.X, _roiCur.X)), (int)Math.Round(Math.Min(_roiStart.Y, _roiCur.Y)),
+                           (int)Math.Round(Math.Max(_roiStart.X, _roiCur.X)), (int)Math.Round(Math.Max(_roiStart.Y, _roiCur.Y)));
             RedrawRoi();
+        }
+        else if (_roiHandle >= 0)
+        {
+            UpdateRoiHandle(ScreenToContent(s));
         }
         UpdateAxisValue(s);
     }
@@ -246,6 +263,7 @@ public partial class Step1View : UserControl
     {
         if (_panning) { _panning = false; _maybePan = false; e.Pointer.Capture(null); }
         else if (_roiDragging) { _roiDragging = false; e.Pointer.Capture(null); CommitRoi(); }
+        else if (_roiHandle >= 0) { _roiHandle = -1; e.Pointer.Capture(null); }   // 把手精修：值已即時寫回
         else if (_maybePan)   // 按下後幾乎沒動 = 點選 → 命中缺陷則選取
         {
             _maybePan = false;
@@ -364,7 +382,8 @@ public partial class Step1View : UserControl
         _roiMode = !_roiMode;
         if (_btnRoi != null)
             _btnRoi.Background = _roiMode ? new SolidColorBrush(Color.Parse("#9CCC65")) : null;
-        if (Vm != null) Vm.RegionText = _roiMode ? "| ROI 框選中：拖矩形" : "";
+        if (Vm != null) Vm.RegionText = _roiMode ? "| ROI 框選中：拖矩形；放大後拖把手或用下方數值精修" : "";
+        RedrawRoi();   // 進/出框選模式 → 顯示/隱藏把手
     }
 
     private void ClearRoi()
@@ -401,19 +420,85 @@ public partial class Step1View : UserControl
         y0 = Math.Clamp(y0, 0, ih); y1 = Math.Clamp(y1, 0, ih);
         if (x1 - x0 < 2 || y1 - y0 < 2) { RedrawRoi(); return; }   // 太小 → 忽略
         z.StartX = x0; z.StartY = y0; z.EndX = x1; z.EndY = y1;     // 寫回共用配方(單一資料來源)
-        if (Vm != null) Vm.RegionText = $"| ROI ({x0},{y0})-({x1},{y1})";
+        ShowRoiReadout(x0, y0, x1, y1);
         RedrawRoi();
+    }
+
+    // 狀態列即時顯示 ROI 座標 + 寬×高（拖矩形 / 拖把手 / commit 共用）
+    private void ShowRoiReadout(int x0, int y0, int x1, int y1)
+    {
+        if (Vm != null) Vm.RegionText = $"| ROI ({x0},{y0})-({x1},{y1})  {x1 - x0}×{y1 - y0}";
     }
 
     private void RedrawRoi()
     {
         if (_roiOverlay is null) return;
         _roiOverlay.Children.Clear();
-        if (Vm?.Store.PrimaryZone is { } z && z.StartX >= 0 && z.StartY >= 0 && z.EndX > z.StartX && z.EndY > z.StartY)
-            DrawRoiRect(z.StartX, z.StartY, z.EndX, z.EndY, "#00B0FF");   // 已設 ROI = 藍框
+        var z = Vm?.Store.PrimaryZone;
+        bool valid = z is not null && z.StartX >= 0 && z.StartY >= 0 && z.EndX > z.StartX && z.EndY > z.StartY;
+        if (valid)
+            DrawRoiRect(z!.StartX, z.StartY, z.EndX, z.EndY, "#00B0FF");   // 已設 ROI = 藍框
         if (_roiDragging)
             DrawRoiRect(Math.Min(_roiStart.X, _roiCur.X), Math.Min(_roiStart.Y, _roiCur.Y),
                         Math.Max(_roiStart.X, _roiCur.X), Math.Max(_roiStart.Y, _roiCur.Y), "#FFC400"); // 拖曳中 = 黃框
+        else if (valid && _roiMode)
+            foreach (var p in RoiHandlePoints(z!)) DrawHandle(p);          // 框選模式 → 四角四邊把手(可拖曳精修)
+    }
+
+    // 8 個把手螢幕座標：0=TL 1=Top 2=TR 3=Right 4=BR 5=Bottom 6=BL 7=Left
+    private Point[] RoiHandlePoints(Models.ZoneSettingModel z)
+    {
+        var tl = ContentToScreen(new Point(z.StartX, z.StartY));
+        var br = ContentToScreen(new Point(z.EndX, z.EndY));
+        double mx = (tl.X + br.X) / 2, my = (tl.Y + br.Y) / 2;
+        return new[]
+        {
+            new Point(tl.X, tl.Y), new Point(mx, tl.Y), new Point(br.X, tl.Y), new Point(br.X, my),
+            new Point(br.X, br.Y), new Point(mx, br.Y), new Point(tl.X, br.Y), new Point(tl.X, my),
+        };
+    }
+
+    // 命中哪個把手（螢幕座標距離 < HandleHit）；無 ROI 或沒命中回 -1
+    private int HitTestRoiHandle(Point screen)
+    {
+        if (Vm?.Store.PrimaryZone is not { } z) return -1;
+        if (!(z.StartX >= 0 && z.StartY >= 0 && z.EndX > z.StartX && z.EndY > z.StartY)) return -1;
+        var pts = RoiHandlePoints(z);
+        for (int i = 0; i < pts.Length; i++)
+        {
+            double dx = screen.X - pts[i].X, dy = screen.Y - pts[i].Y;
+            if (dx * dx + dy * dy <= HandleHit * HandleHit) return i;
+        }
+        return -1;
+    }
+
+    // 拖把手 → 即時更新對應邊（夾邊界 + 與對邊至少留 2px），寫回 PrimaryZone(觸發重畫)
+    private void UpdateRoiHandle(Point c)
+    {
+        if (Vm?.Store.PrimaryZone is not { } z) return;
+        int iw = Math.Max(1, Vm.ImageWidth), ih = Math.Max(1, Vm.ImageHeight);
+        int cx = (int)Math.Round(Math.Clamp(c.X, 0, iw));
+        int cy = (int)Math.Round(Math.Clamp(c.Y, 0, ih));
+        bool left = _roiHandle is 0 or 6 or 7, right = _roiHandle is 2 or 3 or 4;
+        bool top = _roiHandle is 0 or 1 or 2, bottom = _roiHandle is 4 or 5 or 6;
+        if (left)   z.StartX = Math.Min(cx, z.EndX - 2);
+        if (right)  z.EndX   = Math.Max(cx, z.StartX + 2);
+        if (top)    z.StartY = Math.Min(cy, z.EndY - 2);
+        if (bottom) z.EndY   = Math.Max(cy, z.StartY + 2);
+        ShowRoiReadout(z.StartX, z.StartY, z.EndX, z.EndY);
+    }
+
+    private void DrawHandle(Point screen)
+    {
+        var sq = new Rectangle
+        {
+            Width = HandleSize, Height = HandleSize,
+            Fill = Brushes.White,
+            Stroke = new SolidColorBrush(Color.Parse("#00B0FF")), StrokeThickness = 1.5,
+        };
+        Canvas.SetLeft(sq, screen.X - HandleSize / 2);
+        Canvas.SetTop(sq, screen.Y - HandleSize / 2);
+        _roiOverlay!.Children.Add(sq);
     }
 
     private void DrawRoiRect(double x0, double y0, double x1, double y1, string color)
