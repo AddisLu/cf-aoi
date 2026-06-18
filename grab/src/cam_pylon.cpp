@@ -233,9 +233,16 @@ bool CamPylon::grab_one_mean(double& mean, std::string& err) {
     if (running_.load())          { err = "取像中，無法單張抓幀（請先停止取像）"; return false; }
     auto* c = cam(camera_ptr_);
     try {
+        // 線掃幀時間 ≈ 曝光 × 行數(free-run),故 timeout 隨曝光/Height 自適應(夾 3~15s)。
+        GenApi::INodeMap& nm = c->GetNodeMap();
+        double  exp_us = 0; int64_t lines = 0;
+        try { exp_us = CFloatParameter(nm, "ExposureTimeAbs").GetValue(); } catch (...) {}
+        try { lines  = CIntegerParameter(nm, "Height").GetValue(); } catch (...) {}
+        double est_ms = exp_us * (double)lines / 1000.0 * 1.3 + 500.0;
+        int timeout_ms = (int)(est_ms < 3000.0 ? 3000.0 : (est_ms > 15000.0 ? 15000.0 : est_ms));
         c->StartGrabbing(1, GrabStrategy_OneByOne, GrabLoop_ProvidedByUser);
         CGrabResultPtr r;
-        c->RetrieveResult(3000, r, TimeoutHandling_Return);
+        c->RetrieveResult(timeout_ms, r, TimeoutHandling_Return);
         if (!r || !r->GrabSucceeded()) {
             c->StopGrabbing();
             err = "抓幀失敗/逾時";
