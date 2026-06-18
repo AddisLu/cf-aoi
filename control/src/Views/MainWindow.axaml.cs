@@ -38,7 +38,8 @@ public partial class MainWindow : Window
         _sysWin = new Window
         {
             Title = "系統設定 (Settings)",
-            Width = 640, Height = 520,
+            Width = 1060, Height = 720,
+            MinWidth = 880, MinHeight = 560,
             FontFamily = new Avalonia.Media.FontFamily("Arial"),
             Content = new SystemSettingsView { DataContext = vm.SysSettings },
         };

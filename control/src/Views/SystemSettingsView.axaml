@@ -54,40 +54,60 @@
           <TextBlock Text="{Binding CamStatus}" VerticalAlignment="Center" Foreground="#666"/>
         </StackPanel>
 
-        <!-- KPI 列：配置 / 上線 / 已綁定 / 待綁定 / 離線 -->
+        <!-- KPI 列：配置 / 上線 / 已綁定 / 待綁定 / 離線（色條對齊 mockup）-->
         <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,12">
           <Border Classes="kpi" Margin="0,0,8,0">
-            <StackPanel><TextBlock Classes="kpiNum" Text="{Binding ConfiguredCount}"/><TextBlock Classes="kpiLab" Text="配置 CCD"/></StackPanel>
+            <StackPanel>
+              <Border Classes="rail" Background="#2f6df0"/>
+              <TextBlock Classes="kpiNum" Text="{Binding ConfiguredCount}"/>
+              <TextBlock Classes="kpiLab" Text="配置 CCD"/>
+            </StackPanel>
           </Border>
           <Border Classes="kpi" Margin="0,0,8,0">
-            <StackPanel><TextBlock Classes="kpiNum" Text="{Binding OnlineCount}"/><TextBlock Classes="kpiLab" Text="上線"/></StackPanel>
+            <StackPanel>
+              <Border Classes="rail" Background="#9AA6B3"/>
+              <TextBlock Classes="kpiNum" Text="{Binding OnlineCount}"/>
+              <TextBlock Classes="kpiLab" Text="上線"/>
+            </StackPanel>
           </Border>
-          <Border Classes="kpi" Margin="0,0,8,0">
-            <StackPanel><TextBlock Classes="kpiNum" Foreground="#2ecc71" Text="{Binding BoundCount}"/><TextBlock Classes="kpiLab" Text="已綁定"/></StackPanel>
+          <Border Classes="kpi" Background="#F1FBF5" Margin="0,0,8,0">
+            <StackPanel>
+              <Border Classes="rail" Background="#2ecc71"/>
+              <TextBlock Classes="kpiNum" Foreground="#1F9D55" Text="{Binding BoundCount}"/>
+              <TextBlock Classes="kpiLab" Text="已綁定"/>
+            </StackPanel>
           </Border>
-          <Border Classes="kpi" Margin="0,0,8,0">
-            <StackPanel><TextBlock Classes="kpiNum" Foreground="#E2A03B" Text="{Binding UnboundCount}"/><TextBlock Classes="kpiLab" Text="待綁定"/></StackPanel>
+          <Border Classes="kpi" Background="#FDF6EA" Margin="0,0,8,0">
+            <StackPanel>
+              <Border Classes="rail" Background="#E2A03B"/>
+              <TextBlock Classes="kpiNum" Foreground="#C77F0A" Text="{Binding UnboundCount}"/>
+              <TextBlock Classes="kpiLab" Text="待綁定"/>
+            </StackPanel>
           </Border>
           <Border Classes="kpi">
-            <StackPanel><TextBlock Classes="kpiNum" Foreground="#9AA6B3" Text="{Binding OfflineCount}"/><TextBlock Classes="kpiLab" Text="離線/未偵測"/></StackPanel>
+            <StackPanel>
+              <Border Classes="rail" Background="#9AA6B3"/>
+              <TextBlock Classes="kpiNum" Foreground="#9AA6B3" Text="{Binding OfflineCount}"/>
+              <TextBlock Classes="kpiLab" Text="離線/未偵測"/>
+            </StackPanel>
           </Border>
         </UniformGrid>
 
         <!-- 實體陣列：CCD 一字排開、狀態色碼、點選=選中（ListBox 原生選取）-->
         <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6" Padding="6" Margin="0,0,0,4">
           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-            <ListBox ItemsSource="{Binding Cameras}" SelectedItem="{Binding SelectedCamera}"
+            <ListBox Classes="camStrip" ItemsSource="{Binding Cameras}" SelectedItem="{Binding SelectedCamera}"
                      Background="Transparent" BorderThickness="0">
               <ListBox.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4"/></ItemsPanelTemplate>
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6"/></ItemsPanelTemplate>
               </ListBox.ItemsPanel>
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="m:CameraInfoModel">
-                  <Border Width="40" CornerRadius="5" Padding="0,6" ToolTip.Tip="{Binding StatusLabel}">
+                  <Border Classes="chip" ToolTip.Tip="{Binding StatusLabel}">
                     <StackPanel HorizontalAlignment="Center" Spacing="4">
-                      <Ellipse Width="14" Height="14" HorizontalAlignment="Center"
+                      <Ellipse Width="16" Height="16" HorizontalAlignment="Center"
                                Fill="{Binding Status, Converter={StaticResource CamStatusToBrush}}"/>
-                      <TextBlock Text="{Binding CamId, StringFormat='{}{0:00}'}" FontSize="11"
+                      <TextBlock Text="{Binding CamId, StringFormat='{}{0:00}'}" FontSize="12"
                                  FontFamily="Consolas" HorizontalAlignment="Center"/>
                     </StackPanel>
                   </Border>
@@ -109,10 +129,10 @@
                 <ItemsControl ItemsSource="{Binding UnboundCameras}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:CameraInfoModel">
-                      <Grid ColumnDefinitions="70,*,Auto" Margin="0,3">
+                      <Grid ColumnDefinitions="80,210,*" Margin="0,3">
                         <TextBlock Grid.Column="0" Text="{Binding CcdLabel}" FontFamily="Consolas"/>
-                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666"/>
+                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999"/>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -124,10 +144,10 @@
                 <ItemsControl ItemsSource="{Binding BoundCameras}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:CameraInfoModel">
-                      <Grid ColumnDefinitions="70,*,Auto" Margin="0,3">
+                      <Grid ColumnDefinitions="80,210,*" Margin="0,3">
                         <TextBlock Grid.Column="0" Text="{Binding CcdLabel}" FontFamily="Consolas"/>
-                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666"/>
+                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999"/>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -139,10 +159,10 @@
                 <ItemsControl ItemsSource="{Binding OfflineCameras}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="m:CameraInfoModel">
-                      <Grid ColumnDefinitions="70,*,Auto" Margin="0,3">
+                      <Grid ColumnDefinitions="80,210,*" Margin="0,3">
                         <TextBlock Grid.Column="0" Text="{Binding CcdLabel}" FontFamily="Consolas"/>
-                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666" Margin="8,0,0,0"/>
-                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MacDisplay}" FontFamily="Consolas" Foreground="#666"/>
+                        <TextBlock Grid.Column="2" Text="{Binding IpDisplay}" FontFamily="Consolas" Foreground="#999"/>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -217,14 +237,46 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="CornerRadius" Value="8"/>
       <Setter Property="Padding" Value="12,8"/>
+      <Setter Property="Background" Value="White"/>
+    </Style>
+    <Style Selector="Border.kpi > StackPanel > Border.rail">
+      <Setter Property="Height" Value="3"/>
+      <Setter Property="CornerRadius" Value="2"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
     </Style>
     <Style Selector="Border.kpi TextBlock.kpiNum">
-      <Setter Property="FontSize" Value="24"/>
+      <Setter Property="FontSize" Value="22"/>
       <Setter Property="FontWeight" Value="Bold"/>
     </Style>
     <Style Selector="Border.kpi TextBlock.kpiLab">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Foreground" Value="#888"/>
+    </Style>
+
+    <!-- 實體陣列晶片：狀態色 + 選取藍框（中和 ListBox 預設藍底）-->
+    <Style Selector="Border.chip">
+      <Setter Property="Width" Value="50"/>
+      <Setter Property="Background" Value="#F4F7FB"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="Padding" Value="4,8"/>
+    </Style>
+    <Style Selector="ListBox.camStrip > ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBox.camStrip > ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBox.camStrip > ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBox.camStrip > ListBoxItem:selected Border.chip">
+      <Setter Property="BorderBrush" Value="#2f6df0"/>
+      <Setter Property="Background" Value="#EAF2FF"/>
     </Style>
   </UserControl.Styles>
 </UserControl>
