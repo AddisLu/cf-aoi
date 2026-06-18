@@ -236,9 +236,9 @@
 | **#3** | （交接僅記「已做」，無具體定義）| **無對應** | 考古查無對應功能；不留幽靈號，僅記錄此編號存在但定義缺失 |
 | **#4** | （交接僅記「已做」，無具體定義）| **無對應** | 同 #3 |
 | **#5** | 座標換算 pixel→μm（單 CCD 已做；多 CCD 預留）| 單 CCD **L3**；多 CCD 座標 **L0（預留）**| IP `GlobalPosX_um/Y_um`+`CcdIndex`（INI [Optical]→OpticalParams）；多 CCD 拼接（`CamToStageAngle/CcdPitch/CcdOverlap`, `Configuration.cs:80-88`）未實作、公式分歧待確認 |
-| **#6** | 多 IP 配方編輯（per-CCD tab）| **L0/部分（未做）**| legacy `frmAoiSettingEditor.cs:358-690`（多 IP/Align/SaveAs）；Control `RecipeStore` 只處理單 IP0 |
+| **#6** | 多 IP 配方編輯（per-CCD 單一入口）| **L2（單機驗）**| **2026-06-18 完成**：考古確認 legacy 多 IP（一份配方 = PC/Recipe/IP1~IP4，`frmIpParamEditor.cs:493-588` 分頁+GroupBox、`frmAoiSettingEditor.cs:938-969` per-IP PropertyGrid）。新版做成**單一入口**:`RecipeStore` IP-aware（`IpNames`/`SelectedIp`/`Select(recipe,ip)` 載 `{recipe}/{ip}/RecipeInfo.xml`，切 IP 重載；`Save` per-IP），ZoneParamEditor 加 IP/CCD 下拉。可擴充:預設單台 IP0,`appsettings RecipeIps` 加 IP1/IP2… 即多台（預留 GPU 給外圍 AI 區運算的分散式設計）。`--selftest store` 驗:IP0.PitchX=11/IP1.PitchX=22 per-IP 隔離 + 切回重載 PASS。版面待 Mac 目視 → L2/L3。|
 | **#7** | 配方批次複製 | **L0（未做）**| legacy `frmCopyRecipeParamToRecipe.cs`（跨配方複製參數）；Control 只「找不到自動生成預設」，無批次複製 |
-| **#8** | 互動 ROI 繪製 | **L0（未做）**| legacy `frmAlgorithmTestTools.cs:474-643`（滑鼠增刪/拖矩形）；Control `ZoneParamEditor` 只數值位移 x±/y± |
+| **#8** | 互動 ROI 繪製（影像上框選）| **L1（待 Mac 目視）**| **2026-06-18 完成**：考古確認 legacy 影像框選在 `frmAlgorithmTestTools.cs:474-531`(addRect/拖矩形),但有 bug(DrawGroupList 沒寫回 DetectRoiList)。新版做進**有影像的 Step1View**:「框 ROI」鈕 → 影像上拖矩形(重用既有 matrix 座標轉換)→ 寫回 `RecipeStore.PrimaryZone` StartX/Y/EndX/Y(夾邊界、單一資料來源,ZoneParamEditor 數值即時同步)+ 畫現有 ROI 藍框/拖曳黃框;「ROI 全幅(-1)」清除。修了 legacy 沒接的「畫→寫回配方」。build 0 警告;互動待 Addis Mac 目視 → L1。|
 | **#9** | 2/4-way kernel | **L0（未做）**| ip `zone_config_adapter.cpp:162` `AlgorithmWay` 忽略；Demo `cuda_kernels_fast.cu` 只有 8-way（`kernelFast8Way{Texture,Comparison,Shared}` @123/239/346），無 2/4-way 變體 |
 | **#10–#15** | （交接僅記「工具 6 個」，未逐項定義）| **無對應（未逐一定位）**| 考古無法逐一對位 6 個工具；不逐個留幽靈號。候選工具見表二註（`mac_ip_binder`/多通道 log 可能屬此範圍但無定義佐證）|
 

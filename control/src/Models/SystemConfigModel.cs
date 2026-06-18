@@ -32,6 +32,9 @@ public sealed class SystemConfigModel
     public UpstreamServerConfig UpstreamServer { get; set; } = new();
     public Dictionary<string, NodeConfig> Nodes { get; set; } = new();
     public string ActiveIpNode { get; set; } = "IpOffline";
+    // 配方可編輯的 IP/CCD 清單（單一入口的 IP 選擇器來源）。預設單台 IP0；
+    // 未來多台 IP 機（預留 GPU 給外圍 AI 區運算）→ appsettings 加 "IP1","IP2"… 即可擴充。
+    public List<string> RecipeIps { get; set; } = new() { "IP0" };
     public PathsConfig Paths { get; set; } = new();
     public ShareSettingModel ShareSetting { get; set; } = new();   // 全域系統旗標（appsettings.json）
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -19,8 +20,12 @@ public sealed partial class RecipeStore : ObservableObject
     private readonly LogService _log;
 
     public ObservableCollection<string> RecipeNames { get; } = new();
+    /// <summary>可編輯的 IP/CCD 清單（單一入口的 IP 選擇器來源；現預設單台 IP0,可由 config 擴充）。</summary>
+    public ObservableCollection<string> IpNames { get; } = new();
 
     [ObservableProperty] private string selectedRecipe = "DEFAULT";
+    // 目前編輯中的 IP/CCD（多 IP 配方:每台一份 {recipe}/{ip}/RecipeInfo.xml）。
+    [ObservableProperty] private string selectedIp = "IP0";
     [ObservableProperty] private RecipeModel recipe = new();
     // 第一個 DetectRoi：快速調參 / 主視窗預覽共用同一實例
     [ObservableProperty] private ZoneSettingModel? primaryZone;
@@ -32,14 +37,17 @@ public sealed partial class RecipeStore : ObservableObject
 
     private bool _inSelect;
 
-    public RecipeStore(RecipeService recipes, LogService log)
+    public RecipeStore(RecipeService recipes, LogService log, IReadOnlyList<string>? ipNames = null)
     {
         _recipes = recipes; _log = log;
+        foreach (var ip in (ipNames is { Count: > 0 } ? ipNames : new[] { "IP0" })) IpNames.Add(ip);
+        SelectedIp = IpNames[0];
         RefreshNames();
         Select(SelectedRecipe);
     }
 
     partial void OnSelectedRecipeChanged(string value) => Select(value);
+    partial void OnSelectedIpChanged(string value) => Select(SelectedRecipe);   // 切 IP → 載該 IP 的配方
 
     /// <summary>同步載入（桌面檔案 IO，避免 async 競態）。設 SelectedRecipe + Recipe + PrimaryZone。</summary>
     public void Select(string name)
@@ -49,7 +57,7 @@ public sealed partial class RecipeStore : ObservableObject
         try
         {
             if (SelectedRecipe != name) SelectedRecipe = name;   // 與資料一致
-            var ensure = _recipes.EnsureRecipeExists(name);
+            var ensure = _recipes.EnsureRecipeExists(name, SelectedIp);
             Recipe = ensure.Recipe;
             if (Recipe.DetectRoiList.Count == 0) Recipe.DetectRoiList.Add(new ZoneSettingModel());
             PrimaryZone = Recipe.DetectRoiList[0];
@@ -63,7 +71,7 @@ public sealed partial class RecipeStore : ObservableObject
 
     public void Save()
     {
-        _recipes.Save(SelectedRecipe, Recipe);
+        _recipes.Save(SelectedRecipe, Recipe, SelectedIp);
         if (!RecipeNames.Contains(SelectedRecipe)) RecipeNames.Add(SelectedRecipe);
     }
 

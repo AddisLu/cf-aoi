@@ -379,7 +379,23 @@ public static class SelfTest
         Console.WriteLine($"  XML: {path}");
         Console.WriteLine(shared ? "✓ 三處共用同一 ZoneSettingModel 實例" : "✗ 非同一實例");
         Console.WriteLine(xmlOk ? "✓ 存檔 XML 含 PitchX=33/PitchY=17/BrightThreshold=1.55" : "✗ XML 值不符");
-        return shared && xmlOk ? 0 : 1;
+
+        // #6 多 IP 配方單一入口：切 IP → 編該台的 {recipe}/{IP}/RecipeInfo.xml，per-IP 隔離
+        var mstore = new RecipeStore(svc.Recipes, svc.Log, new[] { "IP0", "IP1" });
+        mstore.Select("MULTIIP_TEST");
+        mstore.SelectedIp = "IP0"; mstore.PrimaryZone!.PitchX = 11; mstore.Save();
+        mstore.SelectedIp = "IP1"; mstore.PrimaryZone!.PitchX = 22; mstore.Save();
+        var p0 = svc.Recipes.RecipeXmlPath("MULTIIP_TEST", "IP0");
+        var p1 = svc.Recipes.RecipeXmlPath("MULTIIP_TEST", "IP1");
+        bool ipIso = System.IO.File.Exists(p0) && System.IO.File.Exists(p1)
+                     && System.IO.File.ReadAllText(p0).Contains("<PitchX>11</PitchX>")
+                     && System.IO.File.ReadAllText(p1).Contains("<PitchX>22</PitchX>");
+        mstore.SelectedIp = "IP0";   // 切回應載到 11
+        bool ipReload = mstore.PrimaryZone!.PitchX == 11;
+        Console.WriteLine($"  多 IP: IpNames=[{string.Join(",", mstore.IpNames)}] IP0.PitchX=11 / IP1.PitchX=22 隔離={ipIso} 切回載={ipReload}");
+        Console.WriteLine(ipIso && ipReload ? "✓ 多 IP 單一入口:per-IP 配方隔離 + 切 IP 重載" : "✗ 多 IP 不符");
+
+        return shared && xmlOk && ipIso && ipReload ? 0 : 1;
     }
 
     // ---- FFT Pitch 估算（驗證純 managed FFT 邏輯）----

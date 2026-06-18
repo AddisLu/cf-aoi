@@ -7,7 +7,10 @@
     <!-- 頂列：配方 / 儲存 / 確認模式 -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
       <TextBlock Text="配方" VerticalAlignment="Center"/>
-      <ComboBox Width="200" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
+      <ComboBox Width="180" ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
+      <TextBlock Text="IP/CCD" VerticalAlignment="Center"
+                 ToolTip.Tip="多 IP/CCD 配方單一入口:切 IP 編該台的 {recipe}/{IP}/RecipeInfo.xml。現預設 IP0,多台可由 appsettings RecipeIps 擴充。"/>
+      <ComboBox Width="110" ItemsSource="{Binding Store.IpNames}" SelectedItem="{Binding Store.SelectedIp}"/>
       <Button Content="儲存配方" Command="{Binding SaveCommand}"/>
       <CheckBox Content="批次更新前確認" IsChecked="{Binding UpdateWithAsk}"/>
     </StackPanel>
