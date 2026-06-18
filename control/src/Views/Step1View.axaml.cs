@@ -29,6 +29,9 @@ public partial class Step1View : UserControl
     private bool _fitted;
     private bool _panning;
     private Point _panLast;
+    private bool _maybePan;          // 左鍵已按下、尚未決定是「點選缺陷」還是「平移」
+    private Point _pressPos;         // 按下時的螢幕座標（判拖曳閾值 + 點選命中）
+    private const double PanThreshold = 4;   // px：移動超過視為平移，否則視為點選
     private bool _space, _measureKey;
     private readonly List<Point> _measurePts = new();   // content 座標
 
@@ -191,11 +194,15 @@ public partial class Step1View : UserControl
             e.Handled = true;
             return;
         }
-        // 點大圖缺陷框 → 選取（不平移大圖，捲動縮圖牆 + 高亮）
+        // 一般模式左鍵：先記錄，暫不決定。OnMoved 超過閾值→平移；OnReleased 未拖動→點選缺陷。
+        // → 觸控板單指拖 / 滑鼠左鍵拖皆可平移，免鍵盤免中鍵；輕點仍選缺陷。
         if (pt.Properties.IsLeftButtonPressed)
         {
-            int hit = HitTestDefect(ScreenToContent(s));
-            if (hit >= 0) NavTo(hit, center: false);
+            _maybePan = true;
+            _pressPos = s;
+            _panLast = s;
+            e.Pointer.Capture(_viewport);
+            e.Handled = true;
         }
     }
 
@@ -214,6 +221,12 @@ public partial class Step1View : UserControl
     private void OnMoved(object? sender, PointerEventArgs e)
     {
         var s = e.GetPosition(_viewport);
+        // 左鍵按住後移動超過閾值 → 由「待定」升級為平移（從當前點起算，避免跳動）
+        if (_maybePan && !_panning)
+        {
+            double mdx = s.X - _pressPos.X, mdy = s.Y - _pressPos.Y;
+            if (mdx * mdx + mdy * mdy >= PanThreshold * PanThreshold) { _panning = true; _panLast = s; }
+        }
         if (_panning)
         {
             _offX += s.X - _panLast.X;
@@ -231,8 +244,15 @@ public partial class Step1View : UserControl
 
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (_panning) { _panning = false; e.Pointer.Capture(null); }
+        if (_panning) { _panning = false; _maybePan = false; e.Pointer.Capture(null); }
         else if (_roiDragging) { _roiDragging = false; e.Pointer.Capture(null); CommitRoi(); }
+        else if (_maybePan)   // 按下後幾乎沒動 = 點選 → 命中缺陷則選取
+        {
+            _maybePan = false;
+            e.Pointer.Capture(null);
+            int hit = HitTestDefect(ScreenToContent(_pressPos));
+            if (hit >= 0) NavTo(hit, center: false);
+        }
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)

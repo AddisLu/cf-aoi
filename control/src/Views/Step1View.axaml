@@ -76,7 +76,7 @@
                 <Button Name="BtnRoiClear" Classes="ghost" Content="ROI 全幅(-1)"
                         ToolTip.Tip="清除 ROI → -1 = 全幅檢測"/>
                 <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Txt3}"
-                           Text="滾輪縮放 · 中鍵/空白+拖曳平移 · 按住 M 量 Pitch · 框 ROI 拖矩形"/>
+                           Text="左鍵拖曳平移 · 點缺陷選取 · 滾輪/雙指縮放 · 按住 M 量 Pitch · 框 ROI 拖矩形（中鍵/空白+拖亦可平移）"/>
               </StackPanel>
             </Border>
           </Grid>
