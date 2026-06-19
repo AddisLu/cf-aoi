@@ -362,7 +362,7 @@
 |---|---|---|---|---|
 | **塊1** | ArrayTopology 資料模型 + `array_topology.json` 載入 + 陣列 render（**宣告狀態**；運算單元帶骨架） | 新；約束②「宣告≠綁定」；per-CCD 分區沿用 **#6** 的 per-IP RecipeStore | **L2 ✓(2026-06-19 selftest)** / L1(待 Mac 目視) | ✅ |
 | **塊2** | 運算單元帶細節（每台 Spark 卡：連線燈 / 處理 N 顆 CCD / 負載%） | 關聯 `ActiveIpNode`；**負載% 標「估算」**（家裡 1 台量不到 37 CCD 吞吐，非實測；與 CLAUDE.md §2 容量「投影」一致） | **L2 ✓(2026-06-19 selftest) / L1(待目視)** | ✅（數字=估算） |
-| **塊3** | 單 CCD 設定整合頁（左 Step1 影像/ROI + 右 ZoneParamEditor 27 欄 + 對位 Mark card） | **組合既有控制項**(Step1ViewModel / ZoneParamEditorViewModel)，**非重做**；reuse=A 薄殼嵌入(三既有面板不改) | **子塊1 L2 ✓(2026-06-19 selftest) / L1(待目視)** | ✅（底圖載入 TIFF） |
+| **塊3** | 單 CCD 設定整合頁（大影像 + 右精簡欄：ROI 清單 / 27 參數 / 對位 Mark） | **抽共用 `RoiImageView`(3a)** + 重排為影像為主工作台(3c)；複用 `Step1ViewModel`(影像) + `ZoneParamEditorViewModel`(ROI/參數) VM | **3a+3c L2 ✓(2026-06-19 selftest) / L1(待目視)** | ✅（底圖載入 TIFF） |
 
 **`array_topology.json` schema（機台層；版控模板 `array_topology.example.json`，本機值不版控，比照 `cam_config.json`）**
 
@@ -396,6 +396,8 @@
 **塊2 完成（2026-06-19，L2）**：運算單元卡補三項——① **連線燈(真)** = `ComputeUnitGroup.UnitConnected(Node==ActiveIpNode && IsIpConnected)`，`BoolToGreenRed`+`.live` 呼吸燈，預設未連顯灰**不假綠**、連線變化即時刷新（`RefreshUnitConnectivity`，結構未假設永遠單台 active）；② **處理 N(真)** = SlotCount（拓樸槽數，不寫死）；③ **負載%(估算投影)** = `SlotCount×30×7.4ms/30000`（37 CCD→~27%/餘裕~73%；LoadText 標「估算」、tooltip 寫投影算式「7.4ms 實測、37CCD 吞吐未實機跑滿」，與連線無關）。`--selftest topology` 加塊2-a/b/c PASS（處理 N=槽數、負載公式非寫死且含估算旗標、連線預設不假綠+active 才綠）；camera 回歸不破。**負載%=估算非即時量測**；不碰約束②（偵測 section 未動）。版面待 Mac 目視→L1。
 
 **塊3 子塊1 完成（2026-06-19，L2；reuse=A 薄殼）**：新增第 6 螢幕 `SingleCcdSetupView`(薄殼) + `SingleCcdSetupViewModel`——**組合既有 Step1ViewModel + ZoneParamEditorViewModel 獨立新實例**（影像視埠獨立、recipe/zone/align 經共用 RecipeStore 同步），左嵌 `Step1View`、右嵌 `ZoneParamEditorView`(**兩既有檔不改**)；header 顯 `slot.CcdId`("CCD05")+運算單元(唯讀)，`LoadSlot` 設 `RecipeStore.SelectedIp=slot.RecipePartition`("IP5" 儲存鍵,約束①不改名)；master→detail = `SystemSettings` 宣告槽 chip `Tapped`→`SelectedSlot`→MainWindowVM 訂閱→進頁。MainWindow **僅 +1 nav/Panel**(既有 5 個未改)。`--selftest singleccd` 4 case PASS（組合既有實例/進頁前 HasSlot=false/SelectedIp=IP5/header 顯 CCD05）；store/topology/camera 回歸全綠。**deferred（未來 B/Phase 2）**：對位 Mark 視覺定位、嵌入編輯器內 IP0→CCD0 顯示、重複 chrome 收斂（皆需動 View）；A1 實拍底圖、#21。
+
+**塊3 子塊3a+3c 完成（2026-06-19，L2；重排為影像為主工作台）**：① **3a**：把 Step1 的影像/ROI code-behind 抽成共用 `Controls/RoiImageView`(StyledProperty `Source/EditZone/AllZones/Defects/…`，**EditZone 注入=可編任一 ROI、AllZones 畫全部 ROI**)；`Step1View` 改用它（`EditZone=PrimaryZone`、單一 ROI → 行為不變）。② **3c**：`SingleCcdSetupView` 重寫為 **大影像(`*`寬，RoiImageView) + 右精簡欄(420px)**——右欄複用 `ZoneParamEditorViewModel` 的 `Rois`/`ParamRows`/`AlignRoi`，影像 `EditZone={ZoneEditor.EditZone}`(選中 ROI)、`AllZones={DetectRoiList}`(畫全部)→ **選 ROI 即在影像上對照定位/框選**；拿掉重複 chrome（不再嵌整個 Step1View/ZoneParamEditorView）+ **移除單 CCD 頁的 IP/CCD 下拉**(header 顯 CCD 名,解先前選 CCD36 下拉空白)。`--selftest singleccd` 5 case PASS（含 ⑤ EditZone=選中 ROI + AllZones=DetectRoiList）；store/topology/camera/upstream 回歸全綠；build 0 警告。**既有 Step1View / ZoneParamEditorView / MainWindow 既有 5 入口未改 = 零 regression**（行為待 Mac 目視）。對位 Mark 視覺定位仍 deferred（現數值卡）。
 
 ---
 

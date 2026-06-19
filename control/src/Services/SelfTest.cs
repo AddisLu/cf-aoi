@@ -289,7 +289,7 @@ public static class SelfTest
         var svc = AppServices.Build();
         var vm = new ViewModels.SingleCcdSetupViewModel(svc);
 
-        bool composed   = vm.Step1 is not null && vm.ZoneEditor is not null;        // 組合既有 VM 實例
+        bool composed   = !ReferenceEquals(vm.Step1, null) && !ReferenceEquals(vm.ZoneEditor, null);  // 組合既有 VM 實例（ReferenceEquals 不污染 null 流分析）
         bool beforeSlot = !vm.HasSlot;
 
         var slot = new Models.CcdSlotModel { CcdId = "CCD05", ComputeUnit = "Spark1", RecipePartition = "IP5" };
@@ -297,11 +297,19 @@ public static class SelfTest
         bool ipSet     = svc.RecipeStore.SelectedIp == "IP5";                         // 儲存鍵走 recipe_partition
         bool headerCcd = vm.HeaderText.Contains("CCD05") && vm.HeaderText.Contains("Spark1") && vm.HasSlot;
 
+        // ⑤ 3c：影像「編選中 ROI」的連動基礎 — RoiImageView.EditZone 綁 ZoneEditor.EditZone(=選中 ROI 的 Zone)；
+        //    AllZones 綁 Store.Recipe.DetectRoiList(畫全部 ROI)。選不同 ROI → EditZone 跟著換(SelectRoi 機制)。
+        var ze = vm.ZoneEditor!;
+        bool roiLink = ze.Rois.Count >= 1
+                       && ReferenceEquals(ze.EditZone, ze.Rois[0].Zone)
+                       && ReferenceEquals(svc.RecipeStore.Recipe.DetectRoiList, ze.Store.Recipe.DetectRoiList);
+
         Console.WriteLine($"  ① 組合既有 Step1/ZoneEditor 實例(非重做): {(composed ? "PASS" : "FAIL")}");
         Console.WriteLine($"  ② 進頁前 HasSlot=false: {(beforeSlot ? "PASS" : "FAIL")}");
         Console.WriteLine($"  ③ LoadSlot → SelectedIp=IP5(儲存鍵,不改名): {(ipSet ? "PASS" : "FAIL")} (實得 {svc.RecipeStore.SelectedIp})");
         Console.WriteLine($"  ④ header 顯 ccd_id+運算單元(CCD05/Spark1): {(headerCcd ? "PASS" : "FAIL")} (\"{vm.HeaderText}\")");
-        bool ok = composed && beforeSlot && ipSet && headerCcd;
+        Console.WriteLine($"  ⑤ EditZone=選中 ROI + AllZones=DetectRoiList(影像編選中 ROI): {(roiLink ? "PASS" : "FAIL")} (Rois={ze.Rois.Count})");
+        bool ok = composed && beforeSlot && ipSet && headerCcd && roiLink;
         Console.WriteLine(ok ? "✓ 子塊1：整合頁 VM 組合既有實例 + LoadSlot 設對儲存鍵(IP) + header 顯 CCD 名(約束①不改名)"
                              : "✗ 不符");
         return ok ? 0 : 1;

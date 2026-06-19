@@ -1,29 +1,125 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:CfAoiControl.ViewModels"
-             xmlns:views="using:CfAoiControl.Views"
+             xmlns:ctrl="using:CfAoiControl.Controls"
              x:Class="CfAoiControl.Views.SingleCcdSetupView"
-             x:DataType="vm:SingleCcdSetupViewModel">
+             x:Name="Root" x:CompileBindings="False">
 
+  <!-- 單 CCD 工作台（3c）：大影像(RoiImageView，編「選中的 ROI」、畫全部 ROI) + 右側精簡欄(ROI 清單 + 27 參數 + 對位 Mark)。
+       影像來自 Step1ViewModel(載 TIFF)、ROI/參數來自 ZoneParamEditorViewModel(共用 RecipeStore)。不嵌整頁、無重複 chrome、無 IP/CCD 下拉。 -->
   <DockPanel Margin="18" Background="{DynamicResource Bg}" TextElement.Foreground="{DynamicResource Txt}">
-    <!-- header：CCD 名(顯 ccd_id) + 運算單元(唯讀) + 儲存(沿用 ZoneEditor.SaveCommand) -->
+
+    <!-- header：CCD 名(顯 ccd_id) + 由哪台運算(唯讀) + 載入影像/Test/儲存 -->
     <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
       <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
         <TextBlock Classes="h1" Text="單 CCD 設定"/>
         <TextBlock Text="{Binding HeaderText}" Classes="mono" FontSize="13" FontWeight="SemiBold"
                    Foreground="{DynamicResource Accent}" VerticalAlignment="Center"/>
       </StackPanel>
-      <Button Grid.Column="1" Classes="primary" Content="儲存配方" Command="{Binding ZoneEditor.SaveCommand}"/>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <Button Classes="ghost" Content="載入影像" Command="{Binding Step1.BrowseImageCommand}"/>
+        <Button Classes="green" Content="▶ Test 送 IP" Command="{Binding Step1.RunAnalysisCommand}"/>
+        <Button Classes="primary" Content="儲存配方" Command="{Binding ZoneEditor.SaveCommand}"/>
+      </StackPanel>
     </Grid>
 
-    <!-- 左：影像/ROI(嵌既有 Step1View，不改) ｜ 右：27 參數+對位卡(嵌既有 ZoneParamEditorView，不改)
-         右半給 60% 並用水平 ScrollViewer + MinWidth：窗窄時整塊編輯器「捲動」而非截斷/隱藏按鈕。 -->
-    <Grid ColumnDefinitions="2*,3*">
-      <views:Step1View Grid.Column="0" DataContext="{Binding Step1}"/>
-      <ScrollViewer Grid.Column="1" Margin="12,0,0,0"
-                    HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-        <views:ZoneParamEditorView MinWidth="820" DataContext="{Binding ZoneEditor}"/>
-      </ScrollViewer>
+    <!-- 狀態列 -->
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}"
+            BorderThickness="1" CornerRadius="{DynamicResource Rad}" Margin="0,12,0,0" Padding="0">
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding Step1.ImageSizeText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Img.AxisText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Img.ValueText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Img.ZoomText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Img.RegionText}"/>
+        <TextBlock Classes="mono" FontSize="11" FontWeight="Bold" Padding="13,6" Text="{Binding Step1.DefectCntText}"
+                   Foreground="{Binding Step1.DefectCntAtCap, Converter={StaticResource AtCapToBrush}}"/>
+      </StackPanel>
+    </Border>
+
+    <!-- 主：大影像 + 右精簡欄 -->
+    <Grid ColumnDefinitions="*,420">
+      <ctrl:RoiImageView Grid.Column="0" x:Name="Img"
+                         Source="{Binding Step1.SourceBitmap}"
+                         ImageWidth="{Binding Step1.ImageWidth}" ImageHeight="{Binding Step1.ImageHeight}"
+                         PixelData="{Binding Step1.PixelData}"
+                         Defects="{Binding Step1.NavDefects}" ResultVersion="{Binding Step1.ResultVersion}"
+                         EditZone="{Binding ZoneEditor.EditZone}"
+                         AllZones="{Binding ZoneEditor.Store.Recipe.DetectRoiList}"
+                         Caption="{Binding Step1.ImageSizeText, StringFormat='INSPECTION IMAGE · {0}'}"/>
+
+      <Border Grid.Column="1" Classes="card" Margin="12,0,0,0" Padding="0">
+        <DockPanel Margin="12">
+          <TextBlock DockPanel.Dock="Top" Classes="cardHead" Text="ROI 清單 → 選一個 ROI，在影像上框／拖把手定位，右下調參數" Margin="0,0,0,8" TextWrapping="Wrap"/>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+            <Button Classes="pink" Content="Clear" Command="{Binding ZoneEditor.ClearAllChkCommand}"/>
+            <Button Classes="green" Content="Select All" Command="{Binding ZoneEditor.SelectAllChkCommand}"/>
+            <Button Classes="gold" Content="Update Chk" Command="{Binding ZoneEditor.UpdateCheckedParamsCommand}"/>
+          </StackPanel>
+          <ScrollViewer>
+            <StackPanel Spacing="12">
+              <!-- ROI 清單（選一個 → 影像編該 ROI、右參數套該 ROI） -->
+              <StackPanel Spacing="2">
+                <ItemsControl ItemsSource="{Binding ZoneEditor.Rois}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RoiCheckItem">
+                      <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked}" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Classes="nav" Content="{Binding Label}" FontFamily="{DynamicResource MonoFont}"
+                                Command="{Binding #Root.DataContext.ZoneEditor.SelectRoiCommand}" CommandParameter="{Binding}"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <Border Height="1" Background="{DynamicResource Line}"/>
+
+              <!-- 27 參數（選中 ROI；勾選 → Update Chk 批次） -->
+              <ItemsControl ItemsSource="{Binding ZoneEditor.ParamRows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ColumnDefinitions="Auto,132,*,Auto" Margin="0,2" Height="30">
+                      <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked}" VerticalAlignment="Center"/>
+                      <TextBlock Grid.Column="1" Classes="mono" FontSize="11" Text="{Binding Display}" VerticalAlignment="Center"
+                                 Foreground="{DynamicResource Txt}" ToolTip.Tip="{Binding IpTag}"/>
+                      <TextBox Grid.Column="2" Margin="2,0" Text="{Binding TextValue}" IsVisible="{Binding IsText}" HorizontalContentAlignment="Center"/>
+                      <CheckBox Grid.Column="2" Margin="2,0" IsChecked="{Binding BoolValue}" IsVisible="{Binding IsBool}"/>
+                      <ComboBox Grid.Column="2" Margin="2,0" HorizontalAlignment="Stretch"
+                                ItemsSource="{Binding Options}" SelectedItem="{Binding EnumValue}" IsVisible="{Binding IsCombo}"/>
+                      <Button Grid.Column="3" Classes="ghost" Content="Upd" Margin="2,0" Padding="6,2" FontSize="10"
+                              Command="{Binding #Root.DataContext.ZoneEditor.UpdateParamCommand}" CommandParameter="{Binding}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- 對位 Mark（per-CCD） -->
+              <Border Classes="card">
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="cardHead" Text="對位 Mark (M_AlignRoi)"/>
+                  <CheckBox Content="AlignEnable（此 CCD 啟用對位）" IsChecked="{Binding ZoneEditor.AlignRoi.AlignEnable}"/>
+                  <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Text="ReferX" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+                    <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding ZoneEditor.AlignRoi.ReferX}" Increment="1" Minimum="-1"/>
+                    <TextBlock Grid.Row="1" Text="ReferY" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding ZoneEditor.AlignRoi.ReferY}" Increment="1" Minimum="-1"/>
+                    <TextBlock Grid.Row="2" Text="SearchW" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+                    <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding ZoneEditor.AlignRoi.SearchWidth}" Increment="1" Minimum="1"/>
+                    <TextBlock Grid.Row="3" Text="SearchH" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Txt2}"/>
+                    <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding ZoneEditor.AlignRoi.SearchHeight}" Increment="1" Minimum="1"/>
+                  </Grid>
+                  <TextBlock Text="Pattern 樣板" Foreground="{DynamicResource Txt2}"/>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBox Grid.Column="0" Text="{Binding ZoneEditor.AlignRoi.PatternPath}" Watermark="樣板路徑（golden_maker 產生）"/>
+                    <Button Grid.Column="1" Classes="ghost" Content="…" Margin="6,0,0,0" Command="{Binding ZoneEditor.BrowsePatternCommand}"/>
+                  </Grid>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
     </Grid>
   </DockPanel>
 </UserControl>
