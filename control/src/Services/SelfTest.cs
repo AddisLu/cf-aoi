@@ -43,6 +43,7 @@ public static class SelfTest
                 case "topology": return await TopologyTest();
                 case "singleccd": return SingleCcdTest();
                 case "upstream": return await UpstreamTest();
+                case "remoteimg": return await RemoteImgTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -711,5 +712,99 @@ public static class SelfTest
         var d0 = res.AllDefects.FirstOrDefault();
         if (d0 != null) Console.WriteLine($"  defect[0]: Type={d0.Type} GC=({d0.GcX},{d0.GcY}) Size={d0.Size}");
         return res.RoiInfoList.Count > 0 ? 0 : 1;
+    }
+
+    // ---- 「從 IP 載入影像」遠端瀏覽 + 預覽 + 全解析度檢測（L2，假 IP server，不需真 GPU/Linux）----
+    // 假 IP server 回 LIST_DIR(目錄+影像) / GET_IMAGE_PREVIEW(小 PNG base64 + full 8192×5000) /
+    //   LOAD_RECIPE(OK) / REVIEW_LOCAL_IMAGE(result 2 缺陷)。驗：
+    //  ① RemoteImageBrowserViewModel 列舉/導航；② Step1 遠端載入：預覽 decode + ImageWidth/Height=全解析度 +
+    //     PixelData=null（像素值遠端關閉）+ IsRemoteImage；③ Test 路由 REVIEW_LOCAL_IMAGE → 缺陷疊上去。
+    private static async Task<int> RemoteImgTest()
+    {
+        // 縮小灰階 PNG（模擬 IP 的 GET_IMAGE_PREVIEW 回傳）：用 ImageSharp 即時產生有效 PNG bytes，
+        // 確保 wire 契約「IP 回得了可 decode 的 PNG」可被驗（避免硬編 base64 CRC 失效）。
+        string previewB64;
+        using (var pv = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.L8>(8, 8))
+        using (var pms = new System.IO.MemoryStream())
+        { pv.Save(pms, new SixLabors.ImageSharp.Formats.Png.PngEncoder()); previewB64 = Convert.ToBase64String(pms.ToArray()); }
+        const string imgPath = "/home/auo/T550QVN10_TGT_G/img001.tif";
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var serverTask = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var cmd = req["cmd"]!.GetValue<string>();
+                var seq = (int?)req["seq"] ?? 0;
+                string resp = cmd switch
+                {
+                    "LIST_DIR" =>
+                        $"{{\"seq\":{seq},\"status\":\"OK\",\"dir\":\"/home/auo/T550QVN10_TGT_G\",\"entries\":[" +
+                        "{\"name\":\"..\",\"is_dir\":true,\"size\":0,\"path\":\"/home/auo\"}," +
+                        "{\"name\":\"sub\",\"is_dir\":true,\"size\":0,\"path\":\"/home/auo/T550QVN10_TGT_G/sub\"}," +
+                        $"{{\"name\":\"img001.tif\",\"is_dir\":false,\"size\":41943040,\"path\":\"{imgPath}\"}}]}}",
+                    "GET_IMAGE_PREVIEW" =>
+                        $"{{\"seq\":{seq},\"status\":\"OK\",\"png_base64\":\"{previewB64}\"," +
+                        "\"full_width\":8192,\"full_height\":5000,\"preview_width\":2048,\"preview_height\":1250}",
+                    "REVIEW_LOCAL_IMAGE" =>
+                        $"{{\"seq\":{seq},\"status\":\"OK\",\"result\":{{\"panel_id\":\"img001\",\"DefectCnt\":2," +
+                        "\"RoiInfoList\":[{\"RoiIndex\":0,\"DefectInfoList\":[" +
+                        "{\"GC_X\":100,\"GC_Y\":200,\"Size\":5,\"Type\":\"PointBright\"}," +
+                        "{\"GC_X\":300,\"GC_Y\":400,\"Size\":7,\"Type\":\"PointDark\"}]}]}}",
+                    _ => $"{{\"seq\":{seq},\"status\":\"OK\"}}",   // LOAD_RECIPE 等
+                };
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        var svc = AppServices.Build();
+        await svc.Connection.Ip.ConnectAsync("127.0.0.1", port);
+
+        // ① 遠端瀏覽器列舉/導航
+        var browser = new ViewModels.RemoteImageBrowserViewModel(svc, "/home/auo/T550QVN10_TGT_G");
+        await browser.NavigateAsync("/home/auo/T550QVN10_TGT_G");
+        bool listed = browser.Entries.Count == 3
+                      && browser.Entries[0].IsDir && browser.Entries[0].Name == ".."   // 上層在前
+                      && browser.Entries.Any(e => !e.IsDir && e.Name == "img001.tif");
+        var imgEntry = browser.Entries.First(e => !e.IsDir);
+        bool openImg = await browser.OpenAsync(imgEntry);                 // 影像 → true（回傳 Path）
+        bool openDir = !await browser.OpenAsync(browser.Entries[1]);      // 目錄 → false（進入）
+
+        // 預覽 PNG bytes 合法性：headless 無 Avalonia render backend → 改用 ImageSharp 驗 base64 解得出有效影像
+        // （production 用 Avalonia Bitmap 顯示；wire 契約=回得了可 decode 的 PNG 由此確認；實機顯示 L3 驗）。
+        bool pngValid;
+        try { using var p = SixLabors.ImageSharp.Image.Load(Convert.FromBase64String(previewB64)); pngValid = p.Width >= 1 && p.Height >= 1; }
+        catch (Exception ex) { pngValid = false; Console.WriteLine($"  [pngValid 失敗] {ex.Message}"); }
+
+        // ② Step1 遠端載入：注入 picker 回影像路徑 → 取預覽 + 全解析度寬高
+        var step1 = new ViewModels.Step1ViewModel(svc) { RemoteImagePicker = () => Task.FromResult<string?>(imgPath) };
+        await step1.BrowseRemoteImageCommand.ExecuteAsync(null);
+        bool preview = pngValid
+                       && step1.ImageWidth == 8192 && step1.ImageHeight == 5000   // ★ ROI 走全解析度（非預覽 1×1）
+                       && step1.PixelData is null                                  // 像素值遠端關閉
+                       && step1.IsRemoteImage && step1.ImageLoaded;
+
+        // ③ Test 路由 REVIEW_LOCAL_IMAGE → 缺陷疊在預覽上（縮圖牆遠端略過）
+        await step1.RunAnalysisCommand.ExecuteAsync(null);
+        bool detect = step1.NavDefects.Count == 2 && step1.Thumbs.Count == 0       // 縮圖牆遠端略過（全圖不在 Mac）
+                      && step1.IsRemoteImage;                                        // 仍遠端模式（未被本機重建覆蓋）
+
+        svc.Connection.Ip.Disconnect();
+        listener.Stop();
+
+        Console.WriteLine($"  ① 遠端瀏覽列舉 3 項(.. 在前)+雙擊影像回 true/目錄進入: {(listed && openImg && openDir ? "PASS" : "FAIL")} (實得 {browser.Entries.Count} 項)");
+        Console.WriteLine($"  ② 遠端載入：預覽 decode + ImageSize=全解析度 8192×5000 + PixelData=null(像素值關) + IsRemoteImage: {(preview ? "PASS" : "FAIL")} (實得 {step1.ImageWidth}×{step1.ImageHeight} px={(step1.PixelData is null ? "null" : "set")})");
+        Console.WriteLine($"  ③ Test 路由 REVIEW_LOCAL_IMAGE → 2 缺陷疊預覽 + 縮圖牆略過: {(detect ? "PASS" : "FAIL")} (實得 NavDefects={step1.NavDefects.Count} Thumbs={step1.Thumbs.Count})");
+        bool ok = listed && openImg && openDir && preview && detect;
+        Console.WriteLine(ok ? "✓ 從 IP 載入：遠端瀏覽 + 縮小預覽顯示(全解析度寬高/像素值關) + Test 走全解析度檢測(bit-exact 路徑)"
+                             : "✗ 不符");
+        return ok ? 0 : 1;
     }
 }

@@ -86,6 +86,9 @@
                 <CheckBox Margin="4,0,0,0" Content="Debug 存全圖" IsChecked="{Binding DebugSaveDefectPatches}"
                           ToolTip.Tip="勾選：Test 時請 IP 存全部缺陷小圖（供 DefectSort 分類）。不勾只存結果+overlay（調參較快）。初值來自 ShareSetting.DebugAlgorithm。"/>
               </UniformGrid>
+              <Button Classes="ghost" HorizontalAlignment="Stretch" Content="🖥 從 IP 載入影像"
+                      Command="{Binding BrowseRemoteImageCommand}" IsEnabled="{Binding Services.Connection.IsIpConnected}"
+                      ToolTip.Tip="瀏覽 IP/Linux 機磁碟上的影像（免搬大檔）：IP 端讀全解析度、只回縮小預覽顯示；框 ROI 走全解析度座標、Test 在 IP 全解析度跑（bit-exact）。遠端時像素值(Axis/Value)顯「-」。"/>
               <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
                       CornerRadius="{DynamicResource Rad}" Padding="8,6">
                 <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"

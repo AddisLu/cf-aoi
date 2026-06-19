@@ -25,6 +25,8 @@ public sealed class PathsConfig
     public string RecipeDir { get; set; } = "~/cf-aoi/recipes";
     public string OutputDir { get; set; } = "~/cf-aoi/output";
     public string ImageDir { get; set; } = "~/cf-aoi/test_images";
+    // 「從 IP 載入」遠端檔案瀏覽器的起始目錄（IP 機磁碟路徑；空=從 IP 工作目錄 "." 開始，可在對話框輸入導航）
+    public string RemoteImageDir { get; set; } = "";
 }
 
 public sealed class SystemConfigModel

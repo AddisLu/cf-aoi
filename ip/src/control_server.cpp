@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 
 #include <nlohmann/json.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>   // cv::resize / cv::split（GET_IMAGE_PREVIEW 縮圖 + 取灰階）
 
 #include "align_engine.h"
 #include "diag/flight_recorder.h"
@@ -31,6 +33,13 @@
 using json = nlohmann::json;
 
 namespace {
+
+// 影像副檔名（與 file_source.cpp 一致）：LIST_DIR 只列影像 + 目錄。
+bool is_image_ext(std::string ext) {
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    return ext == ".tif" || ext == ".tiff" || ext == ".png" ||
+           ext == ".bmp" || ext == ".jpg" || ext == ".jpeg";
+}
 
 // 收圖結構驗證（行車紀錄 frame_validation 用）：magic/version/headerBytes/payloadBytes 一致
 // + payload CRC32 比對。回傳空字串=通過，否則=失敗原因（含期望vs實得）。
@@ -884,6 +893,111 @@ void ControlServer::handle_client(int fd) {
                           << " ShiftX=" << ar.shift_x << " ShiftY=" << ar.shift_y
                           << " score=" << ar.score << " angle=" << ar.angle_deg << "°\n";
             }
+            reply(fd, resp);
+
+        } else if (cmd == "LIST_DIR") {
+            // 列 IP 機某目錄下的「子目錄 + 影像檔」，供 Control 端遠端檔案瀏覽器（免搬大圖）。
+            // 不存在/非目錄 → ERR。回 ".." 上一層 + 目錄在前、再影像（依名排序）。
+            std::string path = params.value("path", ".");
+            std::error_code ec;
+            fs::path dir(path);
+            if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "dir not found: " + path}});
+                continue;
+            }
+            json entries = json::array();
+            fs::path parent = dir.parent_path();
+            if (!parent.empty() && parent != dir)
+                entries.push_back({{"name", ".."}, {"is_dir", true}, {"size", 0}, {"path", parent.string()}});
+            for (const auto& e : fs::directory_iterator(dir, ec)) {
+                if (ec) break;
+                std::error_code e2;
+                bool isdir = e.is_directory(e2);
+                std::string name = e.path().filename().string();
+                if (!name.empty() && name[0] == '.') continue;                 // 略過隱藏
+                if (!isdir && !is_image_ext(e.path().extension().string())) continue;
+                uint64_t sz = (!isdir) ? (uint64_t)fs::file_size(e.path(), e2) : 0;
+                entries.push_back({{"name", name}, {"is_dir", isdir},
+                                   {"size", (e2 ? 0 : sz)}, {"path", e.path().string()}});
+            }
+            std::sort(entries.begin(), entries.end(), [](const json& a, const json& b) {
+                bool ad = a["is_dir"], bd = b["is_dir"];
+                if (ad != bd) return ad;                                        // 目錄在前
+                return a["name"].get<std::string>() < b["name"].get<std::string>();
+            });
+            resp["status"] = "OK";
+            resp["dir"]   = fs::absolute(dir, ec).string();
+            resp["entries"] = entries;
+            std::cout << "[ControlServer] LIST_DIR " << path << " → " << entries.size() << " 筆\n";
+            reply(fd, resp);
+
+        } else if (cmd == "GET_IMAGE_PREVIEW") {
+            // 回「縮小預覽 PNG(base64) + 全解析度寬高」供 Control 顯示/框 ROI（不搬全圖）。
+            // ★ 預覽的 resize/取灰階是 display-only，絕不進檢測（檢測走 REVIEW_LOCAL_IMAGE 全解析度）。
+            std::string path = params.value("path", "");
+            int max_width = params.value("max_width", 2048);
+            cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
+            if (img.empty()) { reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "讀取失敗: " + path}}); continue; }
+            cv::Mat gray;
+            if (img.channels() == 1) gray = img;
+            else { std::vector<cv::Mat> ch; cv::split(img, ch); gray = ch[0]; }
+            if (gray.depth() != CV_8U) { reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "非 8-bit 影像"}}); continue; }
+            int fw = gray.cols, fh = gray.rows;
+            cv::Mat small;
+            if (max_width > 0 && fw > max_width) {
+                int sh = (int)std::lround((double)fh * max_width / fw);
+                cv::resize(gray, small, cv::Size(max_width, std::max(1, sh)), 0, 0, cv::INTER_AREA);
+            } else small = gray;
+            std::vector<uint8_t> png;
+            cv::imencode(".png", small, png, {cv::IMWRITE_PNG_COMPRESSION, 1});
+            resp["status"] = "OK";
+            resp["png_base64"]   = base64_encode(png);
+            resp["full_width"]   = fw;     resp["full_height"]   = fh;     // ★ 全解析度 → Control 端 ROI 座標映射
+            resp["preview_width"] = small.cols; resp["preview_height"] = small.rows;
+            std::cout << "[ControlServer] GET_IMAGE_PREVIEW " << path << " full=" << fw << "x" << fh
+                      << " preview=" << small.cols << "x" << small.rows << " png=" << png.size() << "B\n";
+            reply(fd, resp);
+
+        } else if (cmd == "REVIEW_LOCAL_IMAGE") {
+            // 對 IP 機磁碟上的「全解析度」影像跑檢測（與 SEND_IMAGE_FOR_REVIEW 同一 process_image 路徑 → bit-exact）。
+            // ★ 讀全解析度 IMREAD_UNCHANGED（與 offline-file/file_source 同邏輯），不用任何預覽縮圖。需先 LOAD_RECIPE。
+            std::string path = params.value("path", "");
+            std::string panel = params.value("panel_id", fs::path(path).stem().string());
+            review_save_patches_ = params.value("debug", false);
+            cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
+            if (img.empty()) { reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "讀取失敗: " + path}}); continue; }
+            cv::Mat gray;
+            if (img.channels() == 1) gray = img;
+            else { std::vector<cv::Mat> ch; cv::split(img, ch); gray = ch[0]; }
+            if (gray.depth() != CV_8U) { reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "非 8-bit 影像"}}); continue; }
+            uint32_t w = gray.cols, h = gray.rows;
+            std::vector<uint8_t> payload((size_t)w * h);
+            if (gray.isContinuous()) std::copy(gray.data, gray.data + payload.size(), payload.begin());
+            else for (uint32_t r = 0; r < h; ++r) std::copy(gray.ptr(r), gray.ptr(r) + w, payload.begin() + (size_t)r * w);
+            // 與 SEND_IMAGE_FOR_REVIEW 相同的入隊+等結果（payload 來自磁碟而非 TCP；其餘完全相同 → bit-exact）。
+            FrameHeader hdr = make_frame_header(panel, 0, (uint16_t)frame_seq_, w, h,
+                                                payload.data(), payload.size(), 0, /*timestamp*/ 0, /*last*/ true);
+            { std::lock_guard<std::mutex> lk(result_mtx_); results_.erase(panel); }
+            if (!queue_.push(hdr, panel, std::move(payload))) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "FrameQueue 滿，請稍後重試"}});
+                continue;
+            }
+            ++frame_seq_;
+            std::string result_json;
+            {
+                std::unique_lock<std::mutex> lk(result_mtx_);
+                bool got = result_cv_.wait_for(lk, std::chrono::seconds(60),
+                    [&] { return results_.find(panel) != results_.end(); });
+                if (got) { result_json = results_[panel]; results_.erase(panel); }
+            }
+            if (!result_json.empty()) {
+                resp["status"] = "OK";
+                try { resp["result"] = json::parse(result_json); } catch (...) { resp["result_raw"] = result_json; }
+            } else {
+                resp["status"] = "TIMEOUT";
+                resp["error"] = "等不到處理結果（60s）";
+            }
+            std::cout << "[ControlServer] REVIEW_LOCAL_IMAGE " << path << " " << w << "x" << h << "\n";
             reply(fd, resp);
 
         } else {

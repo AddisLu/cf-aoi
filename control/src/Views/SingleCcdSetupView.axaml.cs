@@ -20,6 +20,7 @@ public partial class SingleCcdSetupView : UserControl
     {
         if (DataContext is not SingleCcdSetupViewModel vm) return;
         vm.Step1.FilePicker = () => Pick("選擇影像", new[] { "*.tif", "*.tiff", "*.png", "*.bmp", "*.jpg" });
+        vm.Step1.RemoteImagePicker = () => RemoteImagePickerHelper.OpenAsync(this, vm.Step1.Services);
         vm.ZoneEditor.PatternPicker = () => Pick("選擇對位 Mark 樣板", new[] { "*.tif", "*.tiff", "*.png", "*.bmp", "*.jpg", "*.xml" });
     }
 

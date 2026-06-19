@@ -49,6 +49,20 @@ public sealed class IpClient : IDisposable, IHeartbeatClient
     public Task<JsonNode?> GetStatusAsync(CancellationToken ct = default)
         => SendCommandAsync("GET_STATUS", null, ct);
 
+    // ── 遠端載入影像（影像在 IP 機磁碟、太大不搬到 Control；只取縮小預覽 + 在 IP 端對全解析度檢測）──
+    /// <summary>列 IP 機某目錄的「子目錄 + 影像檔」（遠端檔案瀏覽器用）。</summary>
+    public Task<JsonNode?> ListDirAsync(string path, CancellationToken ct = default)
+        => SendCommandAsync("LIST_DIR", new JsonObject { ["path"] = path }, ct);
+
+    /// <summary>取某影像的「縮小預覽 PNG(base64) + 全解析度寬高」（display-only；ROI 座標用 full_width/height）。</summary>
+    public Task<JsonNode?> GetImagePreviewAsync(string path, int maxWidth = 2048, CancellationToken ct = default)
+        => SendCommandAsync("GET_IMAGE_PREVIEW", new JsonObject { ["path"] = path, ["max_width"] = maxWidth }, ct);
+
+    /// <summary>對 IP 機磁碟上的「全解析度」影像跑檢測（與 SEND_IMAGE_FOR_REVIEW 同 process_image → bit-exact）。需先 LOAD_RECIPE。</summary>
+    public Task<JsonNode?> ReviewLocalImageAsync(string path, string panelId, bool debug = false, CancellationToken ct = default)
+        => SendCommandAsync("REVIEW_LOCAL_IMAGE",
+            new JsonObject { ["path"] = path, ["panel_id"] = panelId, ["debug"] = debug }, ct);
+
     // recipeXml 為配方 XML 內容（跨機器免共用檔案系統）；recipePathOrName 為同機路徑/名稱備用。
     // recipeSaving 選填：若非 null，附加 recipe_saving 欄位（MaxSaveDefectCount/SaveDefectWidth/Height/MaxDefectCountPass）。
     // shareFlags   選填：若非 null，附加 share_flags 欄位（tuning_recipe / save_source_image 等）。

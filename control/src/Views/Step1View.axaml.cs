@@ -80,5 +80,6 @@ public partial class Step1View : UserControl
             });
             return files.Count > 0 ? files[0].TryGetLocalPath() : null;
         };
+        vm.RemoteImagePicker = () => RemoteImagePickerHelper.OpenAsync(this, vm.Services);
     }
 }

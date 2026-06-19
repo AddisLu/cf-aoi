@@ -18,6 +18,9 @@
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
         <Button Classes="ghost" Content="載入影像" Command="{Binding Step1.BrowseImageCommand}"/>
+        <Button Classes="ghost" Content="🖥 從 IP 載入" Command="{Binding Step1.BrowseRemoteImageCommand}"
+                IsEnabled="{Binding Step1.Services.Connection.IsIpConnected}"
+                ToolTip.Tip="瀏覽 IP/Linux 機磁碟影像（免搬大檔；只回縮小預覽顯示，Test 在 IP 全解析度跑 bit-exact）。遠端時像素值顯「-」。"/>
         <Button Classes="green" Content="▶ Test 送 IP" Command="{Binding Step1.RunAnalysisCommand}"/>
         <Button Classes="primary" Content="儲存配方" Command="{Binding ZoneEditor.SaveCommand}"/>
       </StackPanel>

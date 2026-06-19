@@ -112,6 +112,30 @@ public sealed class OfflineReviewService
         return result;
     }
 
+    /// <summary>
+    /// 遠端影像：IP 讀「自己磁碟上的全解析度影像」跑檢測（與 SEND_IMAGE_FOR_REVIEW 同 process_image → bit-exact），
+    /// 不搬全圖。先 LOAD_RECIPE（XML over TCP）再 REVIEW_LOCAL_IMAGE。回同一 DefectResultModel。
+    /// </summary>
+    public async Task<DefectResultModel> AnalyzeRemoteAsync(
+        string remotePath, RecipeModel recipe, string recipeName,
+        bool saveDefectPatches = false, CancellationToken ct = default)
+    {
+        var panel = Path.GetFileNameWithoutExtension(remotePath);
+        var recipeXml = _recipes.ToXmlString(recipe);
+        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, ct: ct);
+        if (lr?["status"]?.GetValue<string>() != "OK")
+            throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
+        _log.Info($"遠端檢測 {panel}（IP 磁碟全解析度）@ {_ip.Host}:{_ip.Port}");
+        var resp = await _ip.ReviewLocalImageAsync(remotePath, panel, debug: saveDefectPatches, ct: ct);
+        if (resp?["status"]?.GetValue<string>() != "OK")
+            throw new InvalidOperationException($"IP REVIEW_LOCAL_IMAGE 未回 OK：{resp?.ToJsonString()}");
+        var node = resp?["result"]
+            ?? throw new InvalidOperationException("IP 回應缺少 result（請確認 IP 為支援 REVIEW_LOCAL_IMAGE 的版本）");
+        var result = node.Deserialize<DefectResultModel>(_json) ?? new DefectResultModel();
+        _log.Info($"遠端結果：{result.Summary}");
+        return result;
+    }
+
     /// <summary>反序列化 IP 的 JSON（檔案版，供 selftest parse 用）。</summary>
     public static DefectResultModel ParseJson(string json) =>
         JsonSerializer.Deserialize<DefectResultModel>(json, _json) ?? new DefectResultModel();

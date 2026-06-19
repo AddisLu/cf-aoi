@@ -46,6 +46,8 @@ public partial class Step1ViewModel : ViewModelBase
 
     // 配方單一資料來源（共用）：快速調參直接綁 Store.PrimaryZone、配方下拉綁 Store
     public RecipeStore Store => _svc.RecipeStore;
+    // 供 View 建遠端影像瀏覽對話框（需 IpClient + RemoteImageDir）
+    public AppServices Services => _svc;
 
     // 影像
     [ObservableProperty] private string selectedImagePath = "";
@@ -101,6 +103,10 @@ public partial class Step1ViewModel : ViewModelBase
     [ObservableProperty] private string defectCntText = "| DefectCnt : 0";
 
     public Func<Task<string?>>? FilePicker { get; set; }
+    // 遠端載入（影像在 IP 機磁碟、太大不搬到 Mac）：選遠端路徑 → 取縮小預覽顯示；檢測在 IP 端全解析度(bit-exact)。
+    public Func<Task<string?>>? RemoteImagePicker { get; set; }
+    [ObservableProperty] private bool isRemoteImage;
+    private string _remotePath = "";
 
     partial void OnSelectedThumbChanged(DefectThumb? value)
     {
@@ -159,6 +165,47 @@ public partial class Step1ViewModel : ViewModelBase
         LoadImageForDisplay(p!);
     }
 
+    // 對應「從 IP 載入」：選 IP 機磁碟上的影像 → 取縮小預覽顯示（不搬全圖）；檢測時對 IP 全解析度跑。
+    [RelayCommand]
+    private async Task BrowseRemoteImage()
+    {
+        if (RemoteImagePicker is null) return;
+        var path = await RemoteImagePicker();
+        if (string.IsNullOrEmpty(path)) return;
+        await LoadRemoteImageForDisplay(path!);
+    }
+
+    /// <summary>從 IP 取縮小預覽 PNG + 全解析度寬高顯示。SourceBitmap=預覽、ImageWidth/Height=全解析度
+    /// （Avalonia 自動放大、ROI 座標走全解析度）；PixelData=null → Axis/Value 顯「-」（全解析度像素不在 Mac）。</summary>
+    private async Task LoadRemoteImageForDisplay(string remotePath)
+    {
+        try
+        {
+            var resp = await _svc.Connection.Ip.GetImagePreviewAsync(remotePath);
+            if (resp?["status"]?.GetValue<string>() != "OK")
+            { _svc.Log.Error($"取遠端預覽失敗：{resp?.ToJsonString()}"); return; }
+            var b64 = resp["png_base64"]?.GetValue<string>();
+            int fw = (int?)resp["full_width"] ?? 1, fh = (int?)resp["full_height"] ?? 1;
+            if (string.IsNullOrEmpty(b64)) { _svc.Log.Error("遠端預覽缺 png_base64"); return; }
+
+            // 預覽純顯示用（display-only）：decode 失敗不該擋下載入/框 ROI/Test（全解析度檢測在 IP，不靠預覽）。
+            Bitmap? bmp = null;
+            try { bmp = new Bitmap(new MemoryStream(Convert.FromBase64String(b64))); }
+            catch (Exception ex) { _svc.Log.Warn($"遠端預覽影像 decode 失敗（仍可框 ROI/Test，全解析度在 IP）：{ex.Message}"); }
+            var old = SourceBitmap;
+            SourceBitmap = bmp; old?.Dispose();
+            ImageWidth = fw; ImageHeight = fh;                 // ★ 全解析度 → ROI 座標映射
+            ImageSizeText = $"ImageSize : {fw}x{fh}（遠端預覽）";
+            PixelData = null;                                  // 全解析度像素不在 Mac → 像素值顯「-」
+            _remotePath = remotePath; SelectedImagePath = remotePath;
+            Thumbs.Clear(); NavDefects.Clear(); SelectedThumb = null; SelectedDefectIndex = -1;
+            DefectCntAtCap = false; DefectCntText = "| DefectCnt : 0"; RegionText = "| Region : 全幅"; ResultVersion++;
+            IsRemoteImage = true; ImageLoaded = true;
+            _svc.Log.Info($"已從 IP 載入預覽 {Path.GetFileName(remotePath)}（全解析度 {fw}x{fh}）");
+        }
+        catch (Exception ex) { _svc.Log.Error($"遠端載入失敗：{ex.Message}"); }
+    }
+
     /// <summary>讀入影像並顯示在黑底區（ImageSharp，純 managed；跨平台）。</summary>
     private void LoadImageForDisplay(string path)
     {
@@ -174,6 +221,7 @@ public partial class Step1ViewModel : ViewModelBase
             RegionText = "| Region : 全幅";
             DefectCntText = "| DefectCnt : 0";
             ResultVersion++;                    // 清空 overlay
+            IsRemoteImage = false;              // 本機載入
             ImageLoaded = true;                 // → Run/FFT Command 重新評估 CanExecute
             _svc.Log.Info($"已載入影像 {Path.GetFileName(path)} ({ImageWidth}x{ImageHeight})");
         }
@@ -237,16 +285,40 @@ public partial class Step1ViewModel : ViewModelBase
         IsAnalyzing = true;
         try
         {
-            // 用共用的當前配方（含 PrimaryZone 的最新值）直接送 IP，不再各自覆寫
-            var result = await _svc.Review.AnalyzeAsync(SelectedImagePath, Store.Recipe, Store.SelectedRecipe,
-                                                        saveDefectPatches: DebugSaveDefectPatches);
-
-            // 載入原圖一次：建顯示圖 + 縮圖牆 + 導航清單 + 上限/密度
-            BuildVisuals(SelectedImagePath, result);
+            if (IsRemoteImage)
+            {
+                // 遠端：IP 讀自己磁碟全解析度跑檢測（bit-exact），不搬全圖；保留預覽、缺陷框疊上去。
+                var result = await _svc.Review.AnalyzeRemoteAsync(_remotePath, Store.Recipe, Store.SelectedRecipe,
+                                                                  saveDefectPatches: DebugSaveDefectPatches);
+                BuildVisualsRemote(result);
+            }
+            else
+            {
+                // 本機：共用配方直接送 IP（network-clean）；再讀原圖一次建顯示+縮圖+導航。
+                var result = await _svc.Review.AnalyzeAsync(SelectedImagePath, Store.Recipe, Store.SelectedRecipe,
+                                                            saveDefectPatches: DebugSaveDefectPatches);
+                BuildVisuals(SelectedImagePath, result);
+            }
             RecipeText = $"| Recipe : {Store.SelectedRecipe}";
         }
         catch (Exception ex) { _svc.Log.Error($"分析失敗：{ex.Message}"); }
         finally { IsAnalyzing = false; }
+    }
+
+    // 遠端結果：保留預覽 SourceBitmap，缺陷框疊在預覽上（座標全解析度，Avalonia 自動縮放對齊）。
+    // 縮圖牆需原圖裁切，遠端模式略過（全解析度像素不在 Mac）；缺陷數/上限/導航照常。
+    private void BuildVisualsRemote(DefectResultModel result)
+    {
+        Thumbs.Clear(); NavDefects.Clear(); SelectedThumb = null; SelectedDefectIndex = -1;
+        NavDefects.AddRange(result.AllDefects);
+        DefectCntAtCap = result.DefectCnt >= DetectionCap;
+        double mpx = (double)ImageWidth * ImageHeight / 1_000_000.0;
+        double density = mpx > 0 ? result.DefectCnt / mpx : 0;
+        DefectCntText = $"| DefectCnt : {result.DefectCnt}（{density:F1}/Mpx，遠端）";
+        if (DefectCntAtCap)
+            _svc.Log.Warn($"⚠ 缺陷數達上限 {DetectionCap}，參數過嚴或 Pitch 不符");
+        _svc.Log.Info($"遠端缺陷 {result.DefectCnt}（縮圖牆遠端略過，缺陷框疊在預覽上）");
+        ResultVersion++;   // 通知 code-behind 用 NavDefects 重綁 overlay
     }
 
     private void BuildVisuals(string imagePath, DefectResultModel result)
