@@ -11,11 +11,21 @@ ip/build/
 *.user
 .vs/
 
+# Python（模擬器/腳本的 bytecode 快取）
+__pycache__/
+*.pyc
+
 # ===== Runtime-generated =====
 # 執行期/部署期產生，不版控 (不包含測試配方->Control要使用)
 output/
 **/output/
 *.log
+
+# 配方 = 執行期/測試產物（runtime RecipeDir=~/cf-aoi/recipes，非此 repo 目錄）；
+# 只保留 DEFAULT 樣板，其餘 selftest 產生的配方不版控。
+recipes/
+!recipes/DEFAULT/
+!recipes/DEFAULT/**
 
 # ===== Large reference material (1.4G) — 另外保存，不進 git =====
 Reference/
