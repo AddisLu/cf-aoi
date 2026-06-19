@@ -261,6 +261,9 @@ internal sealed class StreamReaderLite
 
     public async Task<string?> ReadLineAsync(CancellationToken ct)
     {
+        // 取消（含心跳 2s timeout）時強制 Dispose 底層 stream → 逼 pending ReadAsync 立刻拋出，
+        // 不讓「對端已死的半開 socket」把讀取（連同 IpClient 的命令鎖）卡住不放。
+        using var reg = ct.Register(() => { try { _s.Dispose(); } catch { } });
         var buf = new System.Collections.Generic.List<byte>(256);
         var one = new byte[1];
         while (true)
