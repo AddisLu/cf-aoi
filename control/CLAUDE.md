@@ -40,29 +40,34 @@ control/
     │   ├── Step1View.axaml           ← 離線分析（frmAlgorithmTestTools；含互動 viewer + 圓圈 overlay）
     │   ├── ZoneParamEditorView.axaml ← Zone 參數編輯（frmIpParamEditor；27 列手寫表單，非 PropertyGrid）
     │   ├── DefectSortView.axaml      ← 缺陷遠端歸檔 + 小圖人工分類（frmSortDefect）
-    │   └── SystemSettingsView.axaml  ← 連線 + 路徑設定
+    │   ├── SystemSettingsView.axaml  ← 連線/路徑設定 + 機台層宣告陣列(運算單元帶/CCD 槽/偵測相機)
+    │   └── SingleCcdSetupView.axaml  ← 單 CCD 工作台（塊3：大 RoiImageView + 右精簡參數欄）
     │
     ├── ViewModels/           ← ViewModel 層（MVVM）
     │   ├── MainWindowViewModel.cs
     │   ├── Step1ViewModel.cs
     │   ├── ZoneParamEditorViewModel.cs
     │   ├── DefectSortViewModel.cs
-    │   └── SystemSettingsViewModel.cs
+    │   ├── SystemSettingsViewModel.cs ← 含 ComputeUnitGroup(運算單元帶) + topology 載入
+    │   └── SingleCcdSetupViewModel.cs ← 組合 Step1ViewModel + ZoneParamEditorViewModel 兩實例
     │
     ├── Controls/             ← 自繪控制項
-    │   └── DefectOverlayControl.cs    ← 大圖缺陷圓圈 overlay（隨縮放，線寬固定）
+    │   ├── DefectOverlayControl.cs    ← 大圖缺陷圓圈 overlay（隨縮放，線寬固定）
+    │   └── RoiImageView.axaml(.cs)    ← 影像/ROI 共用控制項（從 Step1View 抽出；StyledProperty EditZone/AllZones…）
     │
     ├── Controllers/          ← 業務邏輯（平台無關）
-    │   ├── UpstreamServer.cs          ← TCP ← 上位機（CF_ / 8787 / 9 參數，已實作）
+    │   ├── UpstreamServer.cs          ← TCP ← 上位機（CF_ / 8787 / 9 參數，已 Start）
+    │   ├── UpstreamWiring.cs          ← CF_ 回呼接既有 IP 流程（OnLoadRecipe/OnGetResult/OnConnectedChanged）
     │   ├── IpClient.cs                ← TCP → IP（含 UTF-8 整行解碼，見不變式）
-    │   ├── GrabClient.cs              ← TCP → Grab
+    │   ├── GrabClient.cs              ← TCP → Grab（LIST_CAMERAS / 曝光增益 / GET_CAM_NODES）
     │   ├── IHeartbeatClient.cs        ← 心跳介面（IpClient/GrabClient 實作）
-    │   └── ConnectionManager.cs       ← 定期 CHECK_HEALTH + 斷線變紅 + 自動重連
+    │   └── ConnectionManager.cs       ← 定期 CHECK_HEALTH + 斷線變紅 + 自動重連 + SetUpstreamConnected
     │
     ├── Models/               ← 資料結構（C# 慣用名 + [XmlElement]/[JsonPropertyName] 映射 legacy）
     │   ├── RecipeModel.cs             ← Recipe → DetectRoiList
     │   ├── ZoneSettingModel.cs        ← 對齊 legacy DetectRoi（32 欄）
     │   ├── DefectResultModel.cs       ← JudgeResult → RoiInfoList → DefectInfoList
+    │   ├── ArrayTopologyModel.cs      ← 機台層拓樸宣告（37 槽 / 運算單元；config/array_topology.json）
     │   └── SystemConfigModel.cs
     │
     └── Services/

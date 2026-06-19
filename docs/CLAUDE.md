@@ -107,13 +107,16 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 > `CF_GRAB_START|{timeoutMs}`（範例 40000）、`CF_SET_ALIGN|{result}|{shiftX}|{shiftY}`；
 > 回應一律 9 參數 `OK|p1|…|p8|{p9=errMsg}` 或 `ERR|…`。Control 監聽 port 由 appsettings `UpstreamServer.ListenPort`（**= 8787**）。
 >
-> ⚠️ **已寫程式碼、但尚未接線啟動、未與真實上位機驗證**：`control/src/Controllers/UpstreamServer.cs`
-> 已照考古以 **CF_ 前綴 / `|` 分隔 / 9 參數** 寫好解析與回應邏輯（TcpListener@8787、`Split('|')`、CF_ switch），
-> 舊的「port 8000 簡化介面 / `LoadRecipe|RECIPE|PANEL`」假設作廢。
-> **但目前**：① 程式中**沒有任何地方 `.Start()` 啟動它**，`On*` 回呼也尚未接到 IpClient 流程；
-> ② Step 1 是 offline，**從未接過真實上位機**。→ 屬「實作完成、待驗證」。接真實上位機時必須：
-> 接線啟動 + 綁定 On* 回呼 + 用實機/模擬器驗證 9 參數格式與 `CF_GET_RESULT` 回傳內容。
-> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON。
+> ✅ **已接線（2026-06-19）+ L2(selftest)/L3(端到端)**：`UpstreamServer.cs` 照考古以 CF_/`|`/9 參數寫好解析；
+> `AppServices.Build()` 建 `UpstreamServer(8787)`（Optional 失敗不阻塞），`MainWindowViewModel` ctor 呼叫
+> `UpstreamWiring.Bind(svc.Upstream, svc)` + `Start()`。回呼**重用既有 IP 流程**（`Controllers/UpstreamWiring.cs`）：
+> `OnLoadRecipe`→`IpClient.LoadRecipeAsync`、`OnGetResult`→`ListDefectFoldersAsync`(組「路徑,逗號+缺陷數,逗號」非 JSON)、
+> `OnConnectedChanged`→`SetUpstreamConnected`(上位機燈轉綠)。**決策 A**：取像/對位（GRAB/CHECK/SET_ALIGN）offline
+> 刻意**不綁 → 回誠實失敗 ERR**（CHECK_ALIGN 不再回假 `OK|0|0`、SET_ALIGN 不再永遠 OK；避免上位機誤判已對位）。
+> 驗證：`--selftest upstream` in-process 6 case = **L2**；`scripts/upstream_simulator.py` ↔ 真 Control ↔ 真 IP 端到端
+> （`CF_GET_RESULT` 回真實 IP path+count）= **L3 ✓**。
+> ⚠️ **真上位機協議認帳（欄位/序列/μm 是否如實機預期）= L4 做不了；μm 契約(#5)= IP 片面提議 = L4**（不混、不過度宣稱）。
+> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON。#25 CF_STOP / #26 BypassAlignment 未做。
 
 ### Control ↔ Grab/IP（JSON，8100/8200）
 ```json

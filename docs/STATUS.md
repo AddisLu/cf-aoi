@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。）
+> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。⑥ **2026-06-19 docs 全面對齊**：上位機 CF_ 已接線 L2/L3(端到端跑通,真上位機/μm 維 L4 不混)；補 RoiImageView/SingleCcdSetupView/ArrayTopology/UpstreamWiring 進 control 說明 §2/5/6/16；模組表補相機陣列/RoiImageView/單 CCD 工作台；清理 cruft(.pyc/測試 recipes untrack)。）
 
 ## 分級定義
 
@@ -49,8 +49,11 @@
 | RecipeSetting 面板（per-recipe XML 編輯/存讀） | **L2** | `--selftest settings`：per-recipe XML round-trip + 不存在回預設 + MaxDefectCountPass 預設 10000。(草稿 L2 ✓) |
 | 連線心跳偵測（CHECK_HEALTH） | **L2** | `--selftest heartbeat` 存在但為**手動 harness**（需起停 IP 觀察綠↔紅，無自動斷言）。重連/IsBusy 邏輯寫好；綠↔紅曾於 Linux 本機觀察。**(原草稿 L3→L2：非自動 unit test，且非跨機定論)** |
 | DefectSort（看小圖人工分類 TrueDefect/Particle） | **L2** | `--selftest patches`（filter/即時持久化/統計/UTF-8）+ `--selftest sort` 通過。使用者 Mac 跑過（中文亂碼、1122 重複等 bug 已修）。**(原草稿 L3→L2：Control 分類 UI 的 selftest 為假 IP server；filter/即時存最新版待 Mac 複測。IP 側遠端命令另計為 L3，見 IP 表)** |
+| SystemSettings 相機陣列（運算單元帶 / 宣告陣列 / 偵測相機）| **L2(selftest)/L1(目視)** | `--selftest topology`+`camera` PASS（拓樸載入/依 compute_unit 分群/處理 N 真/負載估算公式/連線規則；LIST_CAMERAS 分群+KPI、離線不假造）。塊1/2；版面待 Mac 目視。宣告(config) 與 偵測(runtime) 分開、不假 merge（約束②）。|
+| RoiImageView（影像/ROI 共用控制項，塊3-3a）| **L1** | 從 Step1View 抽出，行為一致（StyledProperty 介面，EditZone 可注入/AllZones 畫全部 ROI）；`--selftest singleccd` 驗 EditZone 連動。縮放/平移/框選/導航/量 Pitch **互動待 Mac 目視**。|
+| 單 CCD 工作台（SingleCcdSetupView，塊3-3c）| **L2(selftest)/L1(目視)** | `--selftest singleccd` 5 case PASS（組合既有 Step1+ZoneEditor 實例 / LoadSlot 設 SelectedIp / header 顯 CCD 名 / EditZone=選中 ROI + AllZones=DetectRoiList）。大影像 + 右精簡欄、選 ROI 影像高亮定位 **待 Mac 目視**。對位 Mark 視覺定位 deferred（現數值卡）。|
 | UpstreamServer（CF_/8787/9 參數） | **接線+回呼+模擬器 L2(selftest)/L3 ✓(2026-06-19 端到端跑通)；真上位機 L4；μm(#5) L4** | **2026-06-19 接線**：`AppServices.Build` new UpstreamServer(8787) + `MainWindowViewModel` ctor `UpstreamWiring.Bind`+`Start()`（Optional 失敗不阻塞）；回呼重用既有 IP 流程——`OnLoadRecipe`→`IpClient.LoadRecipeAsync`、`OnGetResult`→`ListDefectFoldersAsync` 組「路徑,逗號+缺陷數,逗號」(非 JSON)、`OnConnectedChanged`→`SetUpstreamConnected`(燈轉綠)。**★A 誠實失敗**：GRAB_START/CHECK_ALIGN/SET_ALIGN offline 不綁 → 回 **ERR(非假 OK)**（CHECK_ALIGN 不再回假 `OK\|0\|0`）。`--selftest upstream` 6 case PASS（READY/LOAD_RECIPE接IP/GET_RESULT路徑+數/CHECK·SET_ALIGN誠實失敗/燈轉綠）=**L2**；`scripts/upstream_simulator.py` 端到端 = **L3 ✓ 跑通（2026-06-19，模擬器 ↔ 真 Control(Mac 8787) ↔ 真 IP(8200)）**：`CF_GET_RESULT` 回真實 IP 結果夾+缺陷數（例 `OK\|IP04_Origin000001_DEFAULT,…\|0,0,0,0,1,1`，回呼 `ListDefectFoldersAsync` 端到端通）、CHECK/SET_ALIGN 回誠實失敗 ERR、上位機燈轉綠。⚠️ **真上位機協議認帳（欄位/序列/μm 是否如實機預期）= L4 做不了**；**μm 契約(#5)= IP 片面提議 = L4**（不混）。#25 CF_STOP/#26 BypassAlignment 未動。 |
-| Step 2-3 / Step 4-5 操作 UI（RDMA 監控 / 存圖瀏覽 / 生產） | **L0** | 無對應 View（只有 MainWindow/Step1/ZoneParamEditor/DefectSort/SystemSettings）。**(草稿漏列，補上)** |
+| Step 2-3 / Step 4-5 操作 UI（RDMA 監控 / 存圖瀏覽 / 生產） | **L0** | 無對應 View（現有 MainWindow/Step1/ZoneParamEditor/DefectSort/SystemSettings/SingleCcdSetup + RoiImageView 控制項）。|
 
 ---
 

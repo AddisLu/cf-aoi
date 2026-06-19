@@ -153,9 +153,8 @@ Program.Main()
        ├─ DefectSortViewModel.new()
        ├─ LogService.Logged → 路由到 SysLog/ErrorLog/WarningLog
        ├─ ConnectionManager.Start()   → 啟動 IP + Grab 心跳迴圈（背景）
-       └─ DispatcherTimer(1s) → 更新 IsIpConnected / CurCamStatus
-
-⚠ UpstreamServer 尚未在任何地方 .Start()（見 §13 待接線清單）
+       ├─ UpstreamWiring.Bind(svc.Upstream, svc) + svc.Upstream.Start()  → 上位機 CF_/8787 監聽（已接線）
+       └─ DispatcherTimer(1s) → 更新 IsIpConnected / IsUpstreamConnected / CurCamStatus
 ```
 
 ### 4.2 Step 1 離線分析流程
@@ -255,27 +254,30 @@ Step1View
                        + 寫 classification.json（AI 重訓標註）
 ```
 
-### 4.5 上位機命令處理流程（UpstreamServer，⚠ 尚未 Start()）
+### 4.5 上位機命令處理流程（UpstreamServer + UpstreamWiring，**已接線 2026-06-19**）
+
+接線：`AppServices.Build()` 建 `UpstreamServer(8787)`（Optional，監聽失敗不阻塞）；`MainWindowViewModel` ctor 呼叫
+`UpstreamWiring.Bind(svc.Upstream, svc)` 綁回呼後 `Start()`。回呼**重用既有 IP 流程**（`Controllers/UpstreamWiring.cs`）：
 
 ```
-上位機 → TCP port 8787 → UpstreamServer.HandleClientAsync()
+上位機 → TCP port 8787 → UpstreamServer.HandleClientAsync()  （client 連上 → OnConnectedChanged → 上位機燈轉綠）
   ├─ CF_LOAD_RECIPE|{recipe}|{panelId}|{datetime}|||||||{detectMode}
-  │    → OnLoadRecipe(recipe, panelId, detectMode)（callback 未接線）
-  │    ← OK|||||||||  或  ERR|||||||||{errMsg}
-  │
-  ├─ CF_GRAB_START|{timeoutMs}
-  │    → OnGrabStart(timeoutMs)（callback 未接線）
-  │    ← OK|||||||||
-  │
-  ├─ CF_CHECK_ALIGN         ← OK|Cs_AlignSet|0|0||||||||（固定 0 偏移，新架構無 MIL 對位）
-  ├─ CF_SET_ALIGN|result|shiftX|shiftY  ← OK|||||||||（接受但無操作）
-  │
+  │    → OnLoadRecipe = RecipeStore.Select(recipe) + IpClient.LoadRecipeAsync(recipe,panelId,xml)
+  │    ← OK（IP 回 OK）/ ERR（IP 未連或失敗）
   ├─ CF_GET_RESULT
-  │    → OnGetResult()（callback 未接線）
-  │    ← OK|{filePaths}|{defectCounts}|||||||
+  │    → OnGetResult = IpClient.ListDefectFoldersAsync("") → 組「路徑,逗號 + 缺陷數,逗號」(非 JSON)
+  │    ← OK|{paths}|{counts}|...（端到端實得例：OK|IP04_Origin000001_DEFAULT,…|0,0,0,0,1,1）
   │
-  └─ 未知命令  ← ERR|||||||||unknown cmd: {cmd}
+  ├─ CF_GRAB_START   → 不綁 → ERR|...|GRAB_START 未支援：offline 無取像對象（待 Step4+）   ★誠實失敗
+  ├─ CF_CHECK_ALIGN  → 不綁 → ERR|...|CHECK_ALIGN 未支援：offline 未執行對位（待 #1/Step4）  ★誠實失敗（不再回假 OK|0|0）
+  ├─ CF_SET_ALIGN    → 不綁 → ERR|...|SET_ALIGN 未支援：offline 不套用對位（待 #1/Step4）    ★誠實失敗（不再永遠 OK）
+  ├─ CF_READY        ← OK
+  └─ 未知命令         ← ERR|...|unknown cmd: {cmd}
 ```
+
+> **分級（不混）**：`--selftest upstream` in-process 6 case = **L2**；`scripts/upstream_simulator.py` ↔ 真 Control ↔ 真 IP 端到端 = **L3 ✓(2026-06-19)**。
+> **真上位機協議認帳（欄位/序列/μm 是否如實機預期）= L4 做不了**；**μm 契約(#5)= IP 片面提議 = L4**。
+> 決策 A：取像/對位（GRAB/CHECK/SET_ALIGN）offline 刻意不綁 → 誠實失敗，避免上位機誤判已對位。#25 CF_STOP / #26 BypassAlignment 未做。
 
 ---
 
@@ -292,26 +294,36 @@ Step1View
 | `PitchEstimator` | `Services/PitchEstimator.cs` | 純 managed 2D FFT 估算 PitchX/Y（SNR 信心度）|
 | `LogService` | `Services/LogService.cs` | 多通道日誌（Info/Warn/Error）；`Logged` 事件；ViewModel 訂閱路由到 SysLog/ErrorLog/WarningLog |
 | `ConfigLoader` | `Services/ConfigLoader.cs` | appsettings.json 讀寫（`Microsoft.Extensions.Configuration` 綁定）；`SaveShareSetting()` 只改 ShareSetting 節點 |
-| `SelfTest` | `Services/SelfTest.cs` | `--selftest parse/recipe/send/fft/store/heartbeat/sort/patches/settings` 無頭驗證 |
+| `SelfTest` | `Services/SelfTest.cs` | `--selftest parse/recipe/send/fft/store/heartbeat/sort/patches/settings/camera/**topology/singleccd/upstream**` 無頭驗證 |
 
 ### 控制層
 
 | 類別 | 檔案 | 職責 |
 |------|------|------|
-| `UpstreamServer` | `Controllers/UpstreamServer.cs` | TCP Server @8787；解析 CF_ 命令（Split('｜')）；9 參數 OK/ERR 回應；callbacks 待接線 |
+| `UpstreamServer` | `Controllers/UpstreamServer.cs` | TCP Server @8787；解析 CF_ 命令（Split('｜')）；9 參數 OK/ERR 回應；**已 Start()**；取像/對位回呼不綁→誠實失敗 ERR |
+| `UpstreamWiring` | `Controllers/UpstreamWiring.cs` | **新**：靜態 `Bind(server, svc)` 把 CF_ 回呼接到既有 IP 流程（OnLoadRecipe→`IpClient.LoadRecipeAsync`、OnGetResult→`ListDefectFoldersAsync`、OnConnectedChanged→`SetUpstreamConnected`）；offline 不綁 GRAB/CHECK/SET_ALIGN |
 | `IpClient` | `Controllers/IpClient.cs` | TCP Client @8200；newline-delimited JSON；支援 binary payload（SEND_IMAGE_FOR_REVIEW）；`SemaphoreSlim` 確保序列 |
-| `GrabClient` | `Controllers/GrabClient.cs` | TCP Client @8100；newline-delimited JSON；目前只有 CHECK_HEALTH（Step 2+ 擴充）|
-| `ConnectionManager` | `Controllers/ConnectionManager.cs` | 心跳迴圈（2.5s）；自動重連；只在狀態變化時記 log；`IsBusy` 跳過心跳 |
+| `GrabClient` | `Controllers/GrabClient.cs` | TCP Client @8100；LIST_CAMERAS / GET_CAM_PARAMS / SET_CAM_PARAMS / TUNE_MEAN / GET_CAM_NODES（Gap #2）|
+| `ConnectionManager` | `Controllers/ConnectionManager.cs` | 心跳迴圈（2.5s）；自動重連；`SetUpstreamConnected`（上位機 inbound 燈）；`IsBusy` 跳過心跳 |
 
 ### ViewModel 層
 
 | 類別 | 對應 UI | 對應 Legacy |
 |------|---------|------------|
-| `MainWindowViewModel` | MainWindow.axaml | `frmCfAoi`（主視窗）|
+| `MainWindowViewModel` | MainWindow.axaml | `frmCfAoi`（主視窗；含第 6 螢幕單 CCD 設定導覽）|
 | `Step1ViewModel` | Step1View.axaml | `frmAlgorithmTestTools`（離線驗證）|
-| `ZoneParamEditorViewModel` | ZoneParamEditorView.axaml | `frmIpParamEditor`（IP 參數編輯）|
+| `ZoneParamEditorViewModel` | ZoneParamEditorView.axaml | `frmIpParamEditor`（IP 參數編輯；27 列 + 對位 Mark card）|
 | `DefectSortViewModel` | DefectSortView.axaml | `frmSortDefect` + `frmViewDefect`（缺陷整理/分類）|
-| `SystemSettingsViewModel` | SystemSettingsView.axaml | `frmSetting`（設定）|
+| `SystemSettingsViewModel` | SystemSettingsView.axaml | `frmSetting`（設定）+ 機台層拓樸（運算單元帶/宣告陣列）|
+| `SingleCcdSetupViewModel` | SingleCcdSetupView.axaml | **新**（塊3）：單 CCD 工作台，組合 `Step1ViewModel`(影像) + `ZoneParamEditorViewModel`(ROI/參數) 兩實例 |
+
+### 控制項 / 模型（新增，2026-06-19）
+
+| 類別 | 檔案 | 職責 |
+|------|------|------|
+| `RoiImageView` | `Controls/RoiImageView.axaml(.cs)` | 影像/ROI 共用控制項（從 Step1View 抽出）；StyledProperty 介面：`Source/ImageWidth/ImageHeight/PixelData/EditZone/AllZones/Defects/SelectedDefectIndex/Caption` + 輸出 `AxisText/ValueText/ZoomText/RegionText`；縮放/平移/框 ROI 把手/數值/量測/缺陷 overlay。**EditZone 可注入=編任一 ROI、AllZones 畫全部 ROI** |
+| `ArrayTopologyModel` | `Models/ArrayTopologyModel.cs` | 機台層拓樸宣告（`ccd_total_count` + `ComputeUnitModel[]` + `CcdSlotModel[]`）；`Parse/Load`（本機 `config/array_topology.json` 優先，回退 `.example`）。約束①(ccd_id/recipe_partition 並存)②(宣告≠綁定) |
+| `ComputeUnitGroup` | `ViewModels/SystemSettingsViewModel.cs` | 運算單元帶一張卡：連線(真,`UnitConnected`=Node==ActiveIpNode&&IsIpConnected) / 處理 N(真,槽數) / 負載%(估算投影,非即時) |
 
 ---
 
@@ -403,10 +415,21 @@ StatusStrip: AiModel | OfflineFolder
 
 ### 6.5 系統設定（SystemSettingsView）
 
-- IP Host / Port（唯讀顯示 appsettings 值）
-- RecipeDir / OutputDir / ImageDir（唯讀顯示）
-- 上位機 Port（唯讀顯示，= 8787）
-- [Test Connection] → ConnectAsync + CHECK_HEALTH → 顯示結果
+**連線設定 tab**：IP Host / Port、RecipeDir / OutputDir / ImageDir、上位機 Port（唯讀顯示 appsettings）；[Test Connection]。
+
+**相機參數 tab（塊1/2：機台層宣告陣列 + 偵測相機，兩條分開呈現，不 merge）**：
+- 上半「**運算單元 · 宣告陣列**」（`array_topology.json` 驅動，塊1/2）：依 `compute_unit` 分群的**宣告槽**（CCD00–36，黃點=已宣告·未綁）；每張運算單元卡顯 **連線燈(真)** / **處理 N 顆 CCD(真=槽數)** / **負載%(估算投影,非即時)**。KPI「配置」= 宣告槽數。
+- 下半「**偵測到的相機(runtime)**」：`LIST_CAMERAS` 列舉（MAC keying）+ 曝光/增益（Gap #2）；與上方宣告槽**分開**，未對映（綁定=#21）。
+- 點宣告槽 chip → `SelectedSlot` → MainWindowVM 訂閱 → 進「單 CCD 設定」(§6.6)。
+- ⚠ 約束②：宣告(config) 與 偵測(runtime) 不假 merge；未綁不標線上。負載%=估算（家裡 1 台量不到 37 CCD 吞吐）。
+
+### 6.6 單 CCD 設定（SingleCcdSetupView，塊3：影像為主工作台）
+
+從系統設定的宣告陣列點某 CCD 進入（`LoadSlot` 設 `RecipeStore.SelectedIp = slot.recipe_partition`，約束①儲存鍵仍 IP0、UI 顯 CCD 名）：
+- **左：大影像**（`RoiImageView`，~`*` 寬）：顯示該 CCD **全部 ROI**、選中高亮；在影像上框/拖把手 = 編**目前選中的 ROI**（`EditZone={ZoneEditor.EditZone}`、`AllZones={DetectRoiList}`）。
+- **右：精簡欄**（420px）：ROI 清單 + 選中 ROI 的 27 參數 + 對位 Mark card（複用 `ZoneParamEditorViewModel` 的 `Rois`/`ParamRows`/`AlignRoi`）。
+- header CCD 名 + 由哪台運算 + [載入影像]/[Test]/[儲存配方]；底圖載入 TIFF（A1 實拍綁幀=Phase 2）。
+- 組合既有 `Step1ViewModel`(影像) + `ZoneParamEditorViewModel`(ROI/參數) 兩**獨立實例**，共用 RecipeStore；既有 Step1/配方編輯/MainWindow 入口未改（零 regression）。
 
 ---
 
@@ -418,11 +441,11 @@ StatusStrip: AiModel | OfflineFolder
 
 | 命令 | 格式 | 回應 |
 |------|------|------|
-| CF_LOAD_RECIPE | `CF_LOAD_RECIPE|{recipe}|{panelId}|{datetime}|||||||{detectMode}` | `OK|||||||||` 或 `ERR|||||||||{msg}` |
-| CF_GRAB_START  | `CF_GRAB_START|{timeoutMs}` | `OK|||||||||` |
-| CF_CHECK_ALIGN | `CF_CHECK_ALIGN` | `OK|Cs_AlignSet|0|0|||||||`（固定 0 偏移）|
-| CF_SET_ALIGN   | `CF_SET_ALIGN|{result}|{shiftX}|{shiftY}` | `OK|||||||||` |
-| CF_GET_RESULT  | `CF_GET_RESULT` | `OK|{filePaths}|{defectCounts}|||||||` |
+| CF_LOAD_RECIPE | `CF_LOAD_RECIPE|{recipe}|{panelId}|{datetime}|||||||{detectMode}` | `OK`（IP 載入成功）/ `ERR|…|{msg}`（IP 未連或失敗）|
+| CF_GRAB_START  | `CF_GRAB_START|{timeoutMs}` | **ERR**（offline 無取像對象，誠實失敗）|
+| CF_CHECK_ALIGN | `CF_CHECK_ALIGN` | **ERR**（offline 未執行對位，誠實失敗；不再回假 `OK|0|0`）|
+| CF_SET_ALIGN   | `CF_SET_ALIGN|{result}|{shiftX}|{shiftY}` | **ERR**（offline 不套用對位，誠實失敗）|
+| CF_GET_RESULT  | `CF_GET_RESULT` | `OK|{資料夾,逗號}|{缺陷數,逗號}|…`（由 IP `LIST_DEFECT_FOLDERS` 組，非 JSON）|
 | CF_READY       | `CF_READY` | `OK|||||||||` |
 
 ### 7.2 Control → IP（port 8200，JSON）
@@ -453,12 +476,13 @@ StatusStrip: AiModel | OfflineFolder
 ### 8.1 目錄結構
 
 ```
-{RecipeDir}/                           預設 ~/cf-aoi/recipes
+{RecipeDir}/                           預設 ~/cf-aoi/recipes（執行期目錄，非 repo recipes/）
 └── {RecipeName}/
     ├── RecipeSetting.xml              per-recipe 存圖設定（MaxSaveDefectCount 等）
-    └── IP0/
+    └── {IpName}/                      per-CCD 分區：每台 CCD 一份（IP0、IP1…；現行儲存鍵=IpName）
         └── RecipeInfo.xml             AlignRoi + DetectRoiList[] 配方主檔
 ```
+> 約束①：UI/docs 用 **CCD** 名，但**儲存鍵仍是 `IP0`(IpName)**；`array_topology.json` 的 `recipe_partition` 即此。`RecipeStore.SelectedIp` 決定載哪台 CCD 的 `{recipe}/{IpName}/RecipeInfo.xml`（切 IP 重載）。`RecipeIps`(appsettings) 宣告可編 IP 清單。
 
 ### 8.2 RecipeInfo.xml 格式
 
@@ -562,12 +586,12 @@ MainWindowViewModel DispatcherTimer(1s) → 更新 IsIpConnected 顯示燈
 
 | Legacy 功能 | Control 狀態 | 說明 |
 |------------|-------------|------|
-| TCP 上位機 port 8787 CF_ 命令 | ✅ 實作完成 | UpstreamServer.cs；但尚未 Start() |
-| CF_LOAD_RECIPE | ✅ 解析/回應完成 | callback OnLoadRecipe 未接到 IpClient |
-| CF_GRAB_START | ✅ 解析/回應完成 | callback OnGrabStart 未接到 GrabClient |
-| CF_CHECK_ALIGN | ⚠️ Stub | 固定回 OK + 0 偏移；新架構無 MIL 對位 |
-| CF_SET_ALIGN | ⚠️ Stub | 接受命令但無操作 |
-| CF_GET_RESULT | ✅ 解析/回應完成 | callback OnGetResult 未接線 |
+| TCP 上位機 port 8787 CF_ 命令 | ✅ 已接線 L2/L3 | UpstreamServer + UpstreamWiring.Bind + Start（2026-06-19）|
+| CF_LOAD_RECIPE | ✅ 接 IP | OnLoadRecipe → IpClient.LoadRecipeAsync |
+| CF_GRAB_START | ✅ 誠實失敗 | offline 無取像 → ERR（決策 A，非假 OK）|
+| CF_CHECK_ALIGN | ✅ 誠實失敗 | offline 未對位 → ERR（不再回假 OK\|0\|0）|
+| CF_SET_ALIGN | ✅ 誠實失敗 | offline 不套用 → ERR |
+| CF_GET_RESULT | ✅ 接 IP | OnGetResult → ListDefectFoldersAsync 組 path,count（非 JSON）|
 | 多相機並行（CamProc[]） | ❌ Step 2+ | 新架構由 Grab 機多相機，Control 單 TCP |
 | FrameGrabber 7 種後端 | ❌ 移除 | 改為 GrabClient TCP 控制 Grab 機 |
 | CudaCore GPU 缺陷檢測 | ❌ 移除 | 改為 IpClient TCP 控制 IP 機 |
@@ -624,17 +648,17 @@ MainWindowViewModel DispatcherTimer(1s) → 更新 IsIpConnected 顯示燈
 
 ## 13. 待接線 / 待驗證清單
 
-| 項目 | 現況 | 接線方法 |
+| 項目 | 現況 | 備註 |
 |------|------|---------|
-| **UpstreamServer.Start()** | 未呼叫，上位機無法連線 | 在 `App.axaml.cs` 或 `MainWindowViewModel` 建立並 `Start()`；用 `AppServices` 管理 lifetime |
-| **OnLoadRecipe callback** | null → 接收命令但不執行 | 接到 `IpClient.LoadRecipeAsync()` + `RecipeStore.Select()` |
-| **OnGrabStart callback** | null → 接收命令但不執行 | 接到 `GrabClient.SendCommandAsync("GRAB_START")` |
-| **OnGetResult callback** | null → 回 ("","0") | 接到 `IpClient.GetStatusAsync()` + 解析 DefectCnt |
-| **CF_CHECK_ALIGN 真實版** | 固定回 0 偏移 | 新架構可能永遠 Stub，或改由 IP 機做對位並回傳 |
-| **GrabClient 取像命令** | 只有 CHECK_HEALTH | Step 2+：GRAB_START / GRAB_STOP / GET_FRAME |
-| **RecipeSetting 送 IP** | XML 存在但未發給 IP | LOAD_RECIPE params 帶上 MaxSaveDefectCount / SaveAiTrain 等 |
-| **DebugAlgorithm → IP** | Step1 Test 有 debug flag | SEND_IMAGE_FOR_REVIEW `debug` 參數已接，但全域 ShareSetting 未自動帶 |
-| **與真實上位機驗證** | 從未接過真實上位機 | 接線啟動後用模擬器或真實上位機驗證 9 參數格式 + CF_GET_RESULT 回傳內容 |
+| **上位機 CF_ 接線**（Start + OnLoadRecipe/OnGetResult/OnConnectedChanged） | ✅ **已接線 L2/L3**（2026-06-19）| UpstreamWiring.Bind；GET_RESULT 端到端回真實 path+count |
+| **取像/對位 CF_**（GRAB/CHECK/SET_ALIGN） | ✅ **誠實失敗 ERR** | offline 不綁（決策 A）；真對位/取像 = #1/Step4 |
+| **真上位機協議認帳 + μm 契約(#5)** | ⚠️ **L4（做不了）** | 模擬器只證格式/交握；真實 Master 是否如預期讀欄位/μm 待接真機 |
+| **RoiImageView 互動** | L1 待 Mac 目視 | 縮放/平移/框 ROI 把手/數值/缺陷導航/量 Pitch 與 Step1 一致（抽出後行為不變）|
+| **單 CCD 工作台版面** | L1 待 Mac 目視 | 大影像 + 右精簡欄、選 ROI 影像高亮定位 |
+| **SystemSettings 機台層 tab** | L1 待 Mac 目視 | 運算單元帶/宣告陣列/偵測相機分開呈現 |
+| **A1 實拍底圖 / MAC↔CCD 綁定(#21)** | Phase 2（待相機）| 單 CCD 頁底圖現載入 TIFF；綁定動作待 Switch+陣列 |
+| **GrabClient 取像命令** | 只有相機參數（Gap #2）| Step 2+：GRAB_START / GRAB_STOP / GET_FRAME |
+| **RecipeSetting / DebugAlgorithm → IP** | 部分接 | LOAD_RECIPE 帶 recipe_saving / SEND_IMAGE debug 已接，全域 ShareSetting 未自動帶 |
 
 ---
 
@@ -649,11 +673,12 @@ MainWindowViewModel DispatcherTimer(1s) → 更新 IsIpConnected 顯示燈
     "Optional": true      // 連線失敗不阻塞啟動
   },
   "Nodes": {
-    "IpOffline": { "Host": "192.168.72.2", "Port": 8200, "Mode": "offline-tcp" },
+    "IpOffline": { "Host": "addis-b850m-ds3h.tailffdb68.ts.net", "Port": 8200, "Mode": "offline-tcp" },  // 可填 Tailscale 主機名
     "IpOnline":  { "Host": "192.168.10.11", "Port": 8200, "Mode": "online" },
-    "GrabA":     { "Host": "192.168.10.21", "Port": 8100 }
+    "GrabA":     { "Host": "100.92.102.95", "Port": 8100 }
   },
   "ActiveIpNode": "IpOffline",   // 目前使用的 IP 節點
+  "RecipeIps": [ "IP0" ],        // 配方可編輯的 IP/CCD 清單（多台 IP 機加 "IP1"…）
   "Paths": {
     "RecipeDir": "~/cf-aoi/recipes",
     "OutputDir": "~/cf-aoi/output",
@@ -693,7 +718,12 @@ heartbeat [secs]      心跳偵測連線狀態監看（N 秒輸出）
 sort                  LIST/SORT 遠端命令（假 IP server，不需 GPU）
 patches               小圖分類完整鏈（LIST/BATCH/SAVE + filter 邏輯）
 settings              ShareSetting/RecipeSetting round-trip + Step1 初值
+camera                假 LIST_CAMERAS（多台 bound/unbound）→ 分群 + KPI（離線維持 0，不假造）
+topology              機台拓樸 fixture：載入 + 依 compute_unit 分群 + 全槽未綁不標線上 + 不假 merge 列舉相機；塊2 處理 N/負載公式/連線規則
+singleccd             單 CCD 工作台：組合既有 VM + LoadSlot 設 SelectedIp + header 顯 CCD 名 + EditZone=選中 ROI
+upstream              上位機 CF_ in-process 交握：READY/LOAD_RECIPE接IP/GET_RESULT path+count/CHECK·SET_ALIGN 誠實失敗/燈轉綠（L2）
 ```
+> 一鍵：`scripts/run.sh selftest <子命令>`。端到端上位機 L3：先開 Control，再跑 `scripts/upstream_simulator.py`。
 
 ---
 
@@ -715,6 +745,10 @@ settings              ShareSetting/RecipeSetting round-trip + Step1 初值
 | IP 連線 | [Controllers/IpClient.cs](../control/src/Controllers/IpClient.cs) |
 | Grab 連線 | [Controllers/GrabClient.cs](../control/src/Controllers/GrabClient.cs) |
 | 心跳重連 | [Controllers/ConnectionManager.cs](../control/src/Controllers/ConnectionManager.cs) |
+| 上位機接線（CF_ 回呼）| [Controllers/UpstreamWiring.cs](../control/src/Controllers/UpstreamWiring.cs) |
+| 影像/ROI 共用控制項 | [Controls/RoiImageView.axaml.cs](../control/src/Controls/RoiImageView.axaml.cs) |
+| 單 CCD 工作台 | [ViewModels/SingleCcdSetupViewModel.cs](../control/src/ViewModels/SingleCcdSetupViewModel.cs) ／ [Views/SingleCcdSetupView.axaml](../control/src/Views/SingleCcdSetupView.axaml) |
+| 機台拓樸模型 | [Models/ArrayTopologyModel.cs](../control/src/Models/ArrayTopologyModel.cs) ／ [config/array_topology.example.json](../control/src/config/array_topology.example.json) |
 | 配方模型 | [Models/RecipeModel.cs](../control/src/Models/RecipeModel.cs) |
 | Zone 參數 | [Models/ZoneSettingModel.cs](../control/src/Models/ZoneSettingModel.cs) |
 | 結果模型 | [Models/DefectResultModel.cs](../control/src/Models/DefectResultModel.cs) |

@@ -245,16 +245,30 @@ dotnet new install Avalonia.Templates
 
 ## 常用指令
 
+### 一鍵啟動（推薦；自動 build + 帶預設參數）
+
+```bash
+# 通用：scripts/run.sh <control|ip|grab|golden|sim|selftest>
+./scripts/run.sh ip            # IP 機(Linux)：build + offline-tcp:8200
+./scripts/run.sh control       # Mac/Linux：跑 Control（自動監聽上位機 8787）
+./scripts/run.sh sim           # 上位機 CF_ 模擬器（需先開 Control）
+./scripts/run.sh selftest upstream   # 自測：upstream|store|topology|singleccd|camera
+
+# 免命令列：雙擊 scripts/launchers/ 內的檔（見該夾 README）
+#   Control-Mac.command / Control-Windows.bat / IP-Linux.sh / UpstreamSim-Mac.command …
+# 免裝 .NET 單檔 App（給純操作人員）：
+./scripts/build-control-app.sh        # → control/publish/<rid>/CfAoiControl(.exe) 雙擊即可
+```
+
+### 手動指令（等價）
+
 ```bash
 # 啟動 IP（Step 1）
 cd ~/cf-aoi/ip && ./build/cfaoi_ip --mode offline-tcp --control-port 8200
-
-# 測試
-python3 ~/cf-aoi/scripts/control_test.py --ip 127.0.0.1 --image test_images/x.tif
-
 # 重建 IP
 cd ~/cf-aoi/ip && cmake --build build -j$(nproc)
-
 # Control
 cd ~/cf-aoi/control/src && dotnet run
+# 上位機端到端（L3）：先開 Control，再
+python3 ~/cf-aoi/scripts/upstream_simulator.py --host 127.0.0.1 --port 8787
 ```
