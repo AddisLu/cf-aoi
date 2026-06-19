@@ -41,6 +41,18 @@ bool is_image_ext(std::string ext) {
            ext == ".bmp" || ext == ".jpg" || ext == ".jpeg";
 }
 
+// 展開前導 "~"/"~/..." 為 $HOME（std::filesystem 不會自動展開 ~，那是 shell 的事）。
+// 讓遠端檔案瀏覽器可直接填 "~/T550QVN10_TGT_G"。空 → 回 "."。
+std::string expand_user(const std::string& p) {
+    if (p.empty()) return ".";
+    if (p[0] != '~') return p;
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) return p;                       // 無 HOME → 原樣（讓後續報 not found）
+    if (p.size() == 1) return home;                      // "~"
+    if (p[1] == '/')  return std::string(home) + p.substr(1);   // "~/xxx"
+    return p;                                            // "~user" 不支援 → 原樣
+}
+
 // 收圖結構驗證（行車紀錄 frame_validation 用）：magic/version/headerBytes/payloadBytes 一致
 // + payload CRC32 比對。回傳空字串=通過，否則=失敗原因（含期望vs實得）。
 // offline-tcp 的 header 為本地建構（magic 等恆對）→ 主要擋未來 RDMA wire 損壞 + make_frame_header 迴歸；
@@ -898,7 +910,7 @@ void ControlServer::handle_client(int fd) {
         } else if (cmd == "LIST_DIR") {
             // 列 IP 機某目錄下的「子目錄 + 影像檔」，供 Control 端遠端檔案瀏覽器（免搬大圖）。
             // 不存在/非目錄 → ERR。回 ".." 上一層 + 目錄在前、再影像（依名排序）。
-            std::string path = params.value("path", ".");
+            std::string path = expand_user(params.value("path", "."));
             std::error_code ec;
             fs::path dir(path);
             if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) {
@@ -934,7 +946,7 @@ void ControlServer::handle_client(int fd) {
         } else if (cmd == "GET_IMAGE_PREVIEW") {
             // 回「縮小預覽 PNG(base64) + 全解析度寬高」供 Control 顯示/框 ROI（不搬全圖）。
             // ★ 預覽的 resize/取灰階是 display-only，絕不進檢測（檢測走 REVIEW_LOCAL_IMAGE 全解析度）。
-            std::string path = params.value("path", "");
+            std::string path = expand_user(params.value("path", ""));
             int max_width = params.value("max_width", 2048);
             cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
             if (img.empty()) { reply(fd, {{"seq", seq}, {"status", "ERR"}, {"error", "讀取失敗: " + path}}); continue; }
@@ -961,7 +973,7 @@ void ControlServer::handle_client(int fd) {
         } else if (cmd == "REVIEW_LOCAL_IMAGE") {
             // 對 IP 機磁碟上的「全解析度」影像跑檢測（與 SEND_IMAGE_FOR_REVIEW 同一 process_image 路徑 → bit-exact）。
             // ★ 讀全解析度 IMREAD_UNCHANGED（與 offline-file/file_source 同邏輯），不用任何預覽縮圖。需先 LOAD_RECIPE。
-            std::string path = params.value("path", "");
+            std::string path = expand_user(params.value("path", ""));
             std::string panel = params.value("panel_id", fs::path(path).stem().string());
             review_save_patches_ = params.value("debug", false);
             cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
