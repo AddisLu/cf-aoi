@@ -325,13 +325,14 @@
 ## 已知新碼缺陷／待修（非缺功能 gap；新碼自身問題）
 
 > 來源：`docs/roi_pattern_matching_座標轉換複查.html`（2026-06-21 對位座標轉換複查；已納版控）。**與上方「缺功能 gap#」表分離追蹤。**
+> **2026-06-21 收口 sprint（commit `b21e15d`，RTX 2080 SUPER `addis-b850m-ds3h` 實機驗）**：F1 修+驗 → **fixed/L3**；F4 done；F2/F3 文件契約 L1（F3 守門經實證）。
 
-| 編號 | 問題 | 位置(file:line) | 嚴重度 | 修法 / 回歸計畫 |
+| 編號 | 問題 | 位置(file:line) | 狀態 | 修法 / 驗證數據 |
 |---|---|---|---|---|
-| **F1** | 全幅 zone 套對位被毀成 ~1px（`roi_start_x=-1` + shift>0 → `-1+7=6(≥0)` → `is_full_frame()` 翻 false → `zone_rect` 縮成 1px）| `ip/src/main.cpp:463`（套位移）；`:166`/`config/zone_config_adapter.h:79-86`（consume）| **Bug-待修** | SET_ALIGN handler 加 `if (z.is_full_frame()) continue;`；新增 align_verify 全幅+對位 case（驗 is_full_frame 仍 true、缺陷數=n0）+ 重跑 verify_alignment.py 不回歸 + 同圖兩跑 bit-exact |
-| F2 | 中心裁切契約（窗中心=Refer、近邊補零不 clamp）；生產裁切端未實作 | `control/.../IpClient.cs CheckAlignAsync`（offline 回 ERR）| 契約/L1 | 立不變式+文件；實際裁切串接待 Step4 取像 |
-| F3 | 旋轉只回報不套用、範圍僅 ±3° | `ip/src/align_engine.cpp:45-148` | 限制 | 文件標邊界、確認 `score_threshold` 擋大角度誤匹配 |
-| F4 | `parabolic_fit_1d` 死碼（從未呼叫）| `ip/src/align_engine.cpp:26-41` | 清理 | 刪除 |
+| **F1** | 全幅 zone 套對位被毀成 ~1px（`roi_start_x=-1` + shift>0 → `-1+7=6(≥0)` → `is_full_frame()` 翻 false → `zone_rect` 縮成 1px）| `ip/src/main.cpp:462`；`config/zone_config_adapter.h:90`（`apply_align_shift`）| **fixed / L3** | SET_ALIGN 套位移抽成共用 `apply_align_shift()`，全幅 zone 先 `if (z.is_full_frame()) continue;`（main 與 align_verify 共用）。**RTX 2080 驗（2026-06-21）**：align_verify **18/18**（Stage3C ★全幅套對位後 `aligned_start_x=-1 eff_start_x=-1 is_full=1`）；verify_alignment.py **12/12**（Stage2D 全幅 `n_base=37 → SET_ALIGN(7,3) → n_after=37`，未塌；同圖兩跑 37==37；既有 8/8 不回歸，Stage2C `n0=7=n_aligned`）|
+| F2 | 中心裁切契約（窗中心=Refer、近邊補零不 clamp）；生產裁切端未實作 | `ip/src/align_engine.h`（run_align doc 不變式）| **L1(doc)** | 不變式已寫進 align_engine.h（窗中心=Refer、補零不 clamp）；實際從實拍幀中心裁切的生產 wiring 待 Step4 |
+| F3 | 旋轉只回報不套用、範圍僅 ±3° | `ip/src/align_engine.h`（限制說明）；`align_engine.cpp:45-148` | **L1(doc) + 守門實證** | 限制已文件化（model A 純平移、±3°）。**score_threshold 擋大角度經實證**：align_verify Stage3A 15° → `ok=false score=0.279 < thr=0.55` → 回 ERR（不回錯誤 shift）|
+| F4 | `parabolic_fit_1d` 死碼（從未呼叫）| `ip/src/align_engine.cpp:23`（已刪）| **done** | 刪除（0 caller，真 fit 內聯於 run_align）；align_verify 重編 18/18 無破 |
 
 ---
 
