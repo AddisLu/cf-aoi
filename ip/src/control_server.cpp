@@ -424,6 +424,13 @@ void ControlServer::handle_client(int fd) {
                     saving_cfg_.save_defect_width     = rs.value("save_defect_width",     100);
                     saving_cfg_.save_defect_height    = rs.value("save_defect_height",    100);
                     saving_cfg_.max_defect_count_pass = rs.value("max_defect_count_pass", -1);
+                    // #32 邊界略過 / #16 Rule 改判（選填；缺省 = 停用，向下相容不破 bit-exact）
+                    saving_cfg_.bypass_edge_x    = rs.value("bypass_edge_x",     0);
+                    saving_cfg_.bypass_edge_y    = rs.value("bypass_edge_y",     0);
+                    saving_cfg_.image_rule_enable = rs.value("image_rule_enable", false);
+                    saving_cfg_.mean_low_threshold = rs.value("mean_low_threshold", 40.0);
+                    saving_cfg_.hdivw_threshold    = rs.value("hdivw_threshold",    4.0);
+                    saving_cfg_.ng_size_threshold  = rs.value("ng_size_threshold",  4096.0);
                 }
                 if (params.contains("share_flags")) {
                     const auto& sf = params["share_flags"];

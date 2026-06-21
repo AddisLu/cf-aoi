@@ -102,3 +102,15 @@ target_include_directories(coord_verify PRIVATE
 )
 target_link_libraries(coord_verify PRIVATE)
 target_compile_options(coord_verify PRIVATE -std=c++17)
+
+# ── rules_verify（純 OpenCV，不需 CUDA；#16 Rule 改判 + #32 邊界略過 單元驗證）────
+add_executable(rules_verify
+    src/rules_verify.cpp
+)
+target_include_directories(rules_verify PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/config
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(rules_verify PRIVATE ${OpenCV_LIBS})
+target_compile_options(rules_verify PRIVATE -std=c++17)

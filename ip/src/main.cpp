@@ -33,6 +33,7 @@
 #include "config/recipe_saving_config.h"
 #include "config/share_flags.h"
 #include "config/zone_config_adapter.h"
+#include "defect_rules.h"
 #include "diag/flight_recorder.h"
 #include "gpu/gpu_pipeline.h"
 #include "image_source/file_source.h"
@@ -240,6 +241,12 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
                           << " bit-exact (" << dr.num_defects << " defects)\n";
             }
         }
+
+        // #32 邊界略過 + #16 Rule 改判（CPU 後處理；預設全關 → 不改結果）。
+        // 置於 verify 之後：verify 比的是 GPU 兩跑決定性（未過濾）；過濾本身亦決定性。
+        defect_rules::apply(dr.defects, r.x, r.y, gray, gray.cols, gray.rows, saving_cfg);
+        dr.num_defects = defect_rules::recount(dr.defects, dr.num_bright, dr.num_dark);
+        dr.pass = (dr.num_defects == 0);
 
         total_defects_so_far += dr.num_defects;
         ZoneResult zr;

@@ -4,16 +4,7 @@
 #include <cuda_runtime.h>
 #include <cstdint>
 
-// Structure to hold defect information
-struct DefectInfo {
-    int label;
-    float center_x;
-    float center_y;
-    int size;
-    float avg_brightness;
-    int min_x, max_x, min_y, max_y;
-    int is_bright;  // 1 for bright, 0 for dark
-};
+#include "defect_info.h"   // struct DefectInfo（抽成 CUDA-free header，位元不變；供 CPU 後處理/單元測試重用）
 
 // Structure for kernel parameters
 struct KernelParams {
