@@ -333,20 +333,22 @@ static_assert(sizeof(FrameHeader)==256,"");
 
 ---
 
-## 10. 多機開發工作流程（Mac × Spark × damac）— 同步紀律
+## 10. 多機開發工作流程（Mac × Spark × damac × RTX2080）— 同步紀律
 
-> 開發者在公司用 **MacBook Air 主要編輯**，SSH 到兩台 Linux remote。三機都 clone 同一個 GitHub repo
+> 開發者用 **MacBook Air 主要編輯**，SSH 到三台 Linux remote（公司 Spark/damac、家中 RTX2080）。四機都 clone 同一個 GitHub repo
 > （`git@github.com:AddisLu/cf-aoi.git`）。**GitHub = 唯一真相（hub-and-spoke）。**
 
-### 三台機器
+### 四台機器
 
 | 機器 | 角色 | SSH host（Tailscale）| repo 路徑 |
 |------|------|----------------------|-----------|
 | **MacBook Air** | 唯一作者（edit/commit/push）| —（本機）| `/Users/yourulyu/coding/cf-aoi` |
 | **Spark**（DGX Spark GB10）| IP 生產 / GPU 驗證 | `spark-c16f.tailffdb68.ts.net` | `/home/auo001/Addis/cf-aoi` |
 | **damac**（截取中心 Ryzen+ConnectX-5）| Grab 取像 / 相機 | `damac.tailffdb68.ts.net` | `/home/damac/Addis/cf-aoi` |
+| **RTX2080**（家中開發機 · RTX 2080 SUPER · x86）| IP off-line 演算法驗證（無相機/RDMA/陣列）| `addis-b850m-ds3h.tailffdb68.ts.net`（user `addis`）| `/home/addis/cf-aoi` |
 
-> 兩台 remote 經 Tailscale 可 SSH（BatchMode 金鑰登入可用）。damac 另有不相關的 `~/下載/Grab`（別的 repo），勿混。
+> 三台 remote 經 Tailscale 可 SSH（BatchMode 金鑰登入可用）。damac 另有不相關的 `~/下載/Grab`（別的 repo），勿混。
+> **RTX2080（2026-06-21 入列）**：已設 GitHub SSH 金鑰、remote 為 SSH，可直接 `git pull --ff-only`；環境 nvcc 12.6 + OpenCV 4.6 + cmake，`ip/build/` 有 cfaoi_ip + align_verify + rules_verify。**但尚未裝護欄**（pull.ff only / cfsync），同步請手動快轉或日後補裝。
 
 ### 角色分工（鐵則）
 - **Mac**：改 → `git commit` → `git push`（小步頻繁）。
