@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
@@ -72,6 +73,44 @@ public sealed class RecipeService
 
     public Task SaveAsync(string recipeName, RecipeModel recipe, string ipName = "IP0")
     { Save(recipeName, recipe, ipName); return Task.CompletedTask; }
+
+    // ---- 配方生命週期（#33 Delete/開資料夾 + #7 跨配方批次複製）----
+
+    /// <summary>配方資料夾路徑（= {RecipeDir}/{recipe}，含所有 IP 分區 + RecipeSetting.xml）。供「開資料夾」用。</summary>
+    public string RecipeFolder(string recipeName) =>
+        Path.Combine(ExpandPath(_cfg.Paths.RecipeDir), recipeName);
+
+    /// <summary>#33 刪除整個配方資料夾（所有 IP 分區 + RecipeSetting.xml）。回傳是否真的刪了。</summary>
+    public bool DeleteRecipe(string recipeName)
+    {
+        var dir = RecipeFolder(recipeName);
+        if (!Directory.Exists(dir)) return false;
+        Directory.Delete(dir, recursive: true);
+        _log.Info($"配方已刪除：{dir}");
+        return true;
+    }
+
+    /// <summary>#7 把 src 配方某 IP 的偵測參數 + 對位 Mark（整份 RecipeModel）複製到 dst 配方同 IP。</summary>
+    public void CopyRecipeParams(string srcRecipe, string dstRecipe, string ipName = "IP0")
+    {
+        var srcPath = RecipeXmlPath(srcRecipe, ipName);
+        if (!File.Exists(srcPath))
+            throw new FileNotFoundException($"來源配方不存在：{srcPath}");
+        Save(dstRecipe, Load(srcPath), ipName);
+        _log.Info($"配方參數已複製：{srcRecipe}/{ipName} → {dstRecipe}/{ipName}");
+    }
+
+    /// <summary>#7 批次：複製 src 參數到多個目標配方（跳過 src 自身）。回傳實際複製數。</summary>
+    public int CopyRecipeParamsToMany(string srcRecipe, IEnumerable<string> dstRecipes, string ipName = "IP0")
+    {
+        int n = 0;
+        foreach (var dst in dstRecipes)
+        {
+            if (string.IsNullOrEmpty(dst) || dst == srcRecipe) continue;
+            CopyRecipeParams(srcRecipe, dst, ipName); n++;
+        }
+        return n;
+    }
 
     // ---- RecipeSetting（per-recipe 存圖設定，= legacy RecipeSetting.xml，放配方資料夾根）----
     public string RecipeSettingXmlPath(string recipeName) =>

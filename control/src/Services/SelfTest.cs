@@ -44,6 +44,7 @@ public static class SelfTest
                 case "singleccd": return SingleCcdTest();
                 case "upstream": return await UpstreamTest();
                 case "remoteimg": return await RemoteImgTest();
+                case "recipemgmt": return RecipeMgmtTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -367,6 +368,7 @@ public static class SelfTest
         var rGet    = await Cmd("CF_GET_RESULT");
         var rCheck  = await Cmd("CF_CHECK_ALIGN");
         var rSet    = await Cmd("CF_SET_ALIGN|Cs_AlignSet|1|2");
+        var rStop   = await Cmd("CF_STOP");
         await Task.Delay(50);
         bool lampGreen = svc.Connection.IsUpstreamConnected;   // 連上時 OnConnectedChanged→燈轉綠
 
@@ -377,16 +379,74 @@ public static class SelfTest
         bool get   = rGet.StartsWith("OK") && rGet.Contains("IP0_panelA_DEFAULT") && rGet.Contains("3,5"); // path+count 非 JSON
         bool checkFail = rCheck.StartsWith("ERR");                                    // ★A 誠實失敗(非假 OK)
         bool setFail   = rSet.StartsWith("ERR");                                      // ★A 誠實失敗(非假 OK)
+        bool stopFail  = rStop.StartsWith("ERR");                                     // #25 ★A 誠實失敗(offline 無取像可停)
 
         Console.WriteLine($"  CF_READY → OK: {(ready ? "PASS" : "FAIL")} (\"{rReady}\")");
         Console.WriteLine($"  CF_LOAD_RECIPE → OK(接 IP): {(load ? "PASS" : "FAIL")} (\"{rLoad}\")");
         Console.WriteLine($"  CF_GET_RESULT → OK|path|count 非JSON: {(get ? "PASS" : "FAIL")} (\"{rGet}\")");
         Console.WriteLine($"  CF_CHECK_ALIGN → ERR 誠實失敗(非假OK): {(checkFail ? "PASS" : "FAIL")} (\"{rCheck}\")");
         Console.WriteLine($"  CF_SET_ALIGN → ERR 誠實失敗(非假OK): {(setFail ? "PASS" : "FAIL")} (\"{rSet}\")");
+        Console.WriteLine($"  CF_STOP → ERR 誠實失敗(offline 無取像可停): {(stopFail ? "PASS" : "FAIL")} (\"{rStop}\")");
         Console.WriteLine($"  上位機連線燈轉綠(OnConnectedChanged): {(lampGreen ? "PASS" : "FAIL")}");
-        bool ok = ready && load && get && checkFail && setFail && lampGreen;
+        bool ok = ready && load && get && checkFail && setFail && stopFail && lampGreen;
         Console.WriteLine(ok ? "✓ 上位機 CF_：接線啟動+回呼接 IP+9參數交握；align/grab 誠實失敗(非假OK)；燈轉綠 (L2 in-process)"
                              : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    // ---- #33 配方管理（Delete/SaveAll/開資料夾）+ #7 跨配方批次複製（暫存 RecipeDir 隔離，不碰真實配方）----
+    private static int RecipeMgmtTest()
+    {
+        bool ok = true;
+        var root = Path.Combine(Path.GetTempPath(), "cfaoi_recipemgmt");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        Directory.CreateDirectory(root);
+        var cfg = new SystemConfigModel();
+        cfg.Paths.RecipeDir = root;
+        var svc = new RecipeService(cfg, new LogService());
+        var store = new RecipeStore(svc, new LogService(), new[] { "IP0", "IP1" });
+
+        // 來源配方 SRC：PitchX=77 存到 IP0
+        store.Select("SRC");
+        store.PrimaryZone!.PitchX = 77;
+        store.Save();
+
+        // (#7) 批次複製 SRC → DST1/DST2（IP0）
+        int copied = store.CopyParamsToMany(new[] { "DST1", "DST2" });
+        var d1 = svc.Load(svc.RecipeXmlPath("DST1", "IP0")).DetectRoiList[0].PitchX;
+        var d2 = svc.Load(svc.RecipeXmlPath("DST2", "IP0")).DetectRoiList[0].PitchX;
+        bool copyOk = copied == 2 && d1 == 77 && d2 == 77;
+        Console.WriteLine($"  #7 批次複製 SRC→DST1/DST2: copied={copied} DST1.PitchX={d1} DST2.PitchX={d2} → {(copyOk ? "PASS" : "FAIL")}");
+        ok &= copyOk;
+
+        // (#33 SaveAll) 目前 SRC（PitchX=88）存到所有 IP（IP0+IP1）
+        store.Select("SRC");
+        store.PrimaryZone!.PitchX = 88;
+        store.SaveToAllIps();
+        var ip1Pitch = svc.Load(svc.RecipeXmlPath("SRC", "IP1")).DetectRoiList[0].PitchX;
+        bool allOk = File.Exists(svc.RecipeXmlPath("SRC", "IP0")) && File.Exists(svc.RecipeXmlPath("SRC", "IP1")) && ip1Pitch == 88;
+        Console.WriteLine($"  #33 SaveAll→所有 IP: IP0存在={File.Exists(svc.RecipeXmlPath("SRC", "IP0"))} IP1.PitchX={ip1Pitch} → {(allOk ? "PASS" : "FAIL")}");
+        ok &= allOk;
+
+        // (#33 開資料夾) 路徑正確
+        bool folderOk = store.RecipeFolder("SRC") == Path.Combine(root, "SRC") && Directory.Exists(store.RecipeFolder("SRC"));
+        Console.WriteLine($"  #33 配方資料夾: {store.RecipeFolder("SRC")} 存在={Directory.Exists(store.RecipeFolder("SRC"))} → {(folderOk ? "PASS" : "FAIL")}");
+        ok &= folderOk;
+
+        // (#33 Delete) 刪 DST1 → 資料夾消失 + 清單移除
+        store.DeleteRecipe("DST1");
+        bool delOk = !Directory.Exists(Path.Combine(root, "DST1")) && !store.RecipeNames.Contains("DST1");
+        Console.WriteLine($"  #33 Delete DST1: 資料夾消失={!Directory.Exists(Path.Combine(root, "DST1"))} 清單移除={!store.RecipeNames.Contains("DST1")} → {(delOk ? "PASS" : "FAIL")}");
+        ok &= delOk;
+
+        // 刪目前配方 → 退回 DEFAULT
+        store.Select("DST2");
+        store.DeleteRecipe("DST2");
+        bool fallbackOk = store.SelectedRecipe == "DEFAULT";
+        Console.WriteLine($"  #33 刪目前配方→退回 DEFAULT: SelectedRecipe={store.SelectedRecipe} → {(fallbackOk ? "PASS" : "FAIL")}");
+        ok &= fallbackOk;
+
+        Console.WriteLine(ok ? "✓ #33 配方管理(Delete/SaveAll/資料夾) + #7 批次複製 正確" : "✗ 不符");
         return ok ? 0 : 1;
     }
 

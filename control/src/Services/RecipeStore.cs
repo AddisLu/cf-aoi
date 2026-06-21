@@ -77,6 +77,29 @@ public sealed partial class RecipeStore : ObservableObject
 
     public Task SaveAsync() { Save(); return Task.CompletedTask; }
 
+    /// <summary>#33 SaveAll：把目前編輯中的 Recipe 存到所有 IP 分區（多 CCD 一次套用同參數）。</summary>
+    public void SaveToAllIps()
+    {
+        foreach (var ip in IpNames) _recipes.Save(SelectedRecipe, Recipe, ip);
+        if (!RecipeNames.Contains(SelectedRecipe)) RecipeNames.Add(SelectedRecipe);
+        _log.Info($"配方 '{SelectedRecipe}' 已存到所有 IP：{string.Join(",", IpNames)}");
+    }
+
+    /// <summary>#33 刪除配方（整個資料夾）。若刪的是目前配方 → 退回 DEFAULT。</summary>
+    public void DeleteRecipe(string name)
+    {
+        _recipes.DeleteRecipe(name);
+        RefreshNames();
+        if (SelectedRecipe == name) Select("DEFAULT");
+    }
+
+    /// <summary>#33 開資料夾用：配方資料夾路徑。</summary>
+    public string RecipeFolder(string name) => _recipes.RecipeFolder(name);
+
+    /// <summary>#7 把目前配方某 IP 參數批次複製到多個目標配方。回傳實際複製數。</summary>
+    public int CopyParamsToMany(System.Collections.Generic.IEnumerable<string> dstRecipes)
+        => _recipes.CopyRecipeParamsToMany(SelectedRecipe, dstRecipes, SelectedIp);
+
     /// <summary>存 per-recipe RecipeSetting.xml（主視窗 RecipeSetting 面板「儲存」用）。</summary>
     public void SaveRecipeSetting() => _recipes.SaveRecipeSetting(SelectedRecipe, RecipeSaving);
 

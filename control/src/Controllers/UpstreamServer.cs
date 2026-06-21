@@ -32,6 +32,7 @@ public sealed class UpstreamServer : IDisposable
     public const string CF_CHECK_ALIGN  = "CF_CHECK_ALIGN";
     public const string CF_SET_ALIGN    = "CF_SET_ALIGN";
     public const string CF_GET_RESULT   = "CF_GET_RESULT";
+    public const string CF_STOP         = "CF_STOP";
 
     public sealed record GetResultPayload(string FilePaths, string DefectCounts);
 
@@ -46,6 +47,8 @@ public sealed class UpstreamServer : IDisposable
     public Func<Task<CheckAlignPayload>>? OnCheckAlign { get; set; }
     // SET_ALIGN：把上位機傳來的 shiftX/Y 轉給 IP 套回 zones
     public Func<double, double, Task>? OnSetAlign { get; set; }
+    // STOP（#25）：中斷目前取像/檢測。offline 無取像對象 → 不綁 → 誠實失敗 ERR（決策 A，待 Step4+/相機）
+    public Func<Task<bool>>? OnStop { get; set; }
     // 上位機 client 連上(true)/斷線(false) → 連線燈（真狀態）
     public Action<bool>? OnConnectedChanged { get; set; }
 
@@ -165,6 +168,18 @@ public sealed class UpstreamServer : IDisposable
                         {
                             var r = OnGetResult is null ? new GetResultPayload("", "0") : await OnGetResult();
                             await writer.WriteLineAsync(Resp(true, p1: r.FilePaths, p2: r.DefectCounts));
+                            break;
+                        }
+                        case CF_STOP:
+                        {
+                            // #25：中斷取像/檢測。★A 誠實失敗：offline 無取像對象可停 → ERR（待 Step4+/相機）
+                            if (OnStop is null)
+                            {
+                                await writer.WriteLineAsync(Resp(false, errMsg: "STOP 未支援：offline 無取像對象可停（待 Step4+/相機）"));
+                                break;
+                            }
+                            var ok = await OnStop();
+                            await writer.WriteLineAsync(Resp(ok, errMsg: ok ? "" : "stop failed"));
                             break;
                         }
                         case CF_READY:
