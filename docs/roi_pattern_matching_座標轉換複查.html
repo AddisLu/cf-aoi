@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CF-AOI｜ROI 設定與 Pattern Matching 座標轉換複查</title>
+<style>
+  :root{
+    --bg:#0f1419; --card:#1a212b; --card2:#222b38; --ink:#e6edf3; --mut:#9fb0c0;
+    --line:#2d3a48; --accent:#4ea1ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+    --code:#0b0f14; --kw:#ff7b72; --str:#a5d6ff; --num:#79c0ff; --cm:#7d8c9a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.7 -apple-system,"PingFang TC","Microsoft JhengHei",Segoe UI,sans-serif;}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
+  .sub{color:var(--mut);margin:0 0 26px;font-size:13.5px}
+  h2{font-size:20px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:16px;margin:24px 0 10px;color:var(--accent)}
+  p{margin:10px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  code{background:#1f2730;padding:1.5px 6px;border-radius:5px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;color:#ffd9a0}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;margin:12px 0}
+  pre code{background:none;padding:0;color:#c9d6e0;font-size:12.8px;line-height:1.6}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--card2);color:#cfe2f5}
+  tr:nth-child(even) td{background:#19222d}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:20px;letter-spacing:.4px}
+  .t-ok{background:rgba(63,185,80,.16);color:var(--ok);border:1px solid rgba(63,185,80,.4)}
+  .t-warn{background:rgba(210,153,34,.16);color:var(--warn);border:1px solid rgba(210,153,34,.4)}
+  .t-bad{background:rgba(248,81,73,.16);color:var(--bad);border:1px solid rgba(248,81,73,.4)}
+  .t-info{background:rgba(78,161,255,.16);color:var(--accent);border:1px solid rgba(78,161,255,.4)}
+  .finding{border-left:4px solid var(--line);padding:14px 18px;margin:16px 0;border-radius:0 10px 10px 0;background:var(--card)}
+  .f-bad{border-left-color:var(--bad)}
+  .f-warn{border-left-color:var(--warn)}
+  .f-ok{border-left-color:var(--ok)}
+  .finding h3{margin-top:0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .lbl{color:var(--mut);font-size:12.5px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+  .path{color:#ffd9a0;font-family:"SF Mono",Menlo,monospace;font-size:12.5px}
+  .eq{font-size:15px;background:#10171f;border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin:10px 0;color:#d7e6f5}
+  ul{margin:8px 0 8px 4px;padding-left:22px}
+  li{margin:5px 0}
+  .toc{columns:2;font-size:13.5px}
+  @media(max-width:760px){.toc{columns:1}}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .note{font-size:13px;color:var(--mut)}
+  .kbd{background:#252e3a;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:12px}
+  .arrow{color:var(--accent);font-weight:700}
+  hr{border:none;border-top:1px solid var(--line);margin:30px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>ROI 設定與 Pattern Matching 座標轉換複查</h1>
+  <p class="sub">CF-AOI 分散式架構｜考古 <code>Reference/PrjCfAoi</code> → 對照新版（ip/ C++CUDA, control/ C# Avalonia）｜2026-06-19</p>
+
+  <div class="card">
+    <div class="lbl">本文件回答三件事</div>
+    <div class="toc">
+      <a href="#how">① 座標轉換該怎麼做（契約 / 教學）</a><br>
+      <a href="#legacy">② Legacy 考古結果</a><br>
+      <a href="#new">③ 新版程式現況</a><br>
+      <a href="#gap">④ 新舊差距 + 複查發現（含 1 個真實 bug）</a><br>
+      <a href="#summary">⑤ 結論與待辦</a>
+    </div>
+  </div>
+
+  <!-- ===================== 1 ===================== -->
+  <h2 id="how">① 座標轉換該怎麼做（契約）</h2>
+
+  <p>本系統用 <b>模型 A（Legacy 原汁）</b>：每台 CCD 各自一份本地像素 ROI，加上各自的對位 Mark（<code>M_AlignRoi</code>）來吸收面板放置的起始點差異。沒有「全域 ROI」這回事——全部以該 CCD 影像的像素座標表示。</p>
+
+  <h3>座標系定義</h3>
+  <ul>
+    <li><b>原點</b>＝該 CCD 影像左上角 (0,0)；<b>X</b> 向右增、<b>Y</b> 向下增（影像像素座標）。</li>
+    <li>ROI 用 <code>StartX / StartY / EndX / EndY</code> 表矩形；任一邊 <code>-1</code> = 全幅。</li>
+    <li>對位後缺陷的全域座標 <code>GlobalPosX/Y</code> 仍是像素；可再乘光學解析度得 μm。</li>
+  </ul>
+
+  <h3>完整轉換鏈（教導 → 執行 → 套回 → 缺陷座標）</h3>
+  <table>
+    <tr><th>階段</th><th>做法</th><th>公式</th></tr>
+    <tr><td><b>1. 教導</b></td><td>在影像上標 Mark 期望位置 <code>ReferX/ReferY</code>，截下該處 golden 樣板（PatternPath）。</td><td class="note">Refer = 「Mark 應該在哪」的基準點</td></tr>
+    <tr><td><b>2. 裁搜尋窗</b></td><td>執行時從實拍幀以 Refer 為<b>中心</b>裁一塊 <code>SearchWidth×SearchHeight</code>。</td><td class="eq" style="margin:0">offset = (ReferX − SearchW/2, ReferY − SearchH/2)</td></tr>
+    <tr><td><b>3. 找 Mark</b></td><td>在搜尋窗內做 pattern matching（歸一化相關），取最高分位置（+ 次像素擬合）。</td><td class="note">得 mark 在搜尋窗內的中心 (markCx, markCy)</td></tr>
+    <tr><td><b>4. 算位移</b></td><td>Mark 實際中心 − 搜尋窗中心 = 偏移量。</td><td class="eq" style="margin:0">ShiftX = markCx − SearchW/2<br>ShiftY = markCy − SearchH/2</td></tr>
+    <tr><td><b>5. 套回 ROI</b></td><td>所有 DetectRoi 整體平移 Shift（純平移，不旋轉）。</td><td class="eq" style="margin:0">AlignedStart = Start + Shift<br>AlignedEnd&nbsp;&nbsp;= End&nbsp;&nbsp;+ Shift</td></tr>
+    <tr><td><b>6. 缺陷全域座標</b></td><td>ROI 內局部質心 + 該 ROI 在影像中的偏移。</td><td class="eq" style="margin:0">GlobalPos = roi_offset + 局部質心<br>μm = GlobalPos × opt_res</td></tr>
+  </table>
+
+  <div class="finding f-warn">
+    <h3>🔑 樞紐契約（最關鍵一句）</h3>
+    <p>位移計算的本質是 <b>「Mark − 搜尋窗中心」</b>。因此這個位移要等於「Mark 相對教導點 Refer 的偏移」，<b>唯一前提是搜尋窗必須恰好以 Refer 為中心裁切</b>。一旦搜尋窗中心 ≠ Refer（例如近邊界被夾小），Shift 的物理意義就跑掉了。新舊版都靠這條契約成立。</p>
+  </div>
+
+  <!-- ===================== 2 ===================== -->
+  <h2 id="legacy">② Legacy 考古結果（Reference/PrjCfAoi）</h2>
+
+  <h3>ROI 與對位參數的資料結構</h3>
+  <div class="grid">
+    <div class="card">
+      <div class="lbl">DetectRoi（檢測區）<span class="path">ClibCf/Recipe.cs:36-204</span></div>
+      <pre><code>int StartX/StartY/EndX/EndY = -1;   // ROI 邊界(像素)
+double BrightThreshold / DarkThreshold;
+int PitchX / PitchY;                // 網格週期
+int SearchX / SearchY;              // 搜尋範圍
+string AlgorithmCompare = "DIV";    // DIV / SUB
+// 對位後動態欄位：
+int AlignShiftX/Y, AligndStartX/Y, AligndEndX/Y;
+void SetAligned(int sx,int sy){
+  AligndStartX = StartX + sx;       // ← 純直加
+  AligndStartY = StartY + sy;
+  AligndEndX   = EndX   + sx;
+  AligndEndY   = EndY   + sy;
+}</code></pre>
+    </div>
+    <div class="card">
+      <div class="lbl">AlignRoi（對位 Mark）<span class="path">ClibCf/Recipe.cs:227-255</span></div>
+      <pre><code>bool   AlignEnable   = false;
+string PatternPath   = "";   // Mark 樣板圖
+int    ReferX/ReferY = -1;   // 搜尋中心(=Mark應在處)
+int    SearchWidth   = 1000; // 搜尋窗寬
+int    SearchHeight  = 1000; // 搜尋窗高</code></pre>
+    </div>
+  </div>
+
+  <h3>找 Mark + 算位移（MIL Pattern Matching）</h3>
+  <p class="path">PrjCfAoi/Class/CamProc.cs:307-485</p>
+  <pre><code><span style="color:var(--cm)">// 用 Matrox MIL 歸一化模式匹配，啟用 ±180° 旋轉搜尋</span>
+MpatAlloc(M_NORMALIZED ...);  MpatDefine(...);
+MpatControl(SEARCH_ANGLE_MODE, ENABLE);  // ±180°
+MpatControl(ACCEPTANCE, 50);
+
+<span style="color:var(--cm)">// 以 Refer 為中心裁搜尋窗</span>
+childOffsetX = ReferX - SearchWidth/2;
+childOffsetY = ReferY - SearchHeight/2;
+checkBoundary(... ref childOffsetX, ref childSizeX ...);  // 近邊會夾小
+MpatFind(... 找到 markCx, markCy ...);
+
+<span style="color:var(--cm)">// 位移 = Mark − 搜尋窗中心</span>
+M_ShiftX = markCx - childSizeX/2;
+M_ShiftY = markCy - childSizeY/2;</code></pre>
+
+  <h3>上位機命令鏈</h3>
+  <table>
+    <tr><th>命令</th><th>行為</th><th>位置</th></tr>
+    <tr><td><code>CF_CHECK_ALIGN</code></td><td>等對位完成，回 <code>CamStatus | ShiftX | ShiftY</code>；失敗回 ERR。</td><td class="path">MainProc.cs:667-797</td></tr>
+    <tr><td><code>CF_SET_ALIGN</code></td><td>收 <code>Result | ShiftX | ShiftY</code>，對所有 CamProc <code>SetAlignShift</code>，再 <code>SetAligned</code> 套回所有 ROI。</td><td class="path">MainProc.cs:799-893</td></tr>
+  </table>
+
+  <h3>缺陷全域座標</h3>
+  <p class="path">CamProc.cs:764-766</p>
+  <pre><code>GlobalPosX = o_offsetX + GC_X;   // o_offset = Aligned ROI 偏移
+GlobalPosY = o_offsetY + GC_Y;</code></pre>
+
+  <div class="card note">
+    <b>Legacy 重點：</b>對位＝<b>純平移</b>（旋轉雖偵測但 ROI 只加 Shift，不轉）；座標一律影像像素；搜尋窗以 Refer 為中心；近邊用 <code>checkBoundary</code> 夾小（隱性靠 Refer 遠離邊界保證正確）。
+  </div>
+
+  <!-- ===================== 3 ===================== -->
+  <h2 id="new">③ 新版程式現況</h2>
+
+  <h3>ROI 欄位映射（legacy → ZoneConfig）</h3>
+  <p class="path">ip/src/config/zone_config_adapter.cpp:100-162</p>
+  <table>
+    <tr><th>legacy DetectRoi</th><th>ZoneConfig</th><th>備註</th></tr>
+    <tr><td>StartX/StartY/EndX/EndY</td><td>roi_start_x/y, roi_end_x/y</td><td>-1 = 全幅</td></tr>
+    <tr><td>BrightThreshold / DarkThreshold</td><td>BTH / DTH</td><td>比例式 DIV 域，嚴格相等</td></tr>
+    <tr><td>PitchX / PitchY</td><td>pitch_x / pitch_y</td><td></td></tr>
+    <tr><td>SearchX / SearchY</td><td>search_range_x / search_range_y</td><td></td></tr>
+    <tr><td>SearchY (clamp)</td><td>fast_search_range</td><td>clamp(SearchY, 0, 2)</td></tr>
+    <tr><td>AlgorithmCompare</td><td>—</td><td><span class="tag t-bad">只收 DIV</span> SUB 拒絕載入</td></tr>
+  </table>
+
+  <h3>對位引擎（OpenCV matchTemplate）</h3>
+  <p class="path">ip/src/align_engine.cpp:45-148</p>
+  <pre><code><span style="color:var(--cm)">// 多角度搜尋（僅 ±3°，step 0.5°）+ TM_CCOEFF_NORMED + 拋物線次像素</span>
+for (angle = -range; ... ) {
+  rotated = rotate_template(golden, angle);
+  matchTemplate(search_roi, rotated, result, TM_CCOEFF_NORMED);
+  minMaxLoc(...);                     // 取峰值
+  <span style="color:var(--cm)">// 3-point parabolic fit → sub_c, sub_r（誤差 &lt;0.1px）</span>
+}
+if (best_score &lt; score_threshold) return {ok:false, ERR};
+
+match_cx = best_col + golden.cols*0.5;          <span style="color:var(--cm)">// Mark 中心</span>
+match_cy = best_row + golden.rows*0.5;
+shift_x  = match_cx - search_roi.cols*0.5;       <span style="color:var(--cm)">// = legacy markCx - SearchW/2</span>
+shift_y  = match_cy - search_roi.rows*0.5;</code></pre>
+
+  <h3>套回 ROI + 偵測用 eff_*</h3>
+  <div class="grid">
+    <div class="card">
+      <div class="lbl">SET_ALIGN handler <span class="path">ip/src/main.cpp:460-468</span></div>
+      <pre><code>for (auto& z : zones) {
+  z.aligned_start_x = z.roi_start_x + round(shift_x);
+  z.aligned_start_y = z.roi_start_y + round(shift_y);
+  z.aligned_end_x   = z.roi_end_x   + round(shift_x);
+  z.aligned_end_y   = z.roi_end_y   + round(shift_y);
+}</code></pre>
+    </div>
+    <div class="card">
+      <div class="lbl">eff_* / is_full_frame <span class="path">zone_config_adapter.h:79-86</span></div>
+      <pre><code>eff_start_x(){ return aligned_start_x>=0
+                 ? aligned_start_x : roi_start_x; }
+is_full_frame(){ return eff_start_x()&lt;0 || ... ; }
+<span style="color:var(--cm)">// zone_rect 用 eff_*，對位前 fallback roi_*</span></code></pre>
+    </div>
+  </div>
+
+  <h3>協議與全域座標</h3>
+  <ul>
+    <li><b>CHECK_ALIGN</b>（<span class="path">ip/src/control_server.cpp:852-908</span>）：收 Control 預裁好的搜尋 ROI bytes，跑 <code>run_align</code>，回 <code>shift_x/y/score</code>；失敗回 ERR。</li>
+    <li><b>SET_ALIGN</b>（<span class="path">control_server.cpp:840-850</span> → <code>set_align_</code>）：套回所有 zone。</li>
+    <li><b>CF_CHECK_ALIGN / CF_SET_ALIGN</b>（<span class="path">control/UpstreamServer.cs:125-162</span>）：offline 刻意不綁 → 回誠實 ERR（<span class="path">UpstreamWiring.cs:52</span>）。</li>
+    <li><b>全域座標</b>（<span class="path">ip/src/result_saver.cpp:44-68</span>）：<code>GlobalPos = roi_offset + center</code>；<code>μm = GlobalPos × opt_res</code>（opt_res=0 → μm=0 sentinel）。</li>
+  </ul>
+
+  <!-- ===================== 4 ===================== -->
+  <h2 id="gap">④ 新舊差距 + 複查發現</h2>
+
+  <table>
+    <tr><th>面向</th><th>Legacy</th><th>新版</th><th>判定</th></tr>
+    <tr><td>找 Mark 引擎</td><td>MIL MpatFind</td><td>OpenCV matchTemplate</td><td><span class="tag t-info">不同引擎、契約同</span></td></tr>
+    <tr><td>旋轉搜尋範圍</td><td>±180°</td><td>僅 ±3°</td><td><span class="tag t-warn">範圍縮小</span></td></tr>
+    <tr><td>位移公式</td><td>markCx − SearchW/2</td><td>match_cx − roi.cols/2</td><td><span class="tag t-ok">等效</span></td></tr>
+    <tr><td>套回 ROI</td><td>Start + (int)Shift</td><td>roi + round(Shift)</td><td><span class="tag t-ok">等效（round 略準）</span></td></tr>
+    <tr><td>旋轉套用到 ROI</td><td>否（純平移）</td><td>否（純平移）</td><td><span class="tag t-ok">一致</span></td></tr>
+    <tr><td>全域座標 / μm</td><td>offset + GC</td><td>offset + center（+μm 新增）</td><td><span class="tag t-ok">一致＋擴充</span></td></tr>
+    <tr><td>搜尋窗裁切端</td><td>CamProc 內（含 checkBoundary）</td><td>Control 端預裁（尚未實作）</td><td><span class="tag t-bad">缺口</span></td></tr>
+  </table>
+
+  <div class="finding f-bad">
+    <h3>🔴 F1（真實 bug）：對「全幅 zone」套對位 → ROI 被毀成 ~1px</h3>
+    <p><span class="path">ip/src/main.cpp:462-467</span> 無條件對<b>所有</b> zone 算 <code>aligned_* = roi_* + round(shift)</code>。當 zone 為全幅（<code>roi_start_x = -1</code>）且 <code>shift &gt; 0</code>：</p>
+    <div class="eq">aligned_start_x = -1 + 7 = <b style="color:var(--bad)">6 (≥0)</b> &nbsp;→&nbsp; is_full_frame() 變 false &nbsp;→&nbsp; zone_rect 算出 x1=6, x2=7 = <b style="color:var(--bad)">1px 寬</b></div>
+    <p>整張全幅檢測區被縮成 1 像素。負 shift 矇對、混合 shift 更亂 → 非決定性錯誤。Legacy 無此問題（其全幅是 -1 在演算法層另行處理，未做 <code>-1 + shift</code> 的整數運算覆蓋）。</p>
+    <p><b>修法</b>：SET_ALIGN handler 先跳過全幅 zone，保留 <code>-1</code> sentinel：</p>
+    <pre><code>for (auto& z : zones) {
+  <b style="color:var(--ok)">if (z.is_full_frame()) continue;</b>   // 全幅不套位移
+  z.aligned_start_x = z.roi_start_x + round(shift_x);
+  ...
+}</code></pre>
+  </div>
+
+  <div class="finding f-warn">
+    <h3>🟠 F2（契約風險）：搜尋窗必須以 Refer 為中心，且近邊不可夾小</h3>
+    <p>新版 <code>shift = mark − search_roi 中心</code>，所以 Control 端裁搜尋窗時<b>必須恰為 SearchW×SearchH、中心 = ReferX/Y</b>。但 <span class="path">IpClient.CheckAlignAsync</span> 只收「已裁好」的 payload，<b>真正從實拍幀做中心裁切並呼叫它的生產程式尚未實作</b>（offline 回 ERR）。Legacy 的 <code>checkBoundary</code> 近邊會夾小搜尋窗 → 中心偏移 → shift 語意跑掉（legacy 隱性靠 Refer 遠離邊界）。</p>
+    <p><b>動作</b>：把契約寫成不變式 + 文件（「搜尋窗中心 = Refer；近邊以補零維持尺寸，不得 clamp 縮小」）。實際裁切串接屬 Step4 取像，本次不實作。</p>
+  </div>
+
+  <div class="finding f-warn">
+    <h3>🟡 F3（已知限制）：旋轉只回報不套用，且範圍僅 ±3°</h3>
+    <p><code>angle_deg</code> 有偵測但 SET_ALIGN 只套平移（與 legacy 同，model A）。單 CCD 小 FOV + 各自 Mark 下殘留旋轉誤差小，可接受；但 legacy ±180°、新版僅 ±3°，若面板擺放角度偏大會匹配失敗。<b>動作</b>：文件標明邊界，並確認 <code>score_threshold</code> 能擋大角度誤匹配。</p>
+  </div>
+
+  <div class="finding f-ok">
+    <h3>🟢 F4（清理）：死碼</h3>
+    <p><span class="path">align_engine.cpp:26-41</span> 的 <code>parabolic_fit_1d</code> 是佔位函式（直接回 peak、從未被呼叫，真正擬合內聯在 101-116）。<b>動作</b>：刪除，避免誤導。</p>
+  </div>
+
+  <!-- ===================== 5 ===================== -->
+  <h2 id="summary">⑤ 結論與待辦</h2>
+
+  <div class="card">
+    <p>✅ <b>座標轉換核心邏輯新舊一致且正確</b>：位移公式、ROI 純平移套回、全域座標 (+μm) 皆等效於 legacy。IP 端對位已 L3 驗過（<code>verify_alignment.py</code> 8/8：ShiftX=7.001 / ShiftY=3.000，誤差 &lt;0.001px，n_aligned=n0=7 不爆量）。</p>
+    <p>複查另發現需處理項：</p>
+    <table>
+      <tr><th>編號</th><th>項目</th><th>嚴重度</th><th>動作</th></tr>
+      <tr><td>F1</td><td>全幅 zone 套對位被毀成 1px</td><td><span class="tag t-bad">Bug</span></td><td>main.cpp 加 is_full_frame skip + 回歸 case</td></tr>
+      <tr><td>F2</td><td>中心裁切契約 / 生產裁切端缺</td><td><span class="tag t-warn">契約</span></td><td>立不變式+文件（裁切實作待 Step4）</td></tr>
+      <tr><td>F3</td><td>旋轉不套用、±3° 限制</td><td><span class="tag t-warn">限制</span></td><td>文件標邊界、確認 threshold</td></tr>
+      <tr><td>F4</td><td>parabolic_fit_1d 死碼</td><td><span class="tag t-info">清理</span></td><td>刪除</td></tr>
+    </table>
+    <p class="note"><b>驗證計畫：</b>① 新增 align_verify 全幅+對位 case（驗 is_full_frame 仍 true、缺陷數=n0）；② 重跑 verify_alignment.py 確認不回歸；③ 同圖兩跑 bit-exact；④ F2/F3 文件契約標 L1，待 Step4 真取像端到端驗 L3。</p>
+  </div>
+
+  <hr>
+  <p class="note">產出依據：考古 <code>Reference/PrjCfAoi</code>（Recipe.cs / CamProc.cs / MainProc.cs）+ 新版 <code>ip/src/align_engine.cpp · main.cpp · control_server.cpp · zone_config_adapter.*</code>、<code>control/src/.../IpClient.cs · UpstreamServer.cs</code> 與 docs（CLAUDE.md / STATUS.md / *_程式完整說明.md）逐檔讀碼。</p>
+
+</div>
+</body>
+</html>

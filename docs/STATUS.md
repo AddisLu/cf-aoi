@@ -3,7 +3,7 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。⑥ **2026-06-19 docs 全面對齊**：上位機 CF_ 已接線 L2/L3(端到端跑通,真上位機/μm 維 L4 不混)；補 RoiImageView/SingleCcdSetupView/ArrayTopology/UpstreamWiring 進 control 說明 §2/5/6/16；模組表補相機陣列/RoiImageView/單 CCD 工作台；清理 cruft(.pyc/測試 recipes untrack)。）
+> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。⑥ **2026-06-19 docs 全面對齊**：上位機 CF_ 已接線 L2/L3(端到端跑通,真上位機/μm 維 L4 不混)；補 RoiImageView/SingleCcdSetupView/ArrayTopology/UpstreamWiring 進 control 說明 §2/5/6/16；模組表補相機陣列/RoiImageView/單 CCD 工作台；清理 cruft(.pyc/測試 recipes untrack)。⑦ **2026-06-21 三模組獨立重驗**：#1–#34 一致無漏列；校正 **#9 範圍**（legacy 9 個 AlgorithmWay string，缺失 7 非-8-way 幾何模式，8-Way 已做）；**#19** 加備註（AlgorithmWay 的 EdgeDetect(51000) 邊緣模式同根因併入）；**#24** 加「SaveAiTrain→DefectSort **部分替代**」備註；新增「已知新碼缺陷」短表（F1 全幅對位 1px bug）。）
 
 ## 分級定義
 
@@ -243,7 +243,7 @@
 | **#6** | 多 IP 配方編輯（per-CCD 單一入口）| **L2（單機驗）**| **2026-06-18 完成**：考古確認 legacy 多 IP（一份配方 = PC/Recipe/IP1~IP4，`frmIpParamEditor.cs:493-588` 分頁+GroupBox、`frmAoiSettingEditor.cs:938-969` per-IP PropertyGrid）。新版做成**單一入口**:`RecipeStore` IP-aware（`IpNames`/`SelectedIp`/`Select(recipe,ip)` 載 `{recipe}/{ip}/RecipeInfo.xml`，切 IP 重載；`Save` per-IP），ZoneParamEditor 加 IP/CCD 下拉。可擴充:預設單台 IP0,`appsettings RecipeIps` 加 IP1/IP2… 即多台（預留 GPU 給外圍 AI 區運算的分散式設計）。`--selftest store` 驗:IP0.PitchX=11/IP1.PitchX=22 per-IP 隔離 + 切回重載 PASS。版面待 Mac 目視 → L2/L3。|
 | **#7** | 配方批次複製 | **L0（未做）**| legacy `frmCopyRecipeParamToRecipe.cs`（跨配方複製參數）；Control 只「找不到自動生成預設」，無批次複製 |
 | **#8** | 互動 ROI 繪製（影像上框選）| **L1（待 Mac 目視）**| **2026-06-18 完成**：考古確認 legacy 影像框選在 `frmAlgorithmTestTools.cs:474-531`(addRect/拖矩形),但有 bug(DrawGroupList 沒寫回 DetectRoiList)。新版做進**有影像的 Step1View**:「框 ROI」鈕 → 影像上拖矩形(重用既有 matrix 座標轉換)→ 寫回 `RecipeStore.PrimaryZone` StartX/Y/EndX/Y(夾邊界、單一資料來源,ZoneParamEditor 數值即時同步)+ 畫現有 ROI 藍框/拖曳黃框;「ROI 全幅(-1)」清除。修了 legacy 沒接的「畫→寫回配方」。build 0 警告;互動待 Addis Mac 目視 → L1。|
-| **#9** | 2/4-way kernel | **L0（未做）**| ip `zone_config_adapter.cpp:162` `AlgorithmWay` 忽略；Demo `cuda_kernels_fast.cu` 只有 8-way（`kernelFast8Way{Texture,Comparison,Shared}` @123/239/346），無 2/4-way 變體 |
+| **#9** | 非-8-way AlgorithmWay 幾何偵測模式（2-Way-UD/RL · 4-Way-Arrow · 2D-Diamond · 2D-Rect · 2D-Polygon-Avg/Way，共 7 模式）| **L0（未做）**| legacy 9 模式 string 派發於 `CudaCore/CoreProcessor.cpp:100-182`（2-Way-UD 1000 / 2-Way-RL 2000 / 4-Way-Arrow 10000 / 8-Way-Star 20000 / 2D-Diamond 30000 / 2D-Rect 31000 / 2D-Polygon-Avg 32000 / 2D-Polygon-Way 32100(SUB-only) / EdgeDetect 51000）；欄位 `Recipe.cs:86`。新版僅 8-Way-Star（≡ `ip/src/gpu/cuda_kernels.cu:123/239/346`，dispatch 1114-1144），AlgorithmWay 整體忽略 `zone_config_adapter.cpp:162`。缺失 7 非-8-way 幾何模式；**EdgeDetect(51000)=邊緣/Sobel 併入 #19**（見 #19 備註） |
 | **#10–#15** | （交接僅記「工具 6 個」，未逐項定義）| **無對應（未逐一定位）**| 考古無法逐一對位 6 個工具；不逐個留幽靈號。候選工具見表二註（`mac_ip_binder`/多通道 log 可能屬此範圍但無定義佐證）|
 
 ### 表二：新增編號 #16–#21（考古確認的真正全新缺口）
@@ -253,7 +253,7 @@
 | **#16** | **Rule 改判**（ImageRuleEnable/MeanLowThreshold/HdivWThreshold/NgSizeThreshold）| `CamProc.cs:816-847` | **L0（完全缺）**| AI 又停用 → 現行**無任何自動 OK 改判**，全進人工複核（風險：過殺）|
 | **#17** | **online / image-capture 模式**（線上收圖主迴圈）| Demo `rivermax_receiver.h` / `inline_controller.cpp` / `frame_assembler.h` | **L0**| = Step 4/5 里程碑；GB10 須改 cudaHostAlloc（不變式 11）；STATUS 已列 L0 但無 gap# |
 | **#18** | **多尺度 + LSC auto-calibrate 接線**（kernel 複製進 ip 但無 caller）| Demo `cuda_kernels_fast.cu:641-770,999`；ip 同 kernel 但 `gpu_pipeline.cpp::run()`(218-306) 不呼叫 | **L0（死碼/執行路徑）**| 接線缺非演算法缺；`enable_multiscale` 帶入 ZoneConfig 但不讀；**Demo 本身亦未接**（RAG 文件 > 程式碼）|
-| **#19** | **Sobel 二次檢測**（vSobel DetectReason）| `CamProc.cs:668-725` | **L0（缺）**〔已釐清〕| Control 有欄位（SobelEnable/Dark/Bright）；**ip 主檢測路徑 `gpu/` 無 Sobel**（`ai_kernels.cu:128-160` 的 sobel 是 AI 特徵抽取，非缺陷二次檢測）→ 由「待確認」確認為**缺** |
+| **#19** | **Sobel／邊緣二次檢測**（vSobel DetectReason；含 AlgorithmWay 的 EdgeDetect 模式）| `CamProc.cs:668-725` | **L0（缺）**〔已釐清〕| Control 有欄位（SobelEnable/Dark/Bright）；**ip 主檢測路徑 `gpu/` 無 Sobel**（`ai_kernels.cu:128-160` 的 sobel 是 AI 特徵抽取，非缺陷二次檢測）→ 由「待確認」確認為**缺**。**2026-06-21 補**：legacy 邊緣/Sobel 有兩入口——① 二次 pass `SobelDetectEnable`（`CamProc.cs:668`→`DetectReason="vSobel"` `:720`，Sobel*Threshold `Recipe.cs:79-82`）② AlgorithmWay 模式 `EdgeDetect`→51000（`CudaCore/CoreProcessor.cpp:180-182` → kernel `Algo_isEdge_8bits`(`CUDA_Kernel.cu`)/`Check_isEdge_8bits`(`CUDA_KernelFunction.cu:3`)）。兩者入口不同但同屬邊緣/Sobel、新 ip `gpu/` 全無 → **同根因併入 #19，不另開號**（#9 幾何模式不含 EdgeDetect，避免重複計數） |
 | **#20** | **多通道 log**（7→3，NetRec/NetSend/Prc/Msk/GetImg 缺）| `LogMgr.vb:11-17` | **L2（部分）**| Control `LogService` 3 通道；IP 另有 flight_recorder。**可能屬原 #10–#15「工具」之一**（無定義佐證，暫給新號）|
 | **#21** | **MAC Persistent IP 綁定**（mac_ip_binder）| grab/CLAUDE.md 列 `t01_pylon_mac_setup`，但 Reference 樹下**無此原始檔** | **L0（雙缺）**| 來源懸空引用、grab 未建檔。**可能屬原 #10–#15「工具」之一**（無定義佐證，暫給新號）|
 
@@ -265,7 +265,7 @@
 |---|---|---|---|---|
 | **#22** | **MaskGen 掩碼生成** | `LibAoiSetting/frmMaskGen.cs` | **L0（缺）**| 掩碼 ROI 繪製/遮罩無對應（與 #8 互動繪製相關但功能獨立）|
 | **#23** | **Interest ROI（IOI）存圖** | `CamProc.cs:1547-1614`（DetectIoiList）| **L0（缺）**| ip 輸出 `<IoiInfoList/>` 為空殼；興趣區存圖無對應 |
-| **#24** | **AI 模型管理 UI**（掃 .onnx/刪除/配方關聯）| `frmAiModelManager.cs:36-72` | **L0（缺）**| AI 停用 → 管理 UI 未遷移；Control 只有 AiRootPath 設定欄 |
+| **#24** | **AI 模型管理 UI**（掃 .onnx/刪除/配方關聯）| `frmAiModelManager.cs:36-72` | **L0（缺）**| AI 停用 → 管理 UI 未遷移；Control 只有 AiRootPath 設定欄。**2026-06-21 補**：訓練資料匯出（legacy SaveAiTrain `RecipeSetting.cs:44-45`；資料夾 `AiTrain/{IpName}/` `MainProc.cs:444`；gate `if(SaveAiTrain)` `CamProc.cs:952/964/975` → export `MbufExport(aiDefectImagePath,…)` `:953/965/976`，路徑 `:923`）在新版為 **部分替代(partial)**：DefectSort `classification.json`+TrueDefect/Particle（`control_server.cpp:800-837`）係人工事後標，非 legacy 之線上自動匯出（且新版 AI 停用+Rule 改判=#16 L0，自動來源不存在）|
 | **#25** | **CF_STOP**（上位機中斷取像命令）| `MainProc.cs:999-1015` | **缺**| Control `UpstreamServer` 無 CF_STOP 分支（offline 無停止對象）|
 | **#26** | **BypassAlignment review**（review_offset 機制）| `CamProc.cs:1688-1812` | **L0**| ShareSetting 旗標存在但停用；review_offset 寫檔機制無對應 |
 | **#27** | **file replay（檔案→RDMA 送器）** | phase1 `t40_e2e_client_file.cpp:35-168` | **缺（grab）**| grab 無檔案 RDMA 送器（ip `file_source` 是 offline-tcp 非 RDMA 回放，不等價）|
@@ -313,6 +313,25 @@
 > ① **μm 契約**：legacy 缺陷一律 pixel、CF_GET_RESULT 只回 XML 路徑+缺陷數 → 無法確認舊上位機要不要 μm（#5 為片面提議，與 UpstreamServer 接真機同一條 follow-up）。
 > ② **#10–#15「工具」定義**：交接無逐項清單，考古無法逐一還原；#20/#21 可能屬此但無佐證。
 > ③ **#18 多尺度**：RAG_TRAINING.md 稱生效，但 Demo `batch_detector` 與 ip `run()` 皆無 launch 呼叫 → 文件 > 程式碼接線（兩邊 L0）。
+
+### 表七：三模組獨立重驗（2026-06-21）
+
+> 3 reader 重盤 legacy 全功能 ↔ control/ip/grab；**#1–#34 一致，無「legacy 有、新版零覆蓋、且不在既有號」的全新缺口**。
+> 校正（不新增號）：
+> 1. **#9** legacy 實為 9 個 AlgorithmWay string 派發（`CudaCore/CoreProcessor.cpp:100-182`），新版僅 8-Way-Star，缺失 7 非-8-way 幾何模式；其中 EdgeDetect(51000) 屬邊緣/Sobel，**經查與 #19 vSobel 入口機制不同（zone-mode vs 二次 pass）、無法證明單一同源 code path，但同根因（新 ip `gpu/` 無邊緣/Sobel）→ 併入 #19**（#9 不含 EdgeDetect，避免重複）。
+> 2. **#24** SaveAiTrain（`RecipeSetting.cs:44-45` / `CamProc.cs:952-976`）→ DefectSort 為「**部分替代**」。
+> F1–F4（對位新碼複查）= 新碼缺陷/契約，**不進 gap#**，列下方「已知新碼缺陷」短表。
+
+## 已知新碼缺陷／待修（非缺功能 gap；新碼自身問題）
+
+> 來源：`docs/roi_pattern_matching_座標轉換複查.html`（2026-06-21 對位座標轉換複查；已納版控）。**與上方「缺功能 gap#」表分離追蹤。**
+
+| 編號 | 問題 | 位置(file:line) | 嚴重度 | 修法 / 回歸計畫 |
+|---|---|---|---|---|
+| **F1** | 全幅 zone 套對位被毀成 ~1px（`roi_start_x=-1` + shift>0 → `-1+7=6(≥0)` → `is_full_frame()` 翻 false → `zone_rect` 縮成 1px）| `ip/src/main.cpp:463`（套位移）；`:166`/`config/zone_config_adapter.h:79-86`（consume）| **Bug-待修** | SET_ALIGN handler 加 `if (z.is_full_frame()) continue;`；新增 align_verify 全幅+對位 case（驗 is_full_frame 仍 true、缺陷數=n0）+ 重跑 verify_alignment.py 不回歸 + 同圖兩跑 bit-exact |
+| F2 | 中心裁切契約（窗中心=Refer、近邊補零不 clamp）；生產裁切端未實作 | `control/.../IpClient.cs CheckAlignAsync`（offline 回 ERR）| 契約/L1 | 立不變式+文件；實際裁切串接待 Step4 取像 |
+| F3 | 旋轉只回報不套用、範圍僅 ±3° | `ip/src/align_engine.cpp:45-148` | 限制 | 文件標邊界、確認 `score_threshold` 擋大角度誤匹配 |
+| F4 | `parabolic_fit_1d` 死碼（從未呼叫）| `ip/src/align_engine.cpp:26-41` | 清理 | 刪除 |
 
 ---
 
