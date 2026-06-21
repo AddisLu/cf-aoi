@@ -16,6 +16,22 @@
  *
  * 對位頻率：每片一次（CF_GRAB_START → CHECK_ALIGN），套回後沿用到下次 LOAD_RECIPE。
  * 失敗策略：score < threshold → ok=false，呼叫方回 ERR 給 Control 決定。
+ *
+ * ── 不變式 F2（搜尋窗裁切契約）─────────────────────────────────────────────
+ *   ShiftX/Y = (Mark 中心) − (search_roi 中心)，其物理意義「Mark 相對 Refer 的偏移」
+ *   只有在 **搜尋窗中心 == Refer** 時才成立。故 Control/生產端裁搜尋窗時：
+ *     • 窗中心必須 = ReferX/ReferY；
+ *     • 近影像邊界時以 **補零（pad）維持 SearchW×SearchH**，不得 clamp 縮小窗
+ *       （legacy MIL checkBoundary 會夾小 → 中心偏移 → shift 語意跑掉，本實作不沿用）。
+ *   ⚠️ 從實拍幀做「中心裁切並呼叫 run_align」的生產 wiring 待 Step4 取像端；
+ *      現 offline 由測試/Control 預裁傳入（CHECK_ALIGN payload）。
+ *
+ * ── 限制 F3（旋轉）───────────────────────────────────────────────────────
+ *   • angle 僅「回報」(AlignResult.angle_deg)，**不套回 ROI**（model A 純平移，與 legacy 同）。
+ *   • 旋轉搜尋範圍僅 ±angle_range_deg（預設 ±3°）。面板擺放角度超出此範圍時，
+ *     ±range 內最佳 TM_CCOEFF_NORMED 分數會偏低 → score < threshold → ok=false → 回 ERR，
+ *     **不會回出一個錯誤的 shift**（即 score_threshold 擋得掉大角度誤匹配；align_verify Stage 3A
+ *     15° 案實證）。若產線需大角度，須擴 angle_range_deg 或改機構保證 ±3°。
  * ============================================================================
  */
 

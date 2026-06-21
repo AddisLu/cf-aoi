@@ -218,6 +218,39 @@ def make_recipe_xml(shift_x_applied=0, shift_y_applied=0):
   <DetectIoiList/>
 </Recipe>"""
 
+def make_recipe_xml_fullframe():
+    """全幅 ROI（StartX/Y/EndX/Y = -1）配方，用於 F1 回歸（SET_ALIGN 不可塌全幅）。"""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<Recipe>
+  <M_AlignRoi>
+    <AlignEnable>true</AlignEnable>
+    <PatternPath>mark.png</PatternPath>
+    <ReferX>{MARK_CX}</ReferX>
+    <ReferY>{MARK_CY}</ReferY>
+    <SearchWidth>{SEARCH_W}</SearchWidth>
+    <SearchHeight>{SEARCH_H}</SearchHeight>
+  </M_AlignRoi>
+  <DetectRoiList>
+    <DetectRoi>
+      <StartX>-1</StartX>
+      <StartY>-1</StartY>
+      <EndX>-1</EndX>
+      <EndY>-1</EndY>
+      <AlgorithmWay>8-Way-Star</AlgorithmWay>
+      <AlgorithmCompare>DIV</AlgorithmCompare>
+      <BrightThreshold>1.4</BrightThreshold>
+      <DarkThreshold>0.6</DarkThreshold>
+      <PitchX>{PITCH_X}</PitchX>
+      <PitchY>{PITCH_Y}</PitchY>
+      <SearchX>1</SearchX>
+      <SearchY>1</SearchY>
+      <BlobMinSize>2</BlobMinSize>
+      <BlobMaxSize>500</BlobMaxSize>
+    </DetectRoi>
+  </DetectRoiList>
+  <DetectIoiList/>
+</Recipe>"""
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 驗證 helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -229,10 +262,11 @@ def check(name, cond, detail):
     print(f"[{'PASS' if cond else 'FAIL'}] {name}")
     print(f"  {detail}")
 
-def send_load_recipe(s, panel_id, shift_x_hint=0, shift_y_hint=0):
+def send_load_recipe(s, panel_id, shift_x_hint=0, shift_y_hint=0, xml=None):
     golden_bytes = make_golden_png()
     golden_b64   = base64.b64encode(golden_bytes).decode()
-    xml = make_recipe_xml()
+    if xml is None:
+        xml = make_recipe_xml()
     r = send_cmd(s, "LOAD_RECIPE", {
         "recipe": "ALIGN_TEST",
         "recipe_xml": xml,
@@ -395,6 +429,42 @@ def run_stage2c(s, n0):
               f"DefectCnt={n_aligned}")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Stage 2D — F1 回歸：全幅 ROI(-1) + SET_ALIGN → 缺陷數不崩（不塌成 1px）
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_stage2d(s):
+    print("\n=== Stage 2D: F1 全幅 zone 套對位回歸（全幅 ROI=-1 不可塌成 1px）===")
+    img = make_panel_image(shift_x=0, shift_y=0)
+
+    # LOAD_RECIPE 全幅配方 → 基準缺陷數
+    r = send_load_recipe(s, "STAGE2D", xml=make_recipe_xml_fullframe())
+    if r.get("status") != "OK":
+        check("Stage2D: LOAD_RECIPE(全幅)", False, f"{r}"); return
+    resp = send_image(s, img, "STAGE2D")
+    n_base = get_defect_count(resp)
+    check("Stage2D: 全幅基準缺陷數 > 0", n_base is not None and n_base > 0,
+          f"全幅 ROI 基準 DefectCnt={n_base}（含 ROI 內 7 缺陷 + Mark 等，須 > 0）")
+
+    # SET_ALIGN(7,3)：全幅 zone 應被跳過（保留 -1），偵測區仍全幅
+    r_set = send_cmd(s, "SET_ALIGN", {"shift_x": 7.0, "shift_y": 3.0})
+    check("Stage2D: SET_ALIGN(7,3)", r_set.get("status") == "OK", f"{r_set}")
+    resp2 = send_image(s, img, "STAGE2D")
+    n_after = get_defect_count(resp2)
+
+    # ★F1：修前 全幅 zone 被 -1+7=6 推翻 is_full_frame → ROI 塌成 ~1px → n_after≈0
+    #       修後 全幅保留 → n_after == n_base
+    check("Stage2D: ★全幅套對位後缺陷數 == 基準（F1 未塌成 1px）",
+          n_base is not None and n_after == n_base,
+          f"n_base={n_base} n_after={n_after} "
+          f"({'PASS：全幅未崩' if n_after == n_base else 'FAIL：全幅 zone 被套位移塌掉（F1 未修）'})")
+
+    # bit-exact：同圖再跑一次，缺陷數一致
+    resp3 = send_image(s, img, "STAGE2D")
+    n_again = get_defect_count(resp3)
+    check("Stage2D: 同圖兩跑缺陷數一致（bit-exact 佐證）",
+          n_again == n_after, f"n_after={n_after} n_again={n_again}")
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Stage 3A — 失敗策略：空白 ROI → CHECK_ALIGN 回 ERR
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -445,6 +515,7 @@ def main():
         n0 = run_stage2a(s)
         run_stage2b(s, n0)
         run_stage2c(s, n0)
+        run_stage2d(s)
         run_stage3a(s)
     except Exception as e:
         print(f"\n[EXCEPTION] {e}")

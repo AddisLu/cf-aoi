@@ -459,12 +459,7 @@ int main(int argc, char** argv) {
         // 每片一次：LOAD_RECIPE 清 aligned_*，SET_ALIGN 後偵測使用 eff_*。
         server.set_set_align_handler([&](double shift_x, double shift_y) {
             std::lock_guard<std::mutex> lk(zones_mtx);
-            for (auto& z : zones) {
-                z.aligned_start_x = z.roi_start_x + (int)std::round(shift_x);
-                z.aligned_start_y = z.roi_start_y + (int)std::round(shift_y);
-                z.aligned_end_x   = z.roi_end_x   + (int)std::round(shift_x);
-                z.aligned_end_y   = z.roi_end_y   + (int)std::round(shift_y);
-            }
+            apply_align_shift(zones, shift_x, shift_y);  // F1：全幅 zone 跳過，不塌成 1px
         });
 
         server.set_status_provider([&]() -> std::string {

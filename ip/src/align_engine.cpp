@@ -20,25 +20,7 @@ cv::Mat rotate_template(const cv::Mat& tmpl, double angle_deg) {
     return rotated;
 }
 
-// 拋物線次像素擬合（3-point parabolic fit）
-// 在整數峰值位置 (col, row) 附近求精確極值。
-// result = matchTemplate 結果矩陣（單通道 float）
-static double parabolic_fit_1d(const cv::Mat& result, int peak, bool along_col) {
-    if (peak <= 0 || (along_col && peak >= result.cols - 1)
-                  || (!along_col && peak >= result.rows - 1))
-        return static_cast<double>(peak);
-
-    double fm1, f0, fp1;
-    if (along_col) {
-        // 取 peak row 上三點（注意 result 是 row-major）
-        // 不固定取哪行，這裡用 peak 所在行的中心行（先從呼叫方傳入 row）
-        // 簡化：此函式只看單一維度，呼叫方分別傳 col/row 峰值行/列
-        // 沿 col 方向：固定在最佳 row 取三列
-        return static_cast<double>(peak);  // 佔位，見下方 caller
-    }
-    (void)fm1; (void)f0; (void)fp1;
-    return static_cast<double>(peak);
-}
+// 次像素擬合採 3-point parabolic，內聯於 run_align 的峰值分支（見下方 X/Y 各自 fit）。
 
 }  // namespace
 

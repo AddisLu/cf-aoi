@@ -204,6 +204,18 @@ static void run_stage3a()
             (int)r.ok, r.score);
         check("Stage3A: 隨機雜訊 → ok=false", !r.ok, buf);
     }
+
+    // Case 3 (F3 實證): 影像旋轉 15°（遠超 ±3° 搜尋）→ score < threshold → ok=false。
+    // 證 score_threshold 擋得掉大角度誤匹配（不會回出錯誤 shift）。
+    {
+        cv::Mat rot15 = rotate_image(base, 15.0);
+        AlignResult r = run_align(rot15, cfg);
+        char buf[200];
+        std::snprintf(buf, sizeof(buf),
+            "rot15°: ok=%d score=%.4f thr=%.2f (expect ok=false：±3° 搜不到 → score<thr → ERR)",
+            (int)r.ok, r.score, cfg.score_threshold);
+        check("Stage3A: 大角度 15° → ok=false（F3 score_threshold 守門）", !r.ok, buf);
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -281,6 +293,60 @@ static void run_stage3b()
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Stage 3C — F1 回歸：SET_ALIGN 套位移時，全幅 zone 不可被毀
+//   直接呼叫生產函式 apply_align_shift（main.cpp SET_ALIGN handler 共用同一份）。
+// ────────────────────────────────────────────────────────────────────────────
+
+static void run_stage3c()
+{
+    printf("\n=== Stage 3C: F1 全幅 zone 套對位回歸（apply_align_shift）===\n");
+
+    std::vector<ZoneConfig> zones(2);
+    // zoneA：正常 ROI（會被套位移）
+    zones[0].roi_start_x = 100; zones[0].roi_start_y = 200;
+    zones[0].roi_end_x   = 900; zones[0].roi_end_y   = 800;
+    // zoneB：全幅（roi_*=-1 預設）→ 必須保持全幅
+    // （預設建構即 -1）
+
+    apply_align_shift(zones, 7.0, 3.0);
+
+    // zoneA：套回 +7,+3，非全幅
+    {
+        bool pass = zones[0].eff_start_x() == 107 && zones[0].eff_start_y() == 203
+                 && zones[0].eff_end_x()   == 907 && zones[0].eff_end_y()   == 803
+                 && !zones[0].is_full_frame();
+        char buf[200];
+        std::snprintf(buf, sizeof(buf),
+            "zoneA eff=(%d,%d,%d,%d) is_full=%d (expect 107,203,907,803, is_full=0)",
+            zones[0].eff_start_x(), zones[0].eff_start_y(),
+            zones[0].eff_end_x(), zones[0].eff_end_y(), (int)zones[0].is_full_frame());
+        check("Stage3C: 正常 zone 套位移 +7,+3", pass, buf);
+    }
+    // zoneB（★F1 核心）：全幅 zone 未被推成 ≥0，is_full_frame() 仍 true
+    {
+        bool pass = zones[1].is_full_frame()
+                 && zones[1].aligned_start_x == -1 && zones[1].eff_start_x() == -1;
+        char buf[200];
+        std::snprintf(buf, sizeof(buf),
+            "zoneB aligned_start_x=%d eff_start_x=%d is_full=%d "
+            "(expect -1,-1,1：全幅未塌成 1px)",
+            zones[1].aligned_start_x, zones[1].eff_start_x(), (int)zones[1].is_full_frame());
+        check("Stage3C: ★全幅 zone 套對位後仍 is_full_frame（F1 不再塌 1px）", pass, buf);
+    }
+    // 負 shift 也不可把全幅 zone 推離 -1（方向無關）
+    {
+        std::vector<ZoneConfig> z2(1);  // 單一全幅 zone
+        apply_align_shift(z2, -5.0, -9.0);
+        bool pass = z2[0].is_full_frame() && z2[0].eff_start_x() == -1;
+        char buf[200];
+        std::snprintf(buf, sizeof(buf),
+            "neg-shift 全幅: aligned_start_x=%d is_full=%d (expect -1,1)",
+            z2[0].aligned_start_x, (int)z2[0].is_full_frame());
+        check("Stage3C: 負 shift 全幅 zone 仍全幅", pass, buf);
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -294,6 +360,7 @@ int main()
     run_stage1b();
     run_stage3a();
     run_stage3b();
+    run_stage3c();
 
     // 統計
     int pass_cnt = 0, fail_cnt = 0;

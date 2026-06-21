@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <cmath>
 
 struct ZoneConfig {
     // === 影像 ===
@@ -86,6 +87,22 @@ struct ZoneConfig {
         return eff_start_x() < 0 || eff_start_y() < 0 || eff_end_x() < 0 || eff_end_y() < 0;
     }
 };
+
+// SET_ALIGN：把 ShiftX/Y 套回所有 DetectRoi 的 aligned_* 欄位（偵測走 eff_*）。
+// F1：全幅 zone（roi_*=-1）必須跳過——否則 -1+shift≥0 會讓 is_full_frame() 翻 false、
+//     zone_rect 由全幅塌成 ~1px。保留 -1 sentinel 才能維持「全幅」語意。
+// main.cpp 的 SET_ALIGN handler 與 align_verify 共用此函式（單一真相、可單元測）。
+inline void apply_align_shift(std::vector<ZoneConfig>& zones, double shift_x, double shift_y) {
+    const int sx = (int)std::round(shift_x);
+    const int sy = (int)std::round(shift_y);
+    for (auto& z : zones) {
+        if (z.is_full_frame()) continue;          // 全幅不套位移（保留 -1）
+        z.aligned_start_x = z.roi_start_x + sx;
+        z.aligned_start_y = z.roi_start_y + sy;
+        z.aligned_end_x   = z.roi_end_x   + sx;
+        z.aligned_end_y   = z.roi_end_y   + sy;
+    }
+}
 
 // 機器層光學參數（不隨 recipe 換，不塞進 ZoneConfig）。
 struct OpticalParams {
