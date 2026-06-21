@@ -58,16 +58,18 @@
 <div class="wrap">
 
   <h1>ROI 設定與 Pattern Matching 座標轉換複查</h1>
-  <p class="sub">CF-AOI 分散式架構｜考古 <code>Reference/PrjCfAoi</code> → 對照新版（ip/ C++CUDA, control/ C# Avalonia）｜2026-06-19</p>
+  <p class="sub">CF-AOI 分散式架構｜考古 <code>Reference/PrjCfAoi</code> → 對照新版（ip/ C++CUDA, control/ C# Avalonia）｜2026-06-19（⑥⑦ 掃描幾何 + 新對位方法 2026-06-21 補）</p>
 
   <div class="card">
-    <div class="lbl">本文件回答三件事</div>
+    <div class="lbl">本文件回答</div>
     <div class="toc">
       <a href="#how">① 座標轉換該怎麼做（契約 / 教學）</a><br>
       <a href="#legacy">② Legacy 考古結果</a><br>
       <a href="#new">③ 新版程式現況</a><br>
       <a href="#gap">④ 新舊差距 + 複查發現（含 1 個真實 bug）</a><br>
-      <a href="#summary">⑤ 結論與待辦</a>
+      <a href="#summary">⑤ 結論與待辦</a><br>
+      <a href="#scan">⑥ 掃描幾何：多張怎麼拼、怎麼對位</a><br>
+      <a href="#methods">⑦ 新對位方法提案（兩 Mark / Golden 雷射）</a>
     </div>
   </div>
 
@@ -281,8 +283,172 @@ is_full_frame(){ return eff_start_x()&lt;0 || ... ; }
     <p class="note"><b>驗證計畫：</b>① 新增 align_verify 全幅+對位 case（驗 is_full_frame 仍 true、缺陷數=n0）；② 重跑 verify_alignment.py 確認不回歸；③ 同圖兩跑 bit-exact；④ F2/F3 文件契約標 L1，待 Step4 真取像端到端驗 L3。</p>
   </div>
 
+  <!-- ===================== 6 ===================== -->
+  <h2 id="scan">⑥ 掃描幾何：一顆 CCD 的多張影像怎麼拼、怎麼對位</h2>
+
+  <p>線掃描下，一顆 CCD 的一塊面板 ＝ <b>多張 frame 垂直疊成「一張連續大圖」</b>（高 = <code>ImageSizeY × FrameCnt</code>）。對位和 ROI 都在這張大圖的像素座標上做 —— <b>不是每張各自對位</b>。</p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="lbl">同一顆 CCD — 上下（frame 之間）</div>
+      <svg viewBox="0 0 280 300" width="100%" style="max-height:300px" xmlns="http://www.w3.org/2000/svg">
+        <rect x="80" y="15" width="120" height="270" fill="#10171f" stroke="#2d3a48" stroke-width="1.5"/>
+        <line x1="80" y1="82"  x2="200" y2="82"  stroke="#2d3a48" stroke-dasharray="4 3"/>
+        <line x1="80" y1="150" x2="200" y2="150" stroke="#2d3a48" stroke-dasharray="4 3"/>
+        <line x1="80" y1="218" x2="200" y2="218" stroke="#2d3a48" stroke-dasharray="4 3"/>
+        <text x="140" y="73"  fill="#9fb0c0" font-size="9.5" text-anchor="middle">frame0（第一張）</text>
+        <text x="140" y="120" fill="#9fb0c0" font-size="9.5" text-anchor="middle">frame1</text>
+        <text x="140" y="188" fill="#9fb0c0" font-size="9.5" text-anchor="middle">frame2</text>
+        <text x="140" y="255" fill="#9fb0c0" font-size="9.5" text-anchor="middle">frameN（最後張）</text>
+        <rect x="112" y="28" width="56" height="34" fill="none" stroke="#4ea1ff" stroke-dasharray="3 2"/>
+        <line x1="140" y1="37" x2="140" y2="53" stroke="#f85149" stroke-width="2"/>
+        <line x1="132" y1="45" x2="148" y2="45" stroke="#f85149" stroke-width="2"/>
+        <text x="170" y="26" fill="#4ea1ff" font-size="9">搜尋窗</text>
+        <rect x="98"  y="120" width="40" height="24" fill="rgba(63,185,80,.12)" stroke="#3fb950"/>
+        <rect x="150" y="172" width="38" height="26" fill="rgba(63,185,80,.12)" stroke="#3fb950"/>
+        <text x="118" y="135" fill="#3fb950" font-size="8.5" text-anchor="middle">ROI</text>
+        <text x="244" y="85" fill="#d29922" font-size="9" text-anchor="middle">接縫貼合</text>
+        <text x="244" y="97" fill="#d29922" font-size="9" text-anchor="middle">無 overlap</text>
+      </svg>
+      <p class="note">frame 貼合堆疊、<b>零 overlap</b>（<code>childOffsetY = ImageSizeY × frame</code>）。Mark 在整片<b>只比一次</b> → 一個位移，<b>所有 frame 共用</b>。</p>
+    </div>
+    <div class="card">
+      <div class="lbl">相鄰 CCD — 左右（CCD 之間）</div>
+      <svg viewBox="0 0 300 300" width="100%" style="max-height:300px" xmlns="http://www.w3.org/2000/svg">
+        <rect x="22"  y="60" width="80" height="150" fill="#10171f" stroke="#2d3a48"/>
+        <rect x="110" y="60" width="80" height="150" fill="#10171f" stroke="#2d3a48"/>
+        <rect x="198" y="60" width="80" height="150" fill="#10171f" stroke="#2d3a48"/>
+        <text x="62"  y="52" fill="#9fb0c0" font-size="10" text-anchor="middle">CCD16</text>
+        <text x="150" y="52" fill="#9fb0c0" font-size="10" text-anchor="middle">CCD17</text>
+        <text x="238" y="52" fill="#9fb0c0" font-size="10" text-anchor="middle">CCD18</text>
+        <rect x="22"  y="60" width="9" height="150" fill="rgba(248,81,73,.20)"/>
+        <rect x="93"  y="60" width="9" height="150" fill="rgba(248,81,73,.20)"/>
+        <rect x="110" y="60" width="9" height="150" fill="rgba(248,81,73,.20)"/>
+        <rect x="181" y="60" width="9" height="150" fill="rgba(248,81,73,.20)"/>
+        <rect x="198" y="60" width="9" height="150" fill="rgba(248,81,73,.20)"/>
+        <rect x="269" y="60" width="9" height="150" fill="rgba(248,81,73,.20)"/>
+        <text x="106" y="230" fill="#9fb0c0" font-size="9" text-anchor="middle">↑ 紅 = 左右內縮裁掉的邊</text>
+        <text x="150" y="252" fill="#f85149" font-size="10" text-anchor="middle">IndentLeft / IndentRight</text>
+        <text x="150" y="270" fill="#9fb0c0" font-size="9" text-anchor="middle">（重疊 / 不可用邊，預設 0）</text>
+      </svg>
+      <p class="note">各 CCD <b>獨立影像、獨立 recipe</b>；左右重疊 / 不可用邊靠 <code>IndentLeft/IndentRight</code> 內縮裁掉，<b>不靠 overlap</b>。缺陷最後由上位機 <code>CF_GET_RESULT</code> 依全域機器座標合併。</p>
+    </div>
+  </div>
+
+  <h3>運算時機與輸出合併（online 生產流程）</h3>
+  <div class="eq" style="text-align:center">
+    ① 對位計算 <span class="arrow">→</span> ② 收一張算一張（每張套<b>同一平移</b>，<b style="color:var(--bad)">不套旋轉</b>）<span class="arrow">→</span> ③ 輸出合併
+  </div>
+  <table>
+    <tr><th>面向</th><th>做法</th><th>出處</th></tr>
+    <tr><td><b>對位</b></td><td>拼接大圖 Mark <b>比一次</b> → ShiftX/Y（<b>純平移</b>）；旋轉量到了卻沒套用（<code>tmp_PatAngle</code> 抽出後沒人用）</td><td class="path">CamProc.cs:395-445</td></tr>
+    <tr><td><b>運算時機</b></td><td><b>inline 生產</b>：對位後<b>收一張算一張</b>（每收一張就偵測該張，不等整片）；<b>offline 調參</b>：整片載入記憶體後再算</td><td class="path">CamProc.cs:1401-1419</td></tr>
+    <tr><td><b>套位移</b></td><td>SetAligned 把<b>同一 Shift 套到全部 ROI 一次</b>（ROI 是全片座標，每張 frame 繼承）</td><td class="path">CamProc.cs:1329-1331</td></tr>
+    <tr><td><b>合併（CCD 內）</b></td><td>各 frame 缺陷用全域座標合成<b>一份</b> ResultInfo（<code>frame = GlobalPosY / ImageSizeY</code>）</td><td class="path">CamProc.cs:913</td></tr>
+    <tr><td><b>合併（跨 CCD）</b></td><td>每顆 CCD 各出一份；<b>上位機收集合併</b>，IP 端不拼圖</td><td class="path">MainProc.cs CF_GET_RESULT</td></tr>
+  </table>
+  <p class="note">⚠️ <b>新 IP 現況</b>：目前<b>逐張獨立處理</b>、<code>sliceIndex/totalSlice</code> 未用、ROI 夾在單張內（Step4 取像缺口）。「跨 slice → per-CCD 全域座標」尚未建立，是下節兩種新方法的<b>共同前置</b>。</p>
+
+  <!-- ===================== 7 ===================== -->
+  <h2 id="methods">⑦ 新對位方法提案：兩 Mark / Golden 雷射</h2>
+
+  <p>現用法 ＝ <b>單一 Mark → 純平移</b>（量得到旋轉但丟掉）。兩種升級方案本質相同：<b>多點 → 解出剛體變換（平移 + 旋轉）</b>，差別只在「<b>點怎麼來</b>」。</p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="lbl">Method 1 — 第一張 + 最後張 兩 Mark</div>
+      <svg viewBox="0 0 280 280" width="100%" style="max-height:260px" xmlns="http://www.w3.org/2000/svg">
+        <rect x="70" y="20" width="140" height="240" fill="#10171f" stroke="#2d3a48"/>
+        <line x1="140" y1="48" x2="140" y2="232" stroke="#9fb0c0" stroke-dasharray="5 4"/>
+        <line x1="118" y1="48" x2="162" y2="232" stroke="#4ea1ff" stroke-width="2"/>
+        <circle cx="140" cy="48"  r="5" fill="none" stroke="#9fb0c0" stroke-width="1.5"/>
+        <circle cx="118" cy="48"  r="5" fill="#4ea1ff"/>
+        <circle cx="140" cy="232" r="5" fill="none" stroke="#9fb0c0" stroke-width="1.5"/>
+        <circle cx="162" cy="232" r="5" fill="#4ea1ff"/>
+        <text x="140" y="34"  fill="#9fb0c0" font-size="9" text-anchor="middle">Mark A（第一張頂端）</text>
+        <text x="140" y="252" fill="#9fb0c0" font-size="9" text-anchor="middle">Mark B（最後張底端）</text>
+        <text x="200" y="140" fill="#4ea1ff" font-size="10">θ</text>
+        <text x="200" y="155" fill="#9fb0c0" font-size="8.5">兩線夾角</text>
+        <text x="30" y="100" fill="#9fb0c0" font-size="8.5">○ 教導基準</text>
+        <text x="30" y="114" fill="#4ea1ff" font-size="8.5">● 實際量到</text>
+      </svg>
+      <p class="note">兩點沿掃描軸拉出長基線 → <b>θ 量得夠準</b>。改動較小，但<b>無雷射真值、仍靠手動 teach</b>。可視為 Method 2 的 2 點特例。</p>
+    </div>
+    <div class="card">
+      <div class="lbl">Method 2 — Golden Sample 雷射打點（N 點真值座標）</div>
+      <svg viewBox="0 0 280 280" width="100%" style="max-height:260px" xmlns="http://www.w3.org/2000/svg">
+        <rect x="50" y="20" width="180" height="240" fill="#10171f" stroke="#2d3a48"/>
+        <g>
+          <circle cx="90"  cy="70"  r="4.5" fill="none" stroke="#9fb0c0"/><circle cx="95"  cy="74"  r="4.5" fill="#d29922"/>
+          <circle cx="190" cy="70"  r="4.5" fill="none" stroke="#9fb0c0"/><circle cx="194" cy="76"  r="4.5" fill="#d29922"/>
+          <circle cx="90"  cy="150" r="4.5" fill="none" stroke="#9fb0c0"/><circle cx="94"  cy="155" r="4.5" fill="#d29922"/>
+          <circle cx="190" cy="150" r="4.5" fill="none" stroke="#9fb0c0"/><circle cx="195" cy="157" r="4.5" fill="#d29922"/>
+          <circle cx="90"  cy="225" r="4.5" fill="none" stroke="#9fb0c0"/><circle cx="93"  cy="231" r="4.5" fill="#d29922"/>
+          <circle cx="190" cy="225" r="4.5" fill="none" stroke="#9fb0c0"/><circle cx="196" cy="232" r="4.5" fill="#d29922"/>
+        </g>
+        <text x="140" y="252" fill="#d29922" font-size="9" text-anchor="middle">● 實拍找到　○ 雷射真值(已知)</text>
+        <text x="140" y="40"  fill="#9fb0c0" font-size="9" text-anchor="middle">N 點最小二乘 → 平移 + 旋轉(+尺度)</text>
+      </svg>
+      <p class="note"><b>最穩、免去手動 teach 的誤差</b>：雷射打點的座標就是已知真值（ground-truth），多點互相備援、更可靠。並可<b>順便校正 pixel↔μm</b>（opt_res）。需要一份雷射座標校準檔。</p>
+    </div>
+  </div>
+
+  <div class="finding f-warn">
+    <h3>🔑 關鍵岔路：量旋轉「容易」，套旋轉「難」</h3>
+    <p>兩法都能<b>算出</b>旋轉 θ（OpenCV 幾行：2 點剛體 / N 點 <code>estimateAffinePartial2D</code>）。真正的成本在「<b>怎麼把 θ 套用到偵測</b>」—— 它撞到兩道現有約束：</p>
+    <div class="grid" style="margin-top:6px">
+      <div>
+        <svg viewBox="0 0 280 230" width="100%" style="max-height:210px" xmlns="http://www.w3.org/2000/svg">
+          <g transform="rotate(14 140 115)">
+            <circle cx="92"  cy="67"  r="3" fill="#3fb950"/><circle cx="140" cy="67"  r="3" fill="#3fb950"/><circle cx="188" cy="67"  r="3" fill="#3fb950"/>
+            <circle cx="92"  cy="115" r="3" fill="#3fb950"/><circle cx="140" cy="115" r="4.5" fill="#3fb950" stroke="#e6edf3"/><circle cx="188" cy="115" r="3" fill="#3fb950"/>
+            <circle cx="92"  cy="163" r="3" fill="#3fb950"/><circle cx="140" cy="163" r="3" fill="#3fb950"/><circle cx="188" cy="163" r="3" fill="#3fb950"/>
+          </g>
+          <g stroke="#f85149" stroke-width="1.6">
+            <line x1="88"  y1="111" x2="96"  y2="119"/><line x1="96"  y1="111" x2="88"  y2="119"/>
+            <line x1="184" y1="111" x2="192" y2="119"/><line x1="192" y1="111" x2="184" y2="119"/>
+            <line x1="136" y1="63"  x2="144" y2="71"/><line x1="144" y1="63"  x2="136" y2="71"/>
+            <line x1="136" y1="159" x2="144" y2="167"/><line x1="144" y1="159" x2="136" y2="167"/>
+          </g>
+          <text x="140" y="205" fill="#f85149" font-size="9" text-anchor="middle">✕ kernel 取鄰點(軸對齊±pitch)</text>
+          <text x="140" y="220" fill="#3fb950" font-size="9" text-anchor="middle">● 實際 pattern 節點(已轉) → 對不上</text>
+        </svg>
+      </div>
+      <div>
+        <p style="margin-top:0"><b>① kernel 假設「網格軸對齊」</b>：8-way DIV 用 <code>pitch_x/pitch_y</code> 取鄰點。面板一轉 θ，影像裡的週期網格也轉 → 鄰點取到<b>錯相位</b> → 整片假缺陷。<b>只轉 ROI 角點、bounding box 軸對齊沒用</b>（框內 pattern 還是斜的）。</p>
+        <p><b>② 要真校正只有一條路</b>：把<b>整張影像反旋轉 θ（幾何重取樣 warp）回正</b>再偵測。代價：插值 → <b>破壞 bit-exact（同圖兩跑結果逐位元相同的保證）</b>（不變式 #10/#12）+ 模糊次像素缺陷 + warp 成本 + offline 調的參數要在「回正影像」上<b>重新驗一次基準</b>。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="border-left:4px solid var(--accent)">
+    <div class="lbl">ℹ️ 什麼是 bit-exact？</div>
+    <p style="margin:6px 0 0">bit-exact 是指<b>同一張影像、用同一份程式跑兩次（或在不同機器上跑），輸出的每個 bit 都要完全一樣</b>，連一個像素的值都不能差。這專案在意它，是因為缺陷檢測的參數是在 off-line（x86）調好的、上線要在另一台機器（ARM GB10）跑生產；<b>只有結果逐位元一致，off-line 調的參數才保證對 on-line 同樣有效</b>，不會無端多抓或漏抓。一旦做了影像反旋轉 warp 這種插值，就會破壞這個保證，等於要重新驗一次決定性、重調參數基準。</p>
+  </div>
+
+  <h3>落地策略：兩條路（先決定再寫碼）</h3>
+  <table>
+    <tr><th>策略</th><th>做法</th><th>代價 / 風險</th><th>適用</th></tr>
+    <tr><td><span class="tag t-ok">A（建議）</span> 只套平移 + 旋轉超標即退件（reject）</td><td>多點只用來<b>把平移量算穩</b> + 多一道「面板擺歪」健康閘（<code>|θ| &gt; 容差 → ERR</code>）</td><td>不動 kernel、<b>保 bit-exact</b>、最省</td><td>面板殘留旋轉小（單 CCD 小 FOV）</td></tr>
+    <tr><td><span class="tag t-warn">B</span> 真校正旋轉</td><td>加<b>整張反旋轉 warp</b> 前處理回正，再跑現有軸對齊 pipeline</td><td>破 bit-exact、需重驗決定性 + 重調參數基準、warp 成本</td><td>真實面板會轉超過容差時才值得</td></tr>
+  </table>
+
+  <h3>Method 1 vs Method 2 對照</h3>
+  <table>
+    <tr><th></th><th>Method 1（兩 Mark）</th><th>Method 2（Golden 雷射）</th></tr>
+    <tr><td>參考點來源</td><td>頂端 + 底端 2 個 Mark，手動 teach</td><td>N 個雷射 fiducial，<b>真值座標已知</b></td></tr>
+    <tr><td>解算</td><td>2 點 → 剛體（θ + 平移）</td><td>N 點最小二乘 → 剛體 / 仿射</td></tr>
+    <tr><td>精度 / 冗餘</td><td>夠用；但 2 點沒有備援，只要一個點對錯就整組失準</td><td><b>高</b>；多點冗餘、可剔除離群</td></tr>
+    <tr><td>額外好處</td><td>改動小</td><td><b>順便校正 pixel↔μm</b>、免去 teach 誤差</td></tr>
+    <tr><td>前置需求</td><td colspan="2" style="text-align:center">共同：<b>per-CCD 跨 slice 全域座標模型</b>（現未建）+ 對位階段需讀「第一張 / 最後張 / 多 fiducial」所在 frame</td></tr>
+  </table>
+
+  <div class="card note">
+    <b>小結：</b>「<b>多點量測升級</b>（1→2→N 點）」可獨立成一塊、低風險；「<b>是否套旋轉</b>」才是決定改動規模與 bit-exact 的真正分岔點。建議先走 <b>策略 A</b>（多點把平移算穩 + 旋轉健康閘），把 θ 統計收進 DefectSort / 報表；唯有實測面板旋轉常超容差，才升級到 <b>策略 B</b>（反旋轉）。Method 2 雷射真值是長期更穩的基礎，Method 1 可作為先行的 2 點特例。
+  </div>
+
   <hr>
-  <p class="note">產出依據：考古 <code>Reference/PrjCfAoi</code>（Recipe.cs / CamProc.cs / MainProc.cs）+ 新版 <code>ip/src/align_engine.cpp · main.cpp · control_server.cpp · zone_config_adapter.*</code>、<code>control/src/.../IpClient.cs · UpstreamServer.cs</code> 與 docs（CLAUDE.md / STATUS.md / *_程式完整說明.md）逐檔讀碼。</p>
+  <p class="note">產出依據：考古 <code>Reference/PrjCfAoi</code>（Recipe.cs / CamProc.cs / MainProc.cs）+ 新版 <code>ip/src/align_engine.cpp · main.cpp · control_server.cpp · zone_config_adapter.*</code>、<code>control/src/.../IpClient.cs · UpstreamServer.cs</code> 與 docs（CLAUDE.md / STATUS.md / *_程式完整說明.md）逐檔讀碼。<br>⑥⑦ 補充來源：掃描幾何逐檔驗 <code>CamProc.cs:395-445 / 913 / 1329-1331 / 1401-1419</code>、<code>Configuration.cs:22-26（Indent）</code>；新方法岔路對照新版 <code>align_engine.h（run_align / AlignResult / angle 不套）· zone_config_adapter.h:95（apply_align_shift 純平移）· FrameHeader.h（sliceIndex 未用）</code>。</p>
 
 </div>
 </body>
