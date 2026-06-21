@@ -55,7 +55,11 @@ def make_image():
     for dx,dy,val,dw,dh in defects: img[dy:dy+dh, dx:dx+dw] = val
     return img
 
-def recipe_xml():
+def recipe_xml(ioi=False):
+    ioi_xml = ("<DetectIoiList>"
+               "<DetectIoi><StartX>1000</StartX><StartY>1000</StartY><EndX>1200</EndX><EndY>1200</EndY></DetectIoi>"
+               "<DetectIoi><StartX>5000</StartX><StartY>3000</StartY><EndX>5300</EndX><EndY>3400</EndY></DetectIoi>"
+               "</DetectIoiList>") if ioi else "<DetectIoiList/>"
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <Recipe><M_AlignRoi><AlignEnable>false</AlignEnable></M_AlignRoi>
 <DetectRoiList><DetectRoi>
@@ -64,17 +68,20 @@ def recipe_xml():
 <BrightThreshold>1.4</BrightThreshold><DarkThreshold>0.6</DarkThreshold>
 <PitchX>{PITCH_X}</PitchX><PitchY>{PITCH_Y}</PitchY><SearchX>1</SearchX><SearchY>1</SearchY>
 <BlobMinSize>2</BlobMinSize><BlobMaxSize>500</BlobMaxSize>
-</DetectRoi></DetectRoiList><DetectIoiList/></Recipe>"""
+</DetectRoi></DetectRoiList>{ioi_xml}</Recipe>"""
 
-def load(s, panel, bypass_x=0):
+def load(s, panel, bypass_x=0, ioi=False):
     rs = {"bypass_edge_x": bypass_x} if bypass_x else {}
-    return send_cmd(s, "LOAD_RECIPE", {"recipe": "RULES", "recipe_xml": recipe_xml(),
+    return send_cmd(s, "LOAD_RECIPE", {"recipe": "RULES", "recipe_xml": recipe_xml(ioi=ioi),
                                        "panel_id": panel, "recipe_saving": rs})
 
-def count(s, img, panel):
-    r = send_with_payload(s, "SEND_IMAGE_FOR_REVIEW",
+def review(s, img, panel, debug=False):
+    return send_with_payload(s, "SEND_IMAGE_FOR_REVIEW",
             {"panel_id": panel, "cam_id": 0, "width": W, "height": H,
-             "frame_seq": 1, "last": True, "debug": False}, img.tobytes())
+             "frame_seq": 1, "last": True, "debug": debug}, img.tobytes())
+
+def count(s, img, panel):
+    r = review(s, img, panel)
     if r.get("status") != "OK": return None
     return sum(len(z.get("DefectInfoList", [])) for z in r.get("result", {}).get("RoiInfoList", []))
 
@@ -100,6 +107,15 @@ def main():
 
     nB2 = count(s, img, "B")
     check("Stage C: 同圖兩跑一致（bit-exact 佐證）", nB2 == nB, f"nB={nB} nB2={nB2}")
+
+    # Stage D (#23): recipe 帶 DetectIoiList 2 矩形 → 結果 IoiInfoList 2 筆 + 中心座標正確
+    load(s, "D", ioi=True)
+    rd = review(s, img, "D", debug=True)
+    ioi = rd.get("result", {}).get("IoiInfoList", [])
+    ok_ioi = (len(ioi) == 2 and ioi[0].get("GlobalPosX") == 1100 and ioi[0].get("GlobalPosY") == 1100
+              and ioi[1].get("StartX") == 5000)
+    check("Stage D #23: IoiInfoList 2 筆 + 中心座標", ok_ioi,
+          f"count={len(ioi)} ioi0_center=({ioi[0].get('GlobalPosX') if ioi else '?'},{ioi[0].get('GlobalPosY') if ioi else '?'})")
 
     s.close()
     p = sum(1 for x in results if x); f = len(results) - p

@@ -111,6 +111,11 @@ struct OpticalParams {
     int ccd_index = 0;         // CCD 位置索引；預留多 CCD 拼接，值固定 0
 };
 
+// #23 興趣區（Interest ROI）：legacy DetectIoiList 的矩形（像素座標，與偵測無關，僅供存圖/監看）。
+struct IoiRect {
+    int start_x = -1, start_y = -1, end_x = -1, end_y = -1;
+};
+
 // from_recipe_xml 遇到非 DIV 模式或解析失敗時丟出此例外。
 class RecipeError : public std::runtime_error {
 public:
@@ -132,6 +137,10 @@ std::vector<ZoneConfig> from_recipe_xml(const std::string& xml_path,
                                         const ZoneConfig& defaults = ZoneConfig{});
 
 // 同上，但直接吃 XML 內容字串（跨機器：Control 經 TCP 送配方內容，IP 端不需共用檔案系統）。
+// #23 解析 <DetectIoiList> 內的 <DetectIoi> 矩形（StartX/StartY/EndX/EndY）。無則回空。
+std::vector<IoiRect> parse_ioi_list(const std::string& xml_content);
+std::vector<IoiRect> parse_ioi_list_from_file(const std::string& xml_path);
+
 std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
                                                 const ZoneConfig& defaults = ZoneConfig{});
 

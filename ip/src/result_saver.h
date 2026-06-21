@@ -47,6 +47,7 @@ struct InspectionResult {
     int ccd_index = 0;        // CCD 位置索引（預留多 CCD 拼接，值固定 0）
     double total_time_ms = 0.0;
     std::vector<ZoneResult> zones;
+    std::vector<IoiRect> ioi_list;   // #23 興趣區（DetectIoiList）；存圖時裁切+寫 IoiInfoList
 
     int total_defects() const {
         int n = 0;

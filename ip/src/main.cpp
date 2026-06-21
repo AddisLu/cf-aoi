@@ -360,6 +360,10 @@ int main(int argc, char** argv) {
     } else {
         zones = { base };  // 單一全幅 zone
     }
+    // #23 興趣區（offline-file：從 recipe 檔解析一次；offline-tcp 由 LOAD_RECIPE 解析）
+    std::vector<IoiRect> file_ioi = args.recipe.empty()
+        ? std::vector<IoiRect>{}
+        : ZoneConfigAdapter::parse_ioi_list_from_file(args.recipe);
     std::cout << "[Zone] " << zones.size() << " 個檢測區\n";
 
     // 存圖選項（調參加速）
@@ -389,6 +393,7 @@ int main(int argc, char** argv) {
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed,
                                                  cli_saving_cfg, machine_optical);
+            res.ioi_list = file_ioi;   // #23 興趣區
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
@@ -503,6 +508,7 @@ int main(int argc, char** argv) {
             scene.queue_depth = (int64_t)queue.size();  // 水位快照（進 ring，incident 時可查）
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg, machine_optical);
+            res.ioi_list = server.ioi_list();   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
             // TuningRecipe：GPU 跑、結果仍回 TCP，但完全不寫磁碟（量速/調參模式）。

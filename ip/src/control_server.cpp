@@ -432,6 +432,9 @@ void ControlServer::handle_client(int fd) {
                     saving_cfg_.hdivw_threshold    = rs.value("hdivw_threshold",    4.0);
                     saving_cfg_.ng_size_threshold  = rs.value("ng_size_threshold",  4096.0);
                 }
+                // #23 興趣區（DetectIoiList）：每次 LOAD_RECIPE 由 recipe_xml 重新解析（無則清空）
+                ioi_list_ = recipe_xml.empty() ? std::vector<IoiRect>{}
+                                               : ZoneConfigAdapter::parse_ioi_list(recipe_xml);
                 if (params.contains("share_flags")) {
                     const auto& sf = params["share_flags"];
                     share_flags_.tuning_recipe    = sf.value("tuning_recipe",    false);

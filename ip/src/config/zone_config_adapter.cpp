@@ -171,4 +171,34 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
     return zones;
 }
 
+// #23 從 recipe 檔讀內容後解析興趣區（offline-file 用；檔不存在/空則回空，不丟例外）。
+std::vector<IoiRect> parse_ioi_list_from_file(const std::string& xml_path) {
+    std::ifstream f(xml_path);
+    if (!f.is_open()) return {};
+    std::stringstream ss; ss << f.rdbuf();
+    return parse_ioi_list(ss.str());
+}
+
+// #23 解析 <DetectIoiList> 內每個 <DetectIoi>（StartX/StartY/EndX/EndY）。無則回空（向下相容）。
+std::vector<IoiRect> parse_ioi_list(const std::string& xml) {
+    std::vector<IoiRect> out;
+    const std::string open = "<DetectIoi>", close = "</DetectIoi>";
+    size_t pos = 0;
+    while (true) {
+        size_t s = xml.find(open, pos);
+        if (s == std::string::npos) break;
+        size_t e = xml.find(close, s);
+        if (e == std::string::npos) break;
+        const std::string blk = xml.substr(s + open.size(), e - (s + open.size()));
+        pos = e + close.size();
+        IoiRect r;
+        tag_int(blk, "StartX", r.start_x);
+        tag_int(blk, "StartY", r.start_y);
+        tag_int(blk, "EndX",   r.end_x);
+        tag_int(blk, "EndY",   r.end_y);
+        out.push_back(r);
+    }
+    return out;
+}
+
 }  // namespace ZoneConfigAdapter

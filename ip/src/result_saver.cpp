@@ -204,6 +204,20 @@ std::string to_json(const InspectionResult& r) {
         });
     }
     j["RoiInfoList"] = roi_list;
+
+    // #23 興趣區（DetectIoiList）：矩形 + 中心全域座標
+    json ioi_list = json::array();
+    for (size_t i = 0; i < r.ioi_list.size(); ++i) {
+        const auto& io = r.ioi_list[i];
+        ioi_list.push_back({
+            {"IoiIndex", (int)i},
+            {"StartX", io.start_x}, {"StartY", io.start_y},
+            {"EndX", io.end_x}, {"EndY", io.end_y},
+            {"GlobalPosX", (io.start_x + io.end_x) / 2},
+            {"GlobalPosY", (io.start_y + io.end_y) / 2},
+        });
+    }
+    j["IoiInfoList"] = ioi_list;
     return j.dump(2);
 }
 
@@ -294,7 +308,24 @@ int save(const InspectionResult& r,
             os << "    </RoiInfo>\n";
         }
         os << "  </RoiInfoList>\n";
-        os << "  <IoiInfoList />\n";
+        // #23 興趣區（DetectIoiList）：每個矩形 + 中心全域座標（無缺陷子清單）
+        if (r.ioi_list.empty()) {
+            os << "  <IoiInfoList />\n";
+        } else {
+            os << "  <IoiInfoList>\n";
+            for (size_t i = 0; i < r.ioi_list.size(); ++i) {
+                const auto& io = r.ioi_list[i];
+                os << "    <IoiInfo>\n";
+                os << "      <IoiIndex>" << i << "</IoiIndex>\n";
+                os << "      <StartX>" << io.start_x << "</StartX><StartY>" << io.start_y << "</StartY>\n";
+                os << "      <EndX>" << io.end_x << "</EndX><EndY>" << io.end_y << "</EndY>\n";
+                os << "      <GlobalPosX>" << (io.start_x + io.end_x) / 2 << "</GlobalPosX>"
+                   << "<GlobalPosY>" << (io.start_y + io.end_y) / 2 << "</GlobalPosY>\n";
+                os << "      <DefectInfoList />\n";
+                os << "    </IoiInfo>\n";
+            }
+            os << "  </IoiInfoList>\n";
+        }
         os << "</JudgeResult>\n";
     }
 
@@ -386,6 +417,24 @@ int save(const InspectionResult& r,
         cv::imwrite(dst + "/" + basename + "_result.png", overlay, png_fast);
     }
     double ov_ms = ms(t_ov0, clk::now());
+
+    // -- #23 興趣區（IOI）裁切存圖（與缺陷無關；固定存這些監看區，對齊 legacy DetectIoiList）--
+    int ioi_saved = 0;
+    if (opt.save_patches && !r.ioi_list.empty()) {
+        for (size_t i = 0; i < r.ioi_list.size(); ++i) {
+            const auto& io = r.ioi_list[i];
+            int x1 = std::max(0, std::min(io.start_x, io.end_x));
+            int y1 = std::max(0, std::min(io.start_y, io.end_y));
+            int x2 = std::min(w, std::max(io.start_x, io.end_x));
+            int y2 = std::min(h, std::max(io.start_y, io.end_y));
+            if (x2 <= x1 || y2 <= y1) continue;
+            cv::Mat region = gray(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
+            std::string fn = dst + "/Ioi_" + ip_tag + "_" + (i < 10 ? "0" : "") + std::to_string(i)
+                           + "_X" + std::to_string(x1) + "_Y" + std::to_string(y1) + ".png";
+            if (cv::imwrite(fn, region, png_fast)) ++ioi_saved;
+        }
+        if (ioi_saved > 0) std::cout << "[IOI] 存興趣區圖 " << ioi_saved << " 張\n";
+    }
 
     double gpu_ms = 0.0;
     for (const auto& z : r.zones) gpu_ms += z.result.process_time_ms;

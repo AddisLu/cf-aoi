@@ -31,9 +31,12 @@
 #include <thread>
 #include <unordered_map>
 
+#include <vector>
+
 #include "image_source/image_source.h"  // FrameQueue, FrameHeader
 #include "config/recipe_saving_config.h"
 #include "config/share_flags.h"
+#include "config/zone_config_adapter.h"  // IoiRect（#23）
 #include "align_engine.h"               // AlignRoiConfig
 
 class ControlServer {
@@ -76,6 +79,12 @@ public:
         return align_roi_cfg_;
     }
 
+    // #23 LOAD_RECIPE 解析的興趣區（mutex 保護）；offline-tcp 迴圈快照後存圖。
+    std::vector<IoiRect> ioi_list() const {
+        std::lock_guard<std::mutex> lk(saving_cfg_mtx_);
+        return ioi_list_;
+    }
+
     // SEND_IMAGE_FOR_REVIEW 的 debug 旗標：true → 該次存全部 patch（調參需要看小圖）；
     // false（預設）→ 只存結果+overlay 加速。由主處理迴圈讀取決定 SaveOptions。
     bool review_save_patches() const { return review_save_patches_.load(); }
@@ -108,6 +117,7 @@ private:
     // 存圖設定、共用旗標、對位設定（LOAD_RECIPE 更新；同一把鎖保護三者）
     mutable std::mutex saving_cfg_mtx_;
     RecipeSavingConfig saving_cfg_;
+    std::vector<IoiRect> ioi_list_;   // #23 LOAD_RECIPE 解析的興趣區
     ShareFlags         share_flags_;
     AlignRoiConfig     align_roi_cfg_;
 
