@@ -167,7 +167,9 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             var xml = _svc.Recipes.ToXmlString(Store.Recipe);   // 共用配方（含最新值）
-            var resp = await _conn.Ip.LoadRecipeAsync(Store.SelectedRecipe, CurPanelId, xml);
+            // #16 Rule 改判 / #32 邊界略過 + 存圖設定 → 經 recipe_saving 送 IP（live 編輯值）
+            var saving = Store.RecipeSaving.BuildRecipeSavingJson();
+            var resp = await _conn.Ip.LoadRecipeAsync(Store.SelectedRecipe, CurPanelId, xml, recipeSaving: saving);
             if (resp?["status"]?.GetValue<string>() == "OK") _log.Info($"LOAD_RECIPE {Store.SelectedRecipe} OK");
             else _log.Error($"LOAD_RECIPE 失敗：{resp?.ToJsonString()}");
         }

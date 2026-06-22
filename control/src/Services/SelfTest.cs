@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using CfAoiControl.Controllers;
@@ -45,6 +46,7 @@ public static class SelfTest
                 case "upstream": return await UpstreamTest();
                 case "remoteimg": return await RemoteImgTest();
                 case "recipemgmt": return RecipeMgmtTest();
+                case "recipesaving": return await RecipeSavingTest(rest);
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -449,6 +451,113 @@ public static class SelfTest
         Console.WriteLine(ok ? "✓ #33 配方管理(Delete/SaveAll/資料夾) + #7 批次複製 正確" : "✗ 不符");
         return ok ? 0 : 1;
     }
+
+    // #16 Rule 改判 / #32 邊界略過 的「Control→IP recipe_saving 送出端」。
+    //   (1) unit：RecipeSavingModel.BuildRecipeSavingJson 鍵名/值/型別/鍵數逐一對齊 IP control_server.cpp 解析端。
+    //   (2) e2e（選填 <host> [port]）：用 *真* IpClient.LoadRecipeAsync(recipeSaving:..) 連真 IP，
+    //       bypass_edge_x=100 使近左邊界缺陷被丟 → 缺陷數下降（證送出端到 IP 套用端整條打通）。
+    private static async Task<int> RecipeSavingTest(string[] rest)
+    {
+        bool ok = true;
+
+        // ---- (1) unit：JSON 契約 ----
+        var m = new RecipeSavingModel
+        {
+            MaxSaveDefectCount = 123, SaveDefectWidth = 80, SaveDefectHeight = 90, MaxDefectCountPass = 555,
+            BypassEdgeX = 100, BypassEdgeY = 60,
+            ImageRuleEnable = true, MeanLowThreshold = 40.5, HdivWThreshold = 4.25, NgSizeThreshold = 4096.0,
+        };
+        var j = m.BuildRecipeSavingJson();
+        var expect = new (string key, string val)[]
+        {
+            ("max_save_defect_count", "123"), ("save_defect_width", "80"), ("save_defect_height", "90"),
+            ("max_defect_count_pass", "555"), ("bypass_edge_x", "100"), ("bypass_edge_y", "60"),
+            ("image_rule_enable", "true"), ("mean_low_threshold", "40.5"), ("hdivw_threshold", "4.25"),
+            ("ng_size_threshold", "4096"),
+        };
+        foreach (var (key, val) in expect)
+        {
+            bool match = j.ContainsKey(key) && j[key]!.ToJsonString() == val;
+            ok &= match;
+            Console.WriteLine($"  recipe_saving[{key}]={(j.ContainsKey(key) ? j[key]!.ToJsonString() : "<缺>")}" +
+                              $"（期望 {val}）→ {(match ? "PASS" : "FAIL")}");
+        }
+        bool count10 = j.Count == 10;
+        Console.WriteLine($"  recipe_saving 鍵數={j.Count}（期望 10，無漏無多）→ {(count10 ? "PASS" : "FAIL")}");
+        ok &= count10;
+
+        // ---- (2) e2e（選填）：連真 IP 驗 bypass 端到端 ----
+        if (rest.Length >= 1)
+        {
+            string host = rest[0];
+            int port = rest.Length >= 2 && int.TryParse(rest[1], out var p) ? p : 8200;
+            Console.WriteLine($"\n  ── e2e：連真 IP {host}:{port}（bypass_edge_x=100 → 近左邊界缺陷被丟）──");
+            const int W = 8192, H = 5000, PX = 26, PY = 19;
+            var img = MakeEdgeDefectImage(W, H, PX, PY);
+            string xml = EdgeRecipeXml(PX, PY);
+            using var ip = new IpClient();
+            await ip.ConnectAsync(host, port);
+            int nNo = await CountWithSaving(ip, img, W, H, xml, "rs_nobypass",  new RecipeSavingModel());
+            int nBy = await CountWithSaving(ip, img, W, H, xml, "rs_bypass100", new RecipeSavingModel { BypassEdgeX = 100 });
+            bool e2eOk = nNo > 0 && nBy < nNo;
+            Console.WriteLine($"  e2e: N(bypass=0)={nNo}  N(bypass_edge_x=100)={nBy}  → 丟 {nNo - nBy} 顆近邊界 → {(e2eOk ? "PASS" : "FAIL")}");
+            ok &= e2eOk;
+        }
+        else
+        {
+            Console.WriteLine("  （未給 <host> → 略過 e2e；僅跑 JSON 契約 unit 測）");
+        }
+
+        Console.WriteLine(ok ? "✓ recipe_saving 送出端（#16/#32）JSON 契約 + e2e 正確" : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    private static async Task<int> CountWithSaving(IpClient ip, byte[] img, int w, int h,
+                                                   string xml, string panel, RecipeSavingModel saving)
+    {
+        var lr = await ip.LoadRecipeAsync("RS", panel, xml, recipeSaving: saving.BuildRecipeSavingJson());
+        if (lr?["status"]?.GetValue<string>() != "OK")
+            throw new InvalidOperationException($"LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
+        var resp = await ip.SendImageForReviewAsync(panel, 0, w, h, 0, img, last: true);
+        if (resp?["status"]?.GetValue<string>() != "OK")
+            throw new InvalidOperationException($"SEND_IMAGE 失敗：{resp?.ToJsonString()}");
+        int n = 0;
+        var rois = resp?["result"]?["RoiInfoList"]?.AsArray();
+        if (rois != null)
+            foreach (var r in rois) n += r?["DefectInfoList"]?.AsArray()?.Count ?? 0;
+        return n;
+    }
+
+    // 與 scripts/verify_rules_edge.py 同一張合成圖：grid(140/128) + 3 中間 + 2 近左邊界(x=70,85) 缺陷。
+    private static byte[] MakeEdgeDefectImage(int w, int h, int px, int py)
+    {
+        var img = new byte[(long)w * h];
+        Array.Fill(img, (byte)128);
+        for (int r = 0; r < h; r += py)
+            for (int rr = r; rr < Math.Min(r + 2, h); rr++)
+                for (int c = 0; c < w; c++) img[(long)rr * w + c] = 140;
+        for (int c = 0; c < w; c += px)
+            for (int cc = c; cc < Math.Min(c + 2, w); cc++)
+                for (int r = 0; r < h; r++) img[(long)r * w + cc] = 140;
+        (int x, int y, int v, int dw, int dh)[] defs =
+            { (2000, 2500, 220, 5, 5), (3000, 3000, 215, 4, 4), (4000, 2000, 40, 5, 5),
+              (70, 2500, 220, 5, 5), (85, 3000, 220, 4, 4) };
+        foreach (var (x, y, v, dw, dh) in defs)
+            for (int yy = y; yy < y + dh; yy++)
+                for (int xx = x; xx < x + dw; xx++) img[(long)yy * w + xx] = (byte)v;
+        return img;
+    }
+
+    private static string EdgeRecipeXml(int px, int py) =>
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+        "<Recipe><M_AlignRoi><AlignEnable>false</AlignEnable></M_AlignRoi>\n" +
+        "<DetectRoiList><DetectRoi>\n" +
+        "<StartX>-1</StartX><StartY>-1</StartY><EndX>-1</EndX><EndY>-1</EndY>\n" +
+        "<AlgorithmWay>8-Way-Star</AlgorithmWay><AlgorithmCompare>DIV</AlgorithmCompare>\n" +
+        "<BrightThreshold>1.4</BrightThreshold><DarkThreshold>0.6</DarkThreshold>\n" +
+        $"<PitchX>{px}</PitchX><PitchY>{py}</PitchY><SearchX>1</SearchX><SearchY>1</SearchY>\n" +
+        "<BlobMinSize>2</BlobMinSize><BlobMaxSize>500</BlobMaxSize>\n" +
+        "</DetectRoi></DetectRoiList><DetectIoiList/></Recipe>";
 
     private static async Task<int> SortTest()
     {

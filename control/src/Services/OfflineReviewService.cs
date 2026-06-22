@@ -61,7 +61,9 @@ public sealed class OfflineReviewService
         // 3) 送 IP（network-clean，免共用檔案系統）：
         //    LOAD_RECIPE 帶配方 XML 內容 → STREAM_BEGIN → SEND_IMAGE_FOR_REVIEW（回應內含結果）
         var recipeXml = _recipes.ToXmlString(recipe);
-        var lr = await _ip.LoadRecipeAsync(ensure.RecipeXmlPath, panel, recipeXml, ct: ct);
+        // #16 Rule / #32 邊界略過 + 存圖設定：per-recipe RecipeSaving 經 recipe_saving 送 IP（缺檔→預設＝停用，不破 bit-exact）
+        var saving = _recipes.LoadRecipeSetting(recipeName).BuildRecipeSavingJson();
+        var lr = await _ip.LoadRecipeAsync(ensure.RecipeXmlPath, panel, recipeXml, recipeSaving: saving, ct: ct);
         if (lr?["status"]?.GetValue<string>() != "OK")
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
 
@@ -96,7 +98,8 @@ public sealed class OfflineReviewService
         _log.Info($"送影像 {panel} ({w}×{h}) 給 IP @ {_ip.Host}:{_ip.Port}");
 
         var recipeXml = _recipes.ToXmlString(recipe);
-        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, ct: ct);
+        var saving = _recipes.LoadRecipeSetting(recipeName).BuildRecipeSavingJson();   // #16/#32 + 存圖設定
+        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, recipeSaving: saving, ct: ct);
         if (lr?["status"]?.GetValue<string>() != "OK")
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
 
@@ -122,7 +125,8 @@ public sealed class OfflineReviewService
     {
         var panel = Path.GetFileNameWithoutExtension(remotePath);
         var recipeXml = _recipes.ToXmlString(recipe);
-        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, ct: ct);
+        var saving = _recipes.LoadRecipeSetting(recipeName).BuildRecipeSavingJson();   // #16/#32 + 存圖設定
+        var lr = await _ip.LoadRecipeAsync(recipeName, panel, recipeXml, recipeSaving: saving, ct: ct);
         if (lr?["status"]?.GetValue<string>() != "OK")
             throw new InvalidOperationException($"IP LOAD_RECIPE 失敗：{lr?.ToJsonString()}");
         _log.Info($"遠端檢測 {panel}（IP 磁碟全解析度）@ {_ip.Host}:{_ip.Port}");

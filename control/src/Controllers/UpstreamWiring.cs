@@ -24,7 +24,9 @@ public static class UpstreamWiring
             {
                 svc.RecipeStore.Select(recipe);
                 var xml = svc.Recipes.ToXmlString(svc.RecipeStore.Recipe);
-                var resp = await svc.Connection.Ip.LoadRecipeAsync(recipe, panelId, xml);
+                // #16/#32 + 存圖設定：per-recipe RecipeSaving 經 recipe_saving 一併送 IP
+                var saving = svc.RecipeStore.RecipeSaving.BuildRecipeSavingJson();
+                var resp = await svc.Connection.Ip.LoadRecipeAsync(recipe, panelId, xml, recipeSaving: saving);
                 return resp?["status"]?.GetValue<string>() == "OK";
             }
             catch { return false; }
