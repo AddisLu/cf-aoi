@@ -143,6 +143,18 @@ message(STATUS "==== rdma_nslot_test（Step 3 合成幀送器，無相機）====
 message(STATUS "  用法: rdma_nslot_test <server_ip> <port> <num_frames> [width] [height] [delay_ms]")
 
 # =============================================================================
+# 目標：image_replay_sender（Gap #27 檔案回放 RDMA 送器，dependency-free，無相機/OpenCV）
+#   舊圖 raw（由 Python/PIL 解碼經 stdin 餵入）→ RDMA → Spark rdma-process 運算
+# =============================================================================
+add_executable(image_replay_sender
+    src/image_replay_sender.cpp
+    src/rdma_sender.cpp
+)
+target_link_libraries(image_replay_sender PRIVATE ${RDMA_LIBS})
+message(STATUS "==== image_replay_sender（檔案回放 RDMA 送器）====")
+message(STATUS "  用法: image_replay_sender <spark_ip> <port> <width> <height>  (stdin: cam seq + raw)")
+
+# =============================================================================
 # 目標：probe_cam_nodes（Gap #2 Stage 0 — GenICam 節點探測工具，僅需 pylon）
 # =============================================================================
 add_executable(probe_cam_nodes src/probe_cam_nodes.cpp)

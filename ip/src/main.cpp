@@ -693,6 +693,92 @@ int main(int argc, char** argv) {
         std::cout << "[rdma-validate] ✓ 全部 " << ok_count << " 幀 CRC 正確\n";
 #endif  // CFAOI_HAS_RDMA
 
+    } else if (args.mode == "rdma-process") {
+#ifndef CFAOI_HAS_RDMA
+        std::cerr << "[rdma-process] 未編譯 RDMA（找不到 libibverbs），無法使用此模式\n";
+        return 1;
+#else
+        // ── 檔案→RDMA 回放「運算」模式（Gap #27 收端 / Gap #17 離線子集）────────────
+        // RdmaImageSource → FrameQueue → process_image（AOI）→ ResultSaver，與 offline-tcp 同處理路徑；
+        // 來源換 RDMA、配方靜態載入（--recipe/--ini）。塞車監控：每幀 proc_ms + FrameQueue 深度 + 背壓幀數。
+        // CRC 已於 rdma_source recv_thread（push 前）驗過，此處不重驗。
+        const uint32_t img_w = (base.width  > 0) ? (uint32_t)base.width  : 8192u;
+        const uint32_t img_h = (base.height > 0) ? (uint32_t)base.height : 5000u;
+        const uint32_t max_payload = img_w * img_h;
+
+        FrameQueue queue;
+        {
+            const size_t n = args.max_queue_size > 0
+                ? (size_t)args.max_queue_size
+                : std::max<size_t>(2, (size_t)args.rdma_slots * 2);
+            queue.set_max_size(n);
+            std::cout << "[rdma-process] FrameQueue 上限=" << n << " 幀  rdma_slots="
+                      << args.rdma_slots << "  bind=" << args.rdma_bind << ":" << args.rdma_port
+                      << "  zones=" << zones.size() << "\n";
+        }
+
+        RdmaImageSource rdma_src;
+        if (!rdma_src.init(args.rdma_bind, args.rdma_port,
+                           args.rdma_slots, max_payload, queue)) {
+            std::cerr << "[rdma-process] RDMA 初始化失敗\n";
+            return 3;
+        }
+
+        FrameHeader hdr;
+        std::vector<uint8_t> payload;
+        bool verify_failed = false;
+        double sum_proc_ms = 0.0, max_proc_ms = 0.0;
+        size_t max_queue_depth = 0, backpressure_hits = 0;
+        auto t_start = std::chrono::steady_clock::now();
+
+        while (rdma_src.next_frame(hdr, payload)) {
+            size_t depth = queue.size();                      // 取出本幀後佇列殘量（塞車徵兆）
+            if (depth > max_queue_depth) max_queue_depth = depth;
+            if (depth >= queue.max_size()) ++backpressure_hits;
+
+            cv::Mat gray(hdr.height, hdr.width, CV_8UC1, payload.data());
+            // 命名 CCD{camId}_{seq}（camId 由 sender 設為 CCD 編號；可逆對回來源/ground-truth）
+            char nm[40];
+            std::snprintf(nm, sizeof(nm), "CCD%02u_%06llu",
+                          (unsigned)hdr.camId, (unsigned long long)hdr.frameSeq);
+            std::string name = nm;
+
+            diag::FrameScene scene = make_scene_params(zones, name, hdr);
+            diag::FlightRecorder::instance().set_scene(scene);
+            auto t0 = std::chrono::steady_clock::now();
+            InspectionResult res = process_image(pipe, zones, gray, name,
+                                                 /*verify*/false, verify_failed,
+                                                 cli_saving_cfg, machine_optical);
+            res.ioi_list = file_ioi;
+            double proc_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t0).count();
+            sum_proc_ms += proc_ms;
+            if (proc_ms > max_proc_ms) max_proc_ms = proc_ms;
+            fill_scene_results(scene, res);
+            diag::FlightRecorder::instance().record_frame(scene);
+            ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
+                              args.output, args.ip_name, save_opt);
+            ++processed;
+            if (processed <= 5 || processed % 20 == 0)
+                printf("[rdma-process] #%d %s defects=%d proc=%.1fms queue=%zu/%zu recv_ok=%llu\n",
+                       processed, name.c_str(), res.total_defects(), proc_ms,
+                       queue.size(), queue.max_size(),
+                       (unsigned long long)rdma_src.recv_ok());
+        }
+
+        rdma_src.stop();
+        double total_s = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t_start).count();
+        printf("[rdma-process] 完成：%d 幀  全程 %.1fs（%.2f fps）  proc avg/max=%.1f/%.1fms"
+               "  佇列峰值=%zu/%zu  背壓幀=%zu  recv ok/err=%llu/%llu\n",
+               processed, total_s, total_s > 0 ? processed / total_s : 0.0,
+               processed ? sum_proc_ms / processed : 0.0, max_proc_ms,
+               max_queue_depth, queue.max_size(), backpressure_hits,
+               (unsigned long long)rdma_src.recv_ok(),
+               (unsigned long long)rdma_src.recv_err());
+        if (processed == 0) { std::cerr << "[rdma-process] ✗ 未收到任何幀\n"; return 4; }
+#endif  // CFAOI_HAS_RDMA
+
     } else {
         std::cerr << "未知 mode: " << args.mode << "\n";
         usage(argv[0]);
