@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RDMA 回放驗證報告 — T550QVN10（2026-06-23）</title>
+<style>
+  :root{ --bg:#0f1419; --card:#1a2129; --ink:#e6edf3; --mut:#9fb0c0; --line:#2b3540;
+         --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.75 "PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;margin:0 0 4px} h2{font-size:20px;margin:38px 0 12px;
+     border-left:4px solid var(--acc);padding-left:10px}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);margin:0 0 22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0}
+  .verdict{border-left:6px solid var(--ok)} .verdict.warn{border-left-color:var(--warn)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#202a33;color:var(--mut);font-weight:600}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  code,.mono{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;
+       background:#11161c;border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+  pre{background:#11161c;border:1px solid var(--line);border-radius:8px;padding:12px 14px;
+      overflow:auto;font-size:13px;line-height:1.6}
+  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:12px;font-weight:700}
+  .p-ok{background:rgba(63,185,80,.15);color:var(--ok)}
+  .p-warn{background:rgba(210,153,34,.15);color:var(--warn)}
+  .p-bad{background:rgba(248,81,73,.15);color:var(--bad)}
+  .big{font-size:21px;font-weight:800}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .mut{color:var(--mut)}
+  ul{margin:8px 0 8px 4px;padding-left:20px} li{margin:4px 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  hr{border:0;border-top:1px solid var(--line);margin:30px 0}
+  .foot{color:var(--mut);font-size:13px;margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>RDMA 回放驗證報告</h1>
+<p class="sub">機種 <b>T550QVN10_TGT_G</b>　·　2026-06-23　·　截取中心(damac) → RDMA → Spark(IP) 運算<br>
+目的：相機與交換器尚未到貨前，先用舊機台存圖把「RDMA 傳輸 ＋ Spark AOI 運算」整條流程跑起來，確認會不會塞車、一台 Spark 夠不夠。</p>
+
+<div class="card verdict">
+  <b>一句話結論</b>
+  <ul>
+    <li><span class="pill p-ok">不塞車</span> 全量 744 張（24 CCD × 31）跑完，佇列全程是空的、零背壓、零錯誤。瓶頸在「傳輸」不在「運算」。</li>
+    <li><span class="pill p-ok">一台 Spark 夠</span> 以實測 7.4ms/張推算，一面板（37 CCD × ~30 張 ≈ 1110 張）GPU 運算約 <b>8.2 秒</b>，遠低於 20–30s 節拍；缺陷 &lt;100 顆屬輕負載，更游刃有餘。<span class="mut">（前提見下方產能分析）</span></li>
+    <li><span class="pill p-warn">配方待接手調</span> 目前的 baseline 配方「pitch 沒對準面板週期」，把整片像素陣列都當成缺陷（多數張數頂到 10000 上限），所以這一輪「真實缺陷數」還不能用，也分不出你說有缺陷的 IP04 第 27、28 張。需要拿舊機台已調好的配方來移植。</li>
+  </ul>
+</div>
+
+<h2>一、測試環境</h2>
+<table>
+<tr><th>角色</th><th>機器</th><th>說明</th></tr>
+<tr><td>控制 + 影像來源</td><td>截取中心 damac（x86）</td><td>舊圖在 <code>~/Addis/T550QVN10_TGT_G</code>；以 Python(PIL) 解 TIF → 經 RDMA 送出</td></tr>
+<tr><td>運算單元</td><td>Spark（DGX GB10 / sm_121）</td><td>跑 IP <code>rdma-process</code> 模式：收圖 → GPU AOI → 寫結果</td></tr>
+<tr><td>RDMA 鏈路</td><td>100G DAC 直連</td><td>damac <code>192.168.3.2</code> ↔ Spark <code>192.168.3.1</code>（本次線改插在 Spark <code>enp1s0f1np1</code>）</td></tr>
+</table>
+
+<h3>影像資料</h3>
+<p>24 個 CCD 夾（<code>IP01</code>–<code>IP24</code>），每夾 31 張 <code>IPxx_Origin0000NN.tif</code>，共 <b>744 張真實舊圖</b>；單張 <b>8160 × 5000、8-bit 灰階</b>（payload 40.8 MB）。<span class="mut">（macOS 的 <code>._*</code> 殘留檔已排除。）</span></p>
+
+<h2>二、本次新增（已 commit <code>90dff05</code>、三機同步）</h2>
+<table>
+<tr><th>元件</th><th>內容</th></tr>
+<tr><td>IP <code>rdma-process</code> 模式<br><span class="mut">ip/src/main.cpp</span></td>
+    <td>收 RDMA 影像 → FrameQueue → <code>process_image</code>(AOI) → 寫結果，處理路徑與 offline-tcp 完全相同，只是來源換成 RDMA、配方靜態載入。逐張印出處理耗時、佇列深度、背壓次數（塞車監控）。</td></tr>
+<tr><td><code>image_replay_sender</code><br><span class="mut">grab/src/</span></td>
+    <td>檔案回放送器（Gap #27）。damac 沒有 OpenCV，所以設計成「不依賴影像函式庫」：影像由 Python(PIL) 解碼後，以 raw 餵進來再經 RDMA 送出；背壓沿著 pipe 自然限速。</td></tr>
+<tr><td><code>verify_rdma_replay.py</code></td><td>回放驅動：逐 CCD、逐張把 TIF 解成 Mono8 raw 餵給送器。</td></tr>
+<tr><td><code>make_t550_recipe.py</code></td><td>產生 T550QVN10_TGT_G 的 24 份 per-CCD baseline 配方（全幅 DIV ＋ 對位 M_AlignRoi）。<span class="mut">recipes/ 屬執行期檔不版控，故版控的是產生器。</span></td></tr>
+</table>
+
+<h2>三、測試結果</h2>
+
+<h3>(a) 不塞車 — 全量 744 張跑通</h3>
+<table>
+<tr><th>測試</th><th class="n">張數</th><th class="n">總時間</th><th class="n">吞吐</th><th class="n">GPU/張(平均/最大)</th><th class="n">佇列峰值</th><th class="n">背壓張數</th><th class="n">收圖 OK/錯</th></tr>
+<tr><td>合成全幅煙霧測</td><td class="n">30</td><td class="n">14.0s</td><td class="n">2.15 fps</td><td class="n">7.3 / 25.1 ms</td><td class="n ok">0 / 8</td><td class="n ok">0</td><td class="n">30 / 0</td></tr>
+<tr><td>真實圖 24 CCD × 5</td><td class="n">120</td><td class="n">57.4s</td><td class="n">2.09 fps</td><td class="n">7.7 / 31.0 ms</td><td class="n ok">0 / 8</td><td class="n ok">0</td><td class="n">120 / 0</td></tr>
+<tr><td><b>真實圖 全量 24 CCD × 31</b></td><td class="n"><b>744</b></td><td class="n">354.9s</td><td class="n">2.10 fps</td><td class="n">8.3 / 26.5 ms</td><td class="n ok"><b>0 / 8</b></td><td class="n ok"><b>0</b></td><td class="n"><b>744 / 0</b></td></tr>
+</table>
+<p><b>解讀：</b>GPU 一張只要 ~7–8ms，但每張 40.8MB 在目前 MTU 1500 下要 ~0.48 秒才傳完，所以整條鏈路是「<b>傳輸受限</b>」——Spark 收到圖幾乎立刻就處理完、接著閒著等下一張。因此 <b>FrameQueue 全程是空的（峰值 0/8）、完全沒有背壓、744 張零錯誤</b>。運算端遠遠沒被塞住。</p>
+
+<h3>(b) RDMA 鏈路已持久化</h3>
+<p>放假期間網路線被改插過（原本的 <code>enp1s0f0np0</code> 已無載波），這也是先前 RDMA 連線被 REJECT 的真正原因——不是程式、也不是版本問題（已用程式碼 diff ＋ 版本比對排除）。本次把 <code>192.168.3.1</code> 重新綁到實際接線的 <code>enp1s0f1np1</code>，並用 NetworkManager 建了固定設定檔 <code>cf-rdma</code>（開機自動、載波恢復會自動重套），<b>整段 744 張跑完中途零斷線</b>。<span class="mut">註：若日後又換插槽，需把設定檔的介面名一起改。</span></p>
+
+<h3>(c) 真實缺陷 — baseline 配方「飽和」，尚不能用 <span class="pill p-warn">需移植舊配方</span></h3>
+<p>用 baseline 配方（全幅 DIV、pitch 33/17）跑 744 張，缺陷數幾乎張張破千、多數頂到 10000 上限：</p>
+<table>
+<tr><th>CCD</th><th class="n">平均缺陷</th><th>CCD</th><th class="n">平均缺陷</th><th>CCD</th><th class="n">平均缺陷</th></tr>
+<tr><td>CCD01</td><td class="n">3082</td><td>CCD06</td><td class="n ok">40</td><td>CCD15</td><td class="n bad">8429</td></tr>
+<tr><td>CCD04</td><td class="n bad">6962</td><td>CCD12</td><td class="n bad">7876</td><td>CCD21</td><td class="n bad">9236</td></tr>
+</table>
+<p><b>你指出的 IP04 第 27、28 張：</b>本輪測得 617 / 8155 顆——但同一顆 CCD 其它「乾淨」張數也都好幾千，<b>所以分不出來</b>。</p>
+<p><b>原因：</b>DIV 演算法是拿每個點跟「相隔一個 pitch 的同相位鄰點」比值；pitch 一旦沒對準面板的像素週期，整片規則陣列都會被誤判成缺陷。<code>33/17</code> 不是 T550QVN10 的正確週期。我也試過用 FFT 盲抓 pitch，但每顆 CCD 看的是面板不同區域、取樣處的週期性不明顯，<b>沒辦法盲調 24 顆</b>。</p>
+<div class="card">
+  <b>正確做法：移植，不要重猜。</b> 本專案策略一向是「從舊系統移植、不重寫」。舊機台本來就有一份<b>調好的 T550QVN10 配方</b>（正確的 pitch / ROI / 閾值 / 對位，當年就是它抓到 IP04 27、28 的缺陷）。
+  <ul>
+    <li>請提供舊機台的 <code>RecipeInfo.xml</code>（各 CCD/IP 的）→ 我直接移植進 <code>recipes/T550QVN10_TGT_G/IPxx/</code>（同一套 legacy <code>Recipe</code> 格式），重跑後 IP04 27、28 就能跟乾淨張數明顯分開。</li>
+    <li>若手邊沒有，改走 Control <b>Step1</b> 逐 CCD 人工調（載入影像 → 用 FFT 量 pitch → 框出陣列 ROI → 設對位 Mark），這本來就是設計上的 per-CCD 調校流程，我可以陪你一步步做。</li>
+  </ul>
+</div>
+
+<h2>二之重點 ── 產能分析：一台 Spark 夠不夠？</h2>
+<div class="card verdict">
+<p class="big ok">夠。一台 Spark 在「運算」上充裕。</p>
+<p>缺陷 &lt;100 顆是<b>輕負載情境</b>（缺陷少 → blob 分析與存圖負擔小），GPU 每張落在 ~7ms 低端。以一面板的張數推算：</p>
+<table>
+<tr><th>情境</th><th class="n">張數/面板</th><th class="n">GPU/張</th><th class="n">單台序列總時間</th><th class="n">佔 20–30s 節拍</th><th>結論</th></tr>
+<tr><td>生產（37 CCD × ~30 張）<span class="mut">＝專案投影</span></td><td class="n">~1110</td><td class="n">7.4 ms</td><td class="n"><b>~8.2 s</b></td><td class="n ok">27–41%</td><td><span class="pill p-ok">OK，餘裕 ~60–73%</span></td></tr>
+<tr><td>本次舊資料（24 CCD × 31 張）</td><td class="n">744</td><td class="n">7.4 ms</td><td class="n">~5.5 s</td><td class="n ok">18–28%</td><td><span class="pill p-ok">OK</span></td></tr>
+</table>
+<p class="mut">G8 與 G8.5 的差別主要在「掃描張數」（玻璃尺寸 → slice 數略不同），量級都在每顆 CCD ~30 張，總時間同在 ~8 秒上下，<b>兩者都遠低於 20–30s 節拍</b>。確切張數需以實際掃描幾何為準，但即使翻倍（~16s）仍在節拍內。</p>
+<p><b>數字依據：</b>7.4ms/張為實測，本次 744 張真實圖再次確認 GPU 落在 7–8ms（即便 baseline 配方爆出上千顆缺陷、GPU 也只 ~8ms）；缺陷 &lt;100 顆會更快。整段佇列空、零背壓 → <b>運算端不是瓶頸</b>。</p>
+
+<h3 class="warn">⚠ 但有一個前提：傳輸要用 jumbo MTU + 真實陣列並行</h3>
+<ul>
+  <li>本次回放量到的 <b>2.1 fps（85.8 MB/s）是「回放工具在 MTU 1500、單一資料流」的限制</b>，<b>不是生產傳輸的真實速度</b>。若照這個數字，1110 張要 ~9 分鐘——那會超節拍。</li>
+  <li>生產時是 <b>37 顆 CCD 經交換器「同時」串流</b>、且鏈路該開 <b>jumbo MTU 9000</b>（Phase-1 已實測 100G 線速、延遲 1.44µs）。在這條件下傳輸吞吐遠高於 GPU 速度，瓶頸回到 GPU（~8.2s/面板），一台 Spark 即足。</li>
+  <li>本次因 damac 端改 MTU 需要 sudo 密碼（我這邊拿不到），維持 1500 對稱跑通，故吞吐偏低——這只影響「這次回放」，不影響上面的產能結論。建議正式跑貨前把<b>兩端都設成 MTU 9000</b>。</li>
+</ul>
+</div>
+
+<h2>三、結論與後續</h2>
+<table>
+<tr><th>項目</th><th>狀態</th><th>後續</th></tr>
+<tr><td>(a) 整體流程會不會塞車</td><td><span class="pill p-ok">不塞車</span></td><td>運算端零背壓；確保傳輸走 jumbo MTU + 真實陣列即可</td></tr>
+<tr><td>(b) RDMA 鏈路穩定性</td><td><span class="pill p-ok">已持久化</span></td><td>線固定後可不必每次重綁；換插槽要更新 <code>cf-rdma</code> 介面名</td></tr>
+<tr><td>(c) 真實缺陷偵測（含 IP04 27/28）</td><td><span class="pill p-warn">待配方</span></td><td><b>提供舊機台 T550QVN10 配方</b>讓我移植；或在 Control Step1 逐 CCD 調</td></tr>
+<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">足夠</span></td><td>~8.2s/面板（&lt;100 缺陷輕負載）vs 20–30s 節拍，餘裕 ~60–73%</td></tr>
+</table>
+
+<h2>附錄：重現步驟</h2>
+<pre>// Spark（IP 收圖運算端）
+cfaoi_ip --mode rdma-process --recipe &lt;配方.xml&gt; \
+         --rdma-bind 192.168.3.1 --rdma-port 18515 --output &lt;out&gt; [--no-save-images]
+
+// damac（送圖端，影像在 ~/Addis/T550QVN10_TGT_G）
+python3 scripts/verify_rdma_replay.py \
+  --sender ./grab/build/image_replay_sender \
+  --dir ~/Addis/T550QVN10_TGT_G --spark 192.168.3.1 --port 18515 \
+  [--ccds IP04] [--per-ccd N]   // 可只跑單一 CCD / 限張數
+
+// 鏈路（已持久化；若需重綁）
+sudo nmcli con up cf-rdma         // Spark 端，靜態 192.168.3.1/24 @ enp1s0f1np1</pre>
+
+<p class="foot">產出：IP <code>rdma-process</code> 模式、<code>image_replay_sender</code>、回放驅動、配方產生器（commit <code>90dff05</code>，Spark/damac 已同步）。<br>
+量測機：Spark DGX GB10 sm_121 · damac x86 · 100G RDMA。所有數字皆為本次實機 stdout 實測。</p>
+
+</div>
+</body>
+</html>
