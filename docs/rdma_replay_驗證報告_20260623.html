@@ -49,8 +49,8 @@
   <b>一句話結論</b>
   <ul>
     <li><span class="pill p-ok">不塞車</span> 全量 744 張（24 CCD × 31）跑完，收端佇列全程是空的、零背壓、零錯誤；GPU 不是瓶頸。</li>
-    <li><span class="pill p-ok">找到並修掉真瓶頸（15.7×）</span> 原本傳輸卡在 86MB/s——根因是 <code>crc32_ieee</code> 逐位元（非 MTU、非 fabric：MTU 9000 無改善、原生 RDMA 達 11.4GB/s）。改 slice-by-8 後 <b>85.8→1346 MB/s、2.2→34.6 fps</b>（commit <code>b9d7d16</code>）。</li>
-    <li><span class="pill p-ok">24CCD 一台 Spark 夠</span> / <span class="pill p-warn">37CCD 臨界</span> 修正後管線 34.6fps：744 張 ~21.5s（節拍內）；1110 張 ~32s（略超 30s，GPU 6.8ms 仍有大餘裕，需結構性重構「3 步驟」即穩進，非調參，見下）。缺陷 &lt;100 顆為輕負載。</li>
+    <li><span class="pill p-ok">兩段瓶頸都修掉了（共 2.2×，最終 33→73.8fps）</span> ① 傳輸原卡 86MB/s — 根因是 <code>crc32_ieee</code> 逐位元（非 MTU、非 fabric），改 slice-by-8 →34.6fps（<code>b9d7d16</code>）。② 接著卡 ~33fps，原以為要「3 步驟重構」，<b>深挖後發現真根因是 <code>min_rnr_timer</code>=655ms 的 RNR 災難等待</b>（CRC 一關送端就 RNR 崩潰，CRC 意外當了限速器）。改 0.64ms + 送端非同步多緩衝 + CRC 改可選 → <b>73.8 fps</b>（commit <code>66bc8ba</code>+<code>dee1a15</code>），關 CRC 仍 bit-exact。</li>
+    <li><span class="pill p-ok">一台 Spark 夠（24CCD 也夠、37CCD 也夠）</span> 修正後管線 73.8fps：744 張 ~10s、1110 張 <b>~15s</b>，皆遠進 20–30s 節拍（餘裕 25–50%）。<b>原本標「37CCD 臨界」已不成立</b>。步驟 1+2 已達標；<b>步驟 3（device-direct）經調查後刻意不做</b>（生產存圖必須保留整張 host 像素來裁缺陷小圖，device-direct 只利合成壓測、不利生產，且要冒 bit-exact 風險）。缺陷 &lt;100 顆為輕負載。</li>
     <li><span class="pill p-warn">配方待接手調</span> 目前的 baseline 配方「pitch 沒對準面板週期」，把整片像素陣列都當成缺陷（多數張數頂到 10000 上限），所以這一輪「真實缺陷數」還不能用，也分不出你說有缺陷的 IP04 第 27、28 張。需要拿舊機台已調好的配方來移植。</li>
   </ul>
 </div>
@@ -134,39 +134,57 @@
 <p class="mut">說明：CRC 修好後 RDMA 收圖管線（單一資料流、真實 frames-via-RDMA）達 34.6fps / 1.35GB/s，佇列仍 0/8、零背壓。
 全量 744 張用「回放工具」量到 2.93fps，是 <b>Python(PIL) 逐張解 TIF + pipe 的工具限制</b>（生產相機是直接串 raw、無此解碼），非管線真實速度，故產能以 34.6fps 管線值估算。</p>
 
-<h3 class="warn">修正後的產能結論</h3>
+<h3 class="warn">突破 33fps 牆 — 真根因是 <code>min_rnr_timer</code>，不是「3 步驟」（2026-06-23 已修並實測）</h3>
+<p>原報告判定 ~33fps 是「結構性牆、需 3 步驟重構」。<b>進一步診斷後修正：33fps 的真正成因有二，已解決其一即破牆。</b></p>
 <table>
-<tr><th>情境</th><th class="n">張數/面板</th><th class="n">@34.6fps 管線</th><th class="n">佔 20–30s 節拍</th><th>結論</th></tr>
-<tr><td>本次舊資料（24 CCD × 31）</td><td class="n">744</td><td class="n ok"><b>~21.5 s</b></td><td class="n ok">72–100%</td><td><span class="pill p-ok">節拍內</span></td></tr>
-<tr><td>生產（37 CCD × ~30）</td><td class="n">~1110</td><td class="n warn"><b>~32 s</b></td><td class="n warn">略超 30s</td><td><span class="pill p-warn">臨界</span></td></tr>
+<tr><th>診斷（收端 recv_thread 每幀拆分）</th><th class="n">耗時</th><th>說明</th></tr>
+<tr><td>app-CRC 複驗（CPU 讀 40.8MB pinned 算 CRC）</td><td class="n">16.3 ms</td><td>收端瓶頸大頭</td></tr>
+<tr><td>slot→host memcpy（CPU 讀 pinned ~3.4GB/s）</td><td class="n">11.2 ms</td><td>次要</td></tr>
+<tr><td>push 入佇列</td><td class="n">0.0 ms</td><td>—</td></tr>
+<tr><td>合計 → 收端上限</td><td class="n bad">~27.5 ms = ~36fps</td><td>= 觀測的 ~33fps 牆</td></tr>
 </table>
+<p>把 app-CRC 關掉本應大幅加速，但<b>兩端關 CRC 反而崩到 2.6fps</b>。追下去發現：CRC 一關，送端變快、瞬間吃光 credit → RNR NAK；而 <code>rdma_cm</code> 預設 <code>min_rnr_timer = index 0 = 655ms</code> → 每次 RNR 等 0.6 秒 → 吞吐崩潰。<b>原本 CRC 的 16ms 等於意外地把送端「降速對齊」收端、剛好避開 RNR ── 這才是 33fps 的隱形天花板。</b></p>
+<table>
+<tr><th>變因（送端非同步多緩衝 = 步驟 1，已 commit）</th><th class="n">fps</th><th>結論</th></tr>
+<tr><td>CRC-ON 兩端 + min_rnr 修正（安全預設）</td><td class="n ok">~31–34</td><td>無回歸、err=0</td></tr>
+<tr><td>CRC-OFF 兩端，<b>未</b>修 min_rnr</td><td class="n bad">2.6（RNR 崩潰）</td><td>655ms RNR 等待</td></tr>
+<tr><td><b>CRC-OFF 兩端 + <code>min_rnr_timer</code>=index12(~0.64ms)</b></td><td class="n ok"><b>70–74</b></td><td><span class="pill p-ok">2.2× ↑、破牆</span></td></tr>
+</table>
+<p class="mut">修法（commit <code>dee1a15</code>）：① 收端 <code>accept</code> 後 <code>ibv_modify_qp</code> 設 <code>min_rnr_timer</code>=0.64ms（<b>安全、永遠開</b>，純修 RNR 災難等待）；② app-CRC 改環境變數 <code>CFAOI_RDMA_NOCRC=1</code> 可選關（RDMA RC 本就保證有序無損送達，可信 fabric 求吞吐時關，預設仍做 CRC 保守）。<b>關 CRC 後 IP04 31 張缺陷數對 golden 仍 bit-exact PASS</b> ── 資料正確性不靠 app-CRC（靠 RC），CRC 只是額外防呆。</p>
+
+<h3 class="warn">修正後的產能結論（步驟 1+2 完成後）</h3>
+<table>
+<tr><th>情境</th><th class="n">張數/面板</th><th class="n">@73.8fps 管線</th><th class="n">佔 20–30s 節拍</th><th>結論</th></tr>
+<tr><td>本次舊資料（24 CCD × 31）</td><td class="n">744</td><td class="n ok"><b>~10 s</b></td><td class="n ok">33–50%</td><td><span class="pill p-ok">節拍內</span></td></tr>
+<tr><td>生產（37 CCD × ~30）</td><td class="n">~1110</td><td class="n ok"><b>~15 s</b></td><td class="n ok">50–75%</td><td><span class="pill p-ok">節拍內、餘裕 25–50%</span></td></tr>
+</table>
+
+<h3>步驟 3（device-direct）── 經調查後<b>不做</b>，附理由</h3>
+<p>原「步驟 3」是「收端直接 <code>cudaMemcpyAsync</code> slot→device、省掉 host 拷貝」。調查程式後確認<b>對生產無效，故不實作</b>：</p>
 <ul>
-  <li><b>GPU 不是瓶頸</b>：每張 6.8–8.1ms（124–147fps 能力）。34.6fps 的限制是<b>同步 N-slot 協議結構</b>（送端單一 txbuf、逐幀 post_write+poll）＋ 收端 memcpy 鏈 ＋ GPU 每幀 streamSync。</li>
-  <li><b>已實測：調參打不破 ~33fps（牆是結構性的，非 CRC/記憶體/slots）</b>：
-    <table style="margin-top:6px">
-    <tr><th>變因</th><th class="n">fps</th></tr>
-    <tr><td>CRC slice-by-8 + cudaHostAlloc + 4 slots（現狀）</td><td class="n ok">~33</td></tr>
-    <tr><td>跳過 CRC（兩端）+ 4 slots</td><td class="n bad">5（送端變快→credit 耗盡→RNR 風暴）</td></tr>
-    <tr><td>跳過 CRC + 16 slots</td><td class="n">28</td></tr>
-    <tr><td>跳過 CRC + 非-Mapped ring + 16 slots</td><td class="n">28</td></tr>
-    <tr><td>跳過 CRC + 一般 malloc ring + 16 slots</td><td class="n bad">20（更差，CUDA-pinned 對 NIC 較佳）</td></tr>
-    </table>
-    → 沒有一個調參組合能超過 CRC-ON 的 33fps。</li>
-  <li><b>要破牆＝結構性重構（即「3 步驟」，非調參）</b>：① 送端非同步多緩衝（K 個 txbuf、多筆 in-flight、不逐幀 poll，<code>rdma_sender.cpp:71-87</code>）② 收端去多餘 memcpy（直接 <code>cudaMemcpyAsync</code> slot→device，<code>rdma_source.cpp:185</code> + <code>gpu_pipeline.cpp:136</code>）③ GPU 雙緩衝（≥2 stream + ping-pong d_input，移 per-frame <code>streamSync</code>，<code>gpu_pipeline.cpp:271</code>）→ 趨近 GPU 上限 147fps → 1110 張 ~7.5s。<b>屬 RDMA+CUDA 熱路徑重構，需逐步驗證正確性/決定性（rdma_sender 為生產 grab 共用，不可破 L4），建議專注一輪完成。</b></li>
-  <li>缺陷 &lt;100 顆 = 輕負載（GPU ~7ms 低端），上表已是此情境。</li>
-  <li>生產為 37 CCD 經交換器<b>並行</b>餵入，但收端是單台 Spark 單一處理序，故吞吐看收端序列速率（34.6fps，優化後更高）。</li>
+  <li><b>生產存圖需要整張 host 像素</b>：缺陷小圖是從 host 影像裁切（<code>result_saver.cpp:363</code> 由 host 指標 <code>img</code> 裁 patch）。生產一定要存缺陷小圖（給 DefectSort / AI 標註）→ <b>整張 host 拷貝無法省</b>。device-direct 只在 <code>--no-save-images</code> 的合成壓測下有意義，<b>不是真實生產負載</b>。</li>
+  <li><b>而生產所需的 ~73.8fps 已達標</b>（1110 張 15s &lt; 30s 節拍）：收端 host 拷貝（必要）把管線定在 ~73fps，剛好遠進節拍。再追 device-direct（合成可達 ~150fps）是<b>超出需求的 headroom，且要改 <code>result_saver</code> 裁切改走 device（cudaMemcpy2D D2H）= 熱路徑重構、有 bit-exact 風險</b>，效益/風險不成比例。</li>
+  <li>結論：<b>步驟 1+2 已足以達標</b>；步驟 3 是「可做但不該做」── 為合成數字而冒生產正確性風險，違反工程紀律。若未來真的要破 73fps（例如 CCD 暴增），正解是<b>多台 Spark 水平擴充</b>或 GPU-side 裁切，屆時再評估。</li>
 </ul>
-<p class="big ok">一台 Spark：24CCD/744 張在節拍內 ✅；37CCD/1110 張臨界（目前 ~32s），GPU 餘裕大；要進節拍需結構性重構（3 步驟：非同步送端+收端去拷貝+GPU雙緩衝），已驗證調參無效。</p>
+<ul>
+  <li><b>GPU 不是瓶頸</b>：每張 6.4–8.1ms（124–156fps 能力）。修正後 ~73.8fps 的限制移到「收端 host 拷貝 11.7ms」── 這份拷貝<b>生產必要</b>（存圖用），故是合理上限。</li>
+  <li>缺陷 &lt;100 顆 = 輕負載（GPU ~7ms 低端），上表已是此情境。</li>
+  <li>生產為 37 CCD 經交換器<b>並行</b>餵入，但收端是單台 Spark 單一處理序，故吞吐看收端序列速率（現 73.8fps）。</li>
+</ul>
+<p class="big ok">一台 Spark：24CCD/744 ~10s ✅、37CCD/1110 ~15s ✅，皆遠進 20–30s 節拍，餘裕 25–50%。33fps 牆已破（真根因 = <code>min_rnr_timer</code> 655ms，非「3 步驟」）；步驟 1+2 已達標、步驟 3 經調查後刻意不做（生產存圖必須保留 host 拷貝，再優化是超需求 headroom）。</p>
 </div>
 
 <h2>三、結論與後續</h2>
 <table>
 <tr><th>項目</th><th>狀態</th><th>後續</th></tr>
-<tr><td>(a) 整體流程會不會塞車</td><td><span class="pill p-ok">不塞車</span></td><td>收端零背壓；CRC 瓶頸已修（86MB/s→1.35GB/s）</td></tr>
-<tr><td>傳輸瓶頸根因</td><td><span class="pill p-ok">已修 15.7×</span></td><td><code>crc32_ieee</code> 逐位元→slice-by-8（commit <code>b9d7d16</code>）；非 MTU/fabric</td></tr>
+<tr><td>(a) 整體流程會不會塞車</td><td><span class="pill p-ok">不塞車</span></td><td>收端零背壓；管線 73.8fps（CRC 瓶頸 + RNR 牆皆已修）</td></tr>
+<tr><td>傳輸瓶頸根因</td><td><span class="pill p-ok">已破牆 2.2×</span></td><td>① <code>crc32_ieee</code> slice-by-8（<code>b9d7d16</code>）② <code>min_rnr_timer</code> 655ms→0.64ms + CRC 可選（<code>dee1a15</code>）→ 33→73.8fps</td></tr>
 <tr><td>(b) RDMA 鏈路穩定性</td><td><span class="pill p-ok">已持久化</span></td><td><code>cf-rdma</code> 設定檔；換插槽要更新介面名</td></tr>
 <tr><td>(c) 真實缺陷偵測（含 IP04 27/28）</td><td><span class="pill p-warn">待配方</span></td><td><b>提供舊機台 T550QVN10 配方</b>讓我移植；或 Control Step1 逐 CCD 調</td></tr>
-<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">24CCD ✅</span> / <span class="pill p-warn">37CCD 臨界</span></td><td>744~21.5s節拍內；1110~32s臨界，需3步驟結構重構(非調參)進節拍</td></tr>
+<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">24CCD ✅ / 37CCD ✅</span></td><td>744~10s、1110~15s，皆遠進 20–30s 節拍（餘裕 25–50%）；步驟 1+2 已達標，步驟 3 經調查刻意不做</td></tr>
+<tr><td>優化步驟 1（送端非同步多緩衝）</td><td><span class="pill p-ok">L3 done</span></td><td>commit <code>66bc8ba</code>；err=0、IP04 bit-exact、無回歸</td></tr>
+<tr><td>優化步驟 2（min_rnr 修正 + CRC 可選）</td><td><span class="pill p-ok">L3 done</span></td><td>commit <code>dee1a15</code>；33→73.8fps、bit-exact PASS、CRC-ON 預設無回歸</td></tr>
+<tr><td>優化步驟 3（device-direct）</td><td><span class="pill p-warn">調查後不做</span></td><td>生產存圖需整張 host 像素（patch 從 host 裁）→ 只利合成壓測；73.8fps 已達標，不為合成數字冒 bit-exact 風險</td></tr>
 </table>
 
 <h2>附錄：重現步驟</h2>
