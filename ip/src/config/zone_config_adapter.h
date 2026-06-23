@@ -56,6 +56,11 @@ struct ZoneConfig {
     int pitch_times   = 1;       // ← legacy PitchTime（SUB：每方向 pitch 倍數；DIV 忽略）
     int choose_amount = 1;       // ← legacy ChooseAmount（SUB：≥幾路超標才算缺陷；DIV 忽略）
 
+    // === SUB 前處理（legacy 偵測前；DIV 忽略）===
+    bool preproc_remap = false;  // ← M_ImagePreproc==Ip_Remap：MimRemap(M_FIT_SRC_DATA) 對比拉伸
+    int  smooth_times  = 0;      // ← SmoothTimes（5×5 高斯次數；目前僅支援 3×3，5×5 待補）
+    int  smooth_times2 = 0;      // ← SmoothTimes2（3×3 高斯 Gau3x3_8 次數）
+
     // === Threshold ===
     // DIV 域：BTH=BrightThreshold(比例,如1.2)、DTH=DarkThreshold(比例,如0.7)
     // SUB 域：BTH=BrightThreshold(灰階差,如+17)、DTH=DarkThreshold(灰階差,如-16)

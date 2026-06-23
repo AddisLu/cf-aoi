@@ -150,6 +150,14 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
             if (z.DTH >= 0.0f)
                 std::cerr << "[ZoneConfig] WARN zone " << idx
                           << " SUB 但 DarkThreshold=" << z.DTH << " ≥0（SUB 暗閾值通常為負灰階差）\n";
+            // 前處理（legacy 偵測前順序：Ip_Remap → 5×5×SmoothTimes → 3×3×SmoothTimes2）
+            std::string preproc;
+            if (extract_tag(blk, "M_ImagePreproc", preproc) && contains_ci(preproc, "remap"))
+                z.preproc_remap = true;
+            tag_int(blk, "SmoothTimes",  z.smooth_times);
+            tag_int(blk, "SmoothTimes2", z.smooth_times2);
+            if (z.smooth_times  < 0) z.smooth_times  = 0;
+            if (z.smooth_times2 < 0) z.smooth_times2 = 0;
         } else if (is_div) {
             // DIV（比例式）：BTH/DTH 為比例。防呆：DTH<0 是 SUB 域值誤標 DIV（舊靜默假 PASS 漏洞）。
             z.algo_mode = 0;
@@ -177,7 +185,9 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
                   << " pitch=(" << z.pitch_x << "," << z.pitch_y << ")"
                   << " search=(" << z.search_range_x << "," << z.search_range_y << ")";
         if (z.algo_mode == 1)
-            std::cout << " pitch_times=" << z.pitch_times << " choose=" << z.choose_amount;
+            std::cout << " pitch_times=" << z.pitch_times << " choose=" << z.choose_amount
+                      << " remap=" << (z.preproc_remap ? 1 : 0)
+                      << " smooth(5x5/3x3)=" << z.smooth_times << "/" << z.smooth_times2;
         else
             std::cout << " fast_search=" << z.fast_search_range;
         std::cout << " roi=(" << z.roi_start_x << "," << z.roi_start_y << ")-("

@@ -1167,6 +1167,72 @@ __global__ void kernelSub8WayStarVoting(
     d_binary[idx] = result;
 }
 
+// ============================================================================
+// SUB 前處理 — 忠實移植 legacy 偵測前的 Ip_Remap + 高斯平滑（CamProc.cs:591-641）
+//   legacy 順序：Ip_Remap(MimRemap M_FIT_SRC_DATA) → 5×5×SmoothTimes → 3×3×SmoothTimes2 → 偵測。
+//   ★ 新增 kernel，不改既有 DIV/AI kernel（§7 不變式 1）。
+// ============================================================================
+
+// ---- Ip_Remap：MimRemap(M_FIT_SRC_DATA) = 線性把 [min,max] 拉伸到 [0,255]（對比正規化）----
+// 步驟①：256-bin 直方圖（低競爭 atomicAdd）→ host 取 min/max；步驟②：逐像素線性拉伸（in-place）。
+__global__ void kernelHistogram256(const uint8_t* __restrict__ d_img, int n, int* __restrict__ d_hist) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+    for (; i < n; i += stride) atomicAdd(&d_hist[d_img[i]], 1);
+}
+__global__ void kernelRemapStretch(uint8_t* __restrict__ d_img, int n, int vmin, int vmax) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    int range = vmax - vmin;
+    if (range <= 0) return;                      // 平坦影像：MIL 視為無拉伸
+    int v = (int)d_img[i];
+    int o = (int)((float)(v - vmin) * 255.0f / (float)range + 0.5f);  // 四捨五入
+    d_img[i] = (uint8_t)(o < 0 ? 0 : (o > 255 ? 255 : o));
+}
+
+void launchRemapFitSrc(uint8_t* d_img, int width, int height, int* d_hist, int* h_hist,
+                       cudaStream_t stream) {
+    int n = width * height;
+    CUDA_CHECK(cudaMemsetAsync(d_hist, 0, 256 * sizeof(int), stream));
+    int threads = 256, blocks = 1024;
+    kernelHistogram256<<<blocks, threads, 0, stream>>>(d_img, n, d_hist);
+    CUDA_CHECK(cudaMemcpyAsync(h_hist, d_hist, 256 * sizeof(int), cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));   // 需 host 取 min/max
+    int vmin = 0; while (vmin < 256 && h_hist[vmin] == 0) ++vmin;
+    int vmax = 255; while (vmax >= 0 && h_hist[vmax] == 0) --vmax;
+    if (vmin >= vmax) return;                     // 全黑/平坦：不拉伸
+    int sblocks = (n + threads - 1) / threads;
+    kernelRemapStretch<<<sblocks, threads, 0, stream>>>(d_img, n, vmin, vmax);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+// ---- 高斯 3×3 平滑（Gau3x3_8：權重 [0,1,0;1,4,1;0,1,0]/8）----
+// ⚠️ 係數為依 KernalValue2=8(除數) 重建之標準 plus-Gaussian；bit-exact vs legacy 需原始 Gau3x3_8.mim。
+__global__ void kernelSmooth3x3Gau8(const uint8_t* __restrict__ src, uint8_t* __restrict__ dst,
+                                    int width, int height) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+    int idx = y * width + x;
+    if (x == 0 || y == 0 || x == width - 1 || y == height - 1) { dst[idx] = src[idx]; return; }
+    int sum = 4 * (int)src[idx]
+            + (int)src[idx - 1] + (int)src[idx + 1]
+            + (int)src[idx - width] + (int)src[idx + width];
+    dst[idx] = (uint8_t)((sum + 4) >> 3);        // /8 四捨五入（+4 再右移3）
+}
+
+// src/scratch 同尺寸 uint8；平滑 smooth_times2 次（in-place 語意：結果寫回 src）。
+void launchSmooth3x3(uint8_t* d_img, uint8_t* d_scratch, int width, int height,
+                     int times, dim3 blockDim, cudaStream_t stream) {
+    if (times <= 0) return;
+    dim3 gridDim((width + blockDim.x - 1) / blockDim.x, (height + blockDim.y - 1) / blockDim.y);
+    for (int t = 0; t < times; ++t) {
+        kernelSmooth3x3Gau8<<<gridDim, blockDim, 0, stream>>>(d_img, d_scratch, width, height);
+        CUDA_CHECK(cudaMemcpyAsync(d_img, d_scratch, (size_t)width * height, cudaMemcpyDeviceToDevice, stream));
+    }
+    CUDA_CHECK(cudaGetLastError());
+}
+
 void launchSubVotingKernel(
     const uint8_t* d_input,
     uint8_t* d_binary,

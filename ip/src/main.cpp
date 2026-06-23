@@ -61,6 +61,8 @@ struct Args {
     std::string ip_name = "IP01";  // 缺陷檔名 Defect_{IpName}_... 用
     bool use_ai = false;           // AI 分類過濾（預設停用：訓練資料不足）
     bool verify_deterministic = false;
+    bool stitch = false;           // offline-file：把整個目錄的 slice 在 Y 方向拼成整片 panel 再偵測
+                                   // （legacy 全 panel 拼接座標 recipe 用；Step B：跨 slice 鄰域 + remap 全域尺度）
     // 存圖選項（調參加速）
     bool save_patches = true;
     bool save_overlay = true;
@@ -129,6 +131,7 @@ bool parse_args(int argc, char** argv, Args& a) {
             return argv[++i];
         };
         if (k == "--mode") a.mode = next("--mode");
+        else if (k == "--stitch") a.stitch = true;
         else if (k == "--input") a.input = next("--input");
         else if (k == "--output") a.output = next("--output");
         else if (k == "--recipe") a.recipe = next("--recipe");
@@ -379,7 +382,40 @@ int main(int argc, char** argv) {
 
     int processed = 0;
 
-    if (args.mode == "offline-file") {
+    if (args.mode == "offline-file" && args.stitch) {
+        // ── Step B：全 panel 拼接 ──────────────────────────────────────────────
+        // 把目錄內所有 slice 依檔名序在 Y 方向 vconcat 成整片 panel（8160×ΣH），
+        // 再以 legacy 全 panel 座標 recipe（ROI Y 可達 146k）偵測一次。
+        // 目的：① remap 的 min/max 取「整個 ROI（全 panel）」尺度（非單 slice）
+        //       ② 8-Way 比對的鄰域可跨 slice（單 slice 邊界像素不再落 margin 被漏）。
+        if (args.input.empty()) { std::cerr << "offline-file --stitch 需要 --input（目錄）\n"; return 1; }
+        FileImageSource src(args.input);
+        FrameHeader hdr;
+        std::vector<uint8_t> payload;
+        std::vector<cv::Mat> slices;
+        std::string first_name;
+        int W = 0;
+        while (src.next_frame(hdr, payload)) {
+            cv::Mat m(hdr.height, hdr.width, CV_8UC1, payload.data());
+            slices.push_back(m.clone());   // payload 會被重用 → 必須 clone
+            if (first_name.empty()) first_name = src.current_name();
+            W = hdr.width;
+        }
+        if (slices.empty()) { std::cerr << "[stitch] 找不到影像\n"; return 1; }
+        cv::Mat panel;
+        cv::vconcat(slices, panel);
+        std::cout << "[stitch] 拼接 " << slices.size() << " 張 → panel "
+                  << panel.cols << "x" << panel.rows << "（" << first_name << " ...）\n";
+        std::string pname = "PANEL_" + first_name;
+        bool vf = false;
+        InspectionResult res = process_image(pipe, zones, panel, pname,
+                                             args.verify_deterministic, vf,
+                                             cli_saving_cfg, machine_optical);
+        res.ioi_list = file_ioi;
+        ResultSaver::save(res, panel.data, panel.cols, panel.rows, args.output, args.ip_name, save_opt);
+        std::cout << "[Done] 拼接 panel 偵測完成，缺陷 " << res.total_defects() << "\n";
+
+    } else if (args.mode == "offline-file") {
         if (args.input.empty()) { std::cerr << "offline-file 需要 --input\n"; return 1; }
         FileImageSource src(args.input);
         FrameHeader hdr;

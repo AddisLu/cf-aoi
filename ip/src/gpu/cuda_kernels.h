@@ -62,6 +62,13 @@ void launchSubVotingKernel(
     cudaStream_t stream = 0
 );
 
+// SUB 前處理（legacy 偵測前）：Ip_Remap(M_FIT_SRC_DATA 對比拉伸) + 高斯 3×3 平滑。
+// d_hist(device int[256]) / h_hist(host int[256]) 供 remap 取 min/max；d_scratch 供平滑 ping-pong。
+void launchRemapFitSrc(uint8_t* d_img, int width, int height, int* d_hist, int* h_hist,
+                       cudaStream_t stream = 0);
+void launchSmooth3x3(uint8_t* d_img, uint8_t* d_scratch, int width, int height,
+                     int times, dim3 blockDim, cudaStream_t stream = 0);
+
 // Fast CCL kernel
 void launchFastCCLKernel(
     const uint8_t* d_binary,

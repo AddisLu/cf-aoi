@@ -36,6 +36,8 @@ private:
     int* d_defect_count = nullptr;
     DefectInfo* d_filtered_defects = nullptr;
     int* d_filtered_count = nullptr;
+    int* d_hist = nullptr;              // SUB 前處理 Ip_Remap：256-bin 直方圖（取 min/max）
+    int* h_hist = nullptr;             // 對應 host 端（pinned）
 
     uint8_t* h_pinned = nullptr;        // discrete: pinned staging
     uint8_t* h_mapped_input = nullptr;  // integrated: zero-copy host
@@ -91,6 +93,8 @@ public:
         CUDA_CHECK(cudaMalloc(&d_defect_count, sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_filtered_defects, max_defects * sizeof(DefectInfo)));
         CUDA_CHECK(cudaMalloc(&d_filtered_count, sizeof(int)));
+        CUDA_CHECK(cudaMalloc(&d_hist, 256 * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost(&h_hist, 256 * sizeof(int)));
 
         CUDA_CHECK(cudaMemset(d_binary, 0, total_pixels * sizeof(uint8_t)));
         CUDA_CHECK(cudaMemset(d_defect_count, 0, sizeof(int)));
@@ -120,6 +124,10 @@ public:
         if (d_defect_count) cudaFree(d_defect_count);
         if (d_filtered_defects) cudaFree(d_filtered_defects);
         if (d_filtered_count) cudaFree(d_filtered_count);
+        if (d_hist) cudaFree(d_hist);
+        if (h_hist) cudaFreeHost(h_hist);
+        d_hist = nullptr;
+        h_hist = nullptr;
         freePersistentBuffers();
         d_binary = nullptr;
         d_labels = nullptr;
@@ -169,6 +177,8 @@ public:
 
     uint8_t* getInputPtr() { return d_input; }
     uint8_t* getBinaryPtr() { return d_binary; }
+    int* getHistDevice() { return d_hist; }
+    int* getHistHost() { return h_hist; }
     int* getLabelsPtr() { return d_labels; }
     DefectInfo* getDefectsPtr() { return d_defects; }
     int* getDefectCountPtr() { return d_defect_count; }
@@ -257,6 +267,16 @@ public:
 
         // Step 4: 偵測 —— DIV(比例式) 或 SUB(灰階差 8-Way-Star 投票，legacy 移植)
         if (cfg.algo_mode == 1) {
+            // SUB 前處理（legacy 偵測前順序：Ip_Remap → 3×3 高斯平滑×SmoothTimes2；d_binary 暫作平滑 scratch）
+            if (cfg.preproc_remap) {
+                launchRemapFitSrc(gpu_mem.getInputPtr(), w, h,
+                                  gpu_mem.getHistDevice(), gpu_mem.getHistHost(), stream);
+            }
+            if (cfg.smooth_times2 > 0) {
+                launchSmooth3x3(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), w, h,
+                                cfg.smooth_times2, blockDim, stream);
+                CUDA_CHECK(cudaMemsetAsync(gpu_mem.getBinaryPtr(), 0, (size_t)w * h, stream));
+            }
             launchSubVotingKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
                                   blockDim, stream);
         } else {
