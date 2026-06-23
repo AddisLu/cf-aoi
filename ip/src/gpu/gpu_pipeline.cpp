@@ -198,6 +198,7 @@ public:
     bool ai_on = false;        // 模型是否載入成功
     bool ai_active = false;    // 執行期開關（預設停用：訓練資料不足，暫不推論）
     cudaEvent_t ev_start = nullptr, ev_stop = nullptr;
+    MultiScaleBuffers ms_{};   // 多尺度 resize-redetect（大顆 Defect 漏檢補強）緩衝
 
     explicit GpuPipelineImpl(const std::string& ai_model_dir) {
         CUDA_CHECK(cudaStreamCreate(&stream));
@@ -223,6 +224,7 @@ public:
         if (stream) cudaStreamDestroy(stream);
         if (ai_stream) cudaStreamDestroy(ai_stream);
         if (ai_classifier) delete ai_classifier;
+        freeMultiScaleBuffers(ms_);
     }
 
     DetectionResult run(const uint8_t* img, int w, int h, const ZoneConfig& cfg) {
@@ -289,6 +291,32 @@ public:
         } else {
             launchFast8WayKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
                                  blockDim, stream, cfg.fast_search_range);
+        }
+
+        // Step 4.5: 多尺度 resize-redetect（大顆 Defect 漏檢補強）——
+        //   大於 pitch reach(~pitch×pitch_times) 的缺陷,全解析度下 8 鄰皆落在缺陷內→無局部對比→漏檢;
+        //   downsample 2×/4× 後縮回 pitch 範圍 → 同 kernel 同參數偵測 → upscale OR-merge 進 d_binary。
+        //   ★ 重用既有 Demo 多尺度 downsample/upscale kernel(先前未接線),此處接入偵測主路(投票模式 1/2)。
+        // 僅 mode2(融合)啟用多尺度：legacy SUB(mode1) 維持忠實基準(無多尺度)，新 DIV-voting 才補大顆 Defect。
+        if (cfg.enable_multiscale >= 1 && cfg.algo_mode == 2) {
+            if (!ms_.allocated || ms_.width_2x != w / 2 || ms_.height_2x != h / 2) {
+                freeMultiScaleBuffers(ms_);
+                allocateMultiScaleBuffers(ms_, w, h);
+            }
+            auto detect_scale = [&](const uint8_t* src, uint8_t* bin, int sw, int sh) {
+                KernelParams ps = params; ps.width = sw; ps.height = sh;
+                launchDivVotingKernel(src, bin, ps, blockDim, stream);
+            };
+            launchDownsample2x(gpu_mem.getInputPtr(), ms_.d_image_2x, w, h, ms_.width_2x, ms_.height_2x, stream);
+            detect_scale(ms_.d_image_2x, ms_.d_binary_2x, ms_.width_2x, ms_.height_2x);
+            launchUpscaleBinaryMask2x(ms_.d_binary_2x, gpu_mem.getBinaryPtr(),
+                                      ms_.width_2x, ms_.height_2x, w, h, stream);
+            if (cfg.enable_multiscale >= 2) {
+                launchDownsample4x(gpu_mem.getInputPtr(), ms_.d_image_4x, w, h, ms_.width_4x, ms_.height_4x, stream);
+                detect_scale(ms_.d_image_4x, ms_.d_binary_4x, ms_.width_4x, ms_.height_4x);
+                launchUpscaleBinaryMask4x(ms_.d_binary_4x, gpu_mem.getBinaryPtr(),
+                                          ms_.width_4x, ms_.height_4x, w, h, stream);
+            }
         }
 
         // Step 5: CCL

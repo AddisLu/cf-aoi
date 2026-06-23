@@ -76,6 +76,7 @@ struct Args {
     int  ov_pitch_x = -1, ov_pitch_y = -1;
     int  ov_algo_mode = -1;        // --algo-mode 0/1/2：強制覆寫 zone 演算法(0 DIV / 1 SUB / 2 DIV-voting)
     int  ov_dark_eps  = -1;        // --dark-eps N：覆寫 DIV-voting 暗區棄權門檻
+    int  ov_multiscale = -1;       // --multiscale 0/1/2：覆寫多尺度(0 關 / 1 +2× / 2 +2×+4×)大顆 Defect 補強
     // 驗證用覆寫（取代 buffer 計算器結果；-1 = 用計算器）
     int  max_queue_size    = -1;   // --max-queue-size N：覆寫 FrameQueue 上限（壓力測試用）
     int  max_src_ring_size = -1;   // --max-src-ring-size N：覆寫 SourceRing 上限（OOM 測試用）
@@ -154,6 +155,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--pitch-y") a.ov_pitch_y = std::stoi(next("--pitch-y"));
         else if (k == "--algo-mode") a.ov_algo_mode = std::stoi(next("--algo-mode"));
         else if (k == "--dark-eps") a.ov_dark_eps = std::stoi(next("--dark-eps"));
+        else if (k == "--multiscale") a.ov_multiscale = std::stoi(next("--multiscale"));
         else if (k == "--verify-deterministic") a.verify_deterministic = true;
         else if (k == "--max-queue-size") a.max_queue_size = std::stoi(next("--max-queue-size"));
         else if (k == "--max-src-ring-size") a.max_src_ring_size = std::stoi(next("--max-src-ring-size"));
@@ -368,12 +370,14 @@ int main(int argc, char** argv) {
         zones = { base };  // 單一全幅 zone
     }
     // CLI 演算法/閾值覆寫（offline 驗證/比較用：在既有 recipe 上強制換 algo_mode / 比值閾值 / 暗區門檻）。
-    if (args.ov_algo_mode >= 0 || args.ov_bth >= 0.f || args.ov_dth >= 0.f || args.ov_dark_eps >= 0) {
+    if (args.ov_algo_mode >= 0 || args.ov_bth >= 0.f || args.ov_dth >= 0.f ||
+        args.ov_dark_eps >= 0 || args.ov_multiscale >= 0) {
         for (auto& z : zones) {
-            if (args.ov_algo_mode >= 0) z.algo_mode = args.ov_algo_mode;
-            if (args.ov_bth >= 0.f)     z.BTH = args.ov_bth;
-            if (args.ov_dth >= 0.f)     z.DTH = args.ov_dth;
-            if (args.ov_dark_eps >= 0)  z.mean_low_threshold = args.ov_dark_eps;
+            if (args.ov_algo_mode >= 0)  z.algo_mode = args.ov_algo_mode;
+            if (args.ov_bth >= 0.f)      z.BTH = args.ov_bth;
+            if (args.ov_dth >= 0.f)      z.DTH = args.ov_dth;
+            if (args.ov_dark_eps >= 0)   z.mean_low_threshold = args.ov_dark_eps;
+            if (args.ov_multiscale >= 0) z.enable_multiscale = args.ov_multiscale;
         }
         std::cout << "[CLI override] algo_mode=" << args.ov_algo_mode
                   << " BTH=" << args.ov_bth << " DTH=" << args.ov_dth
