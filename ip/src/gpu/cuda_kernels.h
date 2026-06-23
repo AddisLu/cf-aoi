@@ -16,6 +16,9 @@ struct KernelParams {
     int search_range_y;
     float BTH;
     float DTH;
+    // SUB(灰階差投票)模式用：DIV 模式忽略。BTH/DTH 在 SUB 模式為灰階差(如 +17/-16)、DIV 為比例(如 1.2/0.7)。
+    int pitch_times = 1;     // legacy PitchTimes：每方向比較幾個 pitch 倍數（8 方向 × pitch_times = 投票路數）
+    int choose_amount = 1;   // legacy ChooseAmount：≥幾路超 ThB/ThD 才判缺陷
 };
 
 // CUDA error checking macro
@@ -46,6 +49,17 @@ void launchFast8WayKernel(
     dim3 blockDim,
     cudaStream_t stream = 0,
     int search_range = 1  // Default ±1 pixel search for skew tolerance
+);
+
+// SUB(灰階差)8-Way-Star 投票 kernel — 忠實移植 legacy Algo_8WAY_STAR_SUB_8bits。
+// 每像素 16 路(8方向×pitch_times)逐路灰階差，每路 3×3 SAD 局部最佳匹配；
+// ≥choose_amount 路 diff>=BTH→亮(255)、<=DTH→暗(128)。輸出與 DIV kernel 同(下游相容)。
+void launchSubVotingKernel(
+    const uint8_t* d_input,
+    uint8_t* d_binary,
+    const KernelParams& params,
+    dim3 blockDim,
+    cudaStream_t stream = 0
 );
 
 // Fast CCL kernel

@@ -49,7 +49,16 @@ struct ZoneConfig {
     int fast_search_range = 1;   // 0=none, 1=±1px, 2=±2px
     int enable_multiscale = 1;   // 0=off, 1=2x, 2=2x+4x
 
-    // === Threshold（比例式，DIV 域）===
+    // === 演算法模式 ===
+    // 0 = DIV（比例式 center/mean₈ vs BTH/DTH，gpu_algo kernel）
+    // 1 = SUB（灰階差 8-Way-Star 投票，legacy 移植；BTH/DTH 為灰階差，配 pitch_times/choose_amount）
+    int algo_mode = 0;
+    int pitch_times   = 1;       // ← legacy PitchTime（SUB：每方向 pitch 倍數；DIV 忽略）
+    int choose_amount = 1;       // ← legacy ChooseAmount（SUB：≥幾路超標才算缺陷；DIV 忽略）
+
+    // === Threshold ===
+    // DIV 域：BTH=BrightThreshold(比例,如1.2)、DTH=DarkThreshold(比例,如0.7)
+    // SUB 域：BTH=BrightThreshold(灰階差,如+17)、DTH=DarkThreshold(灰階差,如-16)
     float BTH = 1.20f;           // ← BrightThreshold
     float DTH = 0.70f;           // ← DarkThreshold
 

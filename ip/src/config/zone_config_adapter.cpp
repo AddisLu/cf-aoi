@@ -111,32 +111,25 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
         const std::string blk = xml.substr(s + open.size(), e - (s + open.size()));
         pos = e + close.size();
 
-        // ★ 只接受 DIV 模式（gpu_algo kernel 是比例式；SUB 無固定轉換公式）
-        std::string cmp;
-        bool has_cmp = extract_tag(blk, "AlgorithmCompare", cmp);
-        if (cmp != "DIV") {
-            std::string actual = has_cmp ? ("\"" + cmp + "\"")
-                                         : "(缺少 <AlgorithmCompare> 元素)";
-            std::string reason = has_cmp
-                ? "SUB 模式的閾值是灰階差（Origin-Reference），gpu_algo kernel 是比例式"
-                  "（Origin/mean₈(neighbors) vs BTH/DTH）；灰階差轉比例需依賴局部背景灰階 R"
-                  "（BTH=1+ThB_sub/R），無固定常數公式。"
-                : "未指定比較模式，無法判定閾值定義域。";
-            throw RecipeError(
-                "[Recipe] 拒絕載入 DetectRoi[" + std::to_string(idx) + "]"
-                "（zone " + std::to_string(idx) + "）：\n"
-                "  • 實際 AlgorithmCompare = " + actual + "\n"
-                "  • 本系統僅接受 = \"DIV\"\n"
-                "  • 拒絕原因：" + reason + "\n"
-                "  • 建議解法：將此 zone 的 AlgorithmCompare 改為 \"DIV\"，"
-                "並把 BrightThreshold/DarkThreshold 設為比例域值（例如 1.4 / 0.6）。");
-        }
+        // ★ 演算法域判定 —— 權威欄位是 M_AlgorithmWayCompare（含 _Sub/_Div），
+        //   不是 stale 的 <AlgorithmCompare>（legacy CamProc.cs:501-543 即以 enum 為準覆蓋字串）。
+        //   舊版只比 <AlgorithmCompare>="DIV" 會被掛 DIV 字串、實為 SUB 的 recipe 騙過 → 靜默假 PASS。
+        std::string awc;  bool has_awc = extract_tag(blk, "M_AlgorithmWayCompare", awc);
+        std::string cmp;  bool has_cmp = extract_tag(blk, "AlgorithmCompare", cmp);
+        auto contains_ci = [](const std::string& h, const char* needle) {
+            std::string a = h, b = needle;
+            for (auto& c : a) c = (char)std::tolower((unsigned char)c);
+            for (auto& c : b) c = (char)std::tolower((unsigned char)c);
+            return a.find(b) != std::string::npos;
+        };
+        bool is_sub = has_awc && contains_ci(awc, "sub");
+        bool is_div = (has_awc && contains_ci(awc, "div")) || (cmp == "DIV");
 
         ZoneConfig z = defaults;
         z.recipe_name = recipe_name;
         z.zone_index = idx;
 
-        // 閾值：BrightThreshold→BTH, DarkThreshold→DTH（DIV 域，直接對應）
+        // 閾值（兩域同欄位、語意不同）
         tag_double_as_float(blk, "BrightThreshold", z.BTH);
         tag_double_as_float(blk, "DarkThreshold",   z.DTH);
 
@@ -145,7 +138,33 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
         tag_int(blk, "PitchY", z.pitch_y);
         tag_int(blk, "SearchX", z.search_range_x);
         tag_int(blk, "SearchY", z.search_range_y);
-        z.fast_search_range = clampi(z.search_range_y, 0, 2);  // gpu 局部搜尋是垂直向
+        z.fast_search_range = clampi(z.search_range_y, 0, 2);  // DIV gpu 局部搜尋是垂直向
+
+        if (is_sub) {
+            // SUB（灰階差 8-Way-Star 投票）：BTH/DTH 為灰階差(+17/-16)，配 PitchTime/ChooseAmount。
+            z.algo_mode = 1;
+            tag_int(blk, "PitchTime",    z.pitch_times);
+            tag_int(blk, "ChooseAmount", z.choose_amount);
+            if (z.pitch_times   < 1) z.pitch_times   = 1;
+            if (z.choose_amount < 1) z.choose_amount = 1;
+            if (z.DTH >= 0.0f)
+                std::cerr << "[ZoneConfig] WARN zone " << idx
+                          << " SUB 但 DarkThreshold=" << z.DTH << " ≥0（SUB 暗閾值通常為負灰階差）\n";
+        } else if (is_div) {
+            // DIV（比例式）：BTH/DTH 為比例。防呆：DTH<0 是 SUB 域值誤標 DIV（舊靜默假 PASS 漏洞）。
+            z.algo_mode = 0;
+            if (z.DTH < 0.0f)
+                throw RecipeError(
+                    "[Recipe] 拒絕載入 DetectRoi[" + std::to_string(idx) + "]：標示 DIV 但 "
+                    "DarkThreshold=" + std::to_string(z.DTH) + " <0 = SUB 灰階差域值。"
+                    "若實為 SUB，請設 <M_AlgorithmWayCompare> 含 'Sub'；若真 DIV，DarkThreshold 應為比例(>0)。");
+        } else {
+            throw RecipeError(
+                "[Recipe] 拒絕載入 DetectRoi[" + std::to_string(idx) + "]：無法判定演算法域。\n"
+                "  • M_AlgorithmWayCompare = " + (has_awc ? ("\"" + awc + "\"") : "(缺)") + "\n"
+                "  • AlgorithmCompare = " + (has_cmp ? ("\"" + cmp + "\"") : "(缺)") + "\n"
+                "  • 本系統接受：M_AlgorithmWayCompare 含 'Sub'(SUB 投票) 或 'Div'/AlgorithmCompare=\"DIV\"(DIV 比例)。");
+        }
 
         // ROI 範圍（StartX/StartY/EndX/EndY；-1 = 全幅）
         tag_int(blk, "StartX", z.roi_start_x);
@@ -153,13 +172,16 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
         tag_int(blk, "EndX",   z.roi_end_x);
         tag_int(blk, "EndY",   z.roi_end_y);
 
-        std::cout << "[ZoneConfig] zone " << idx << " DIV: BTH=" << z.BTH << " DTH=" << z.DTH
+        std::cout << "[ZoneConfig] zone " << idx << (z.algo_mode == 1 ? " SUB" : " DIV")
+                  << ": BTH=" << z.BTH << " DTH=" << z.DTH
                   << " pitch=(" << z.pitch_x << "," << z.pitch_y << ")"
-                  << " search=(" << z.search_range_x << "," << z.search_range_y << ")"
-                  << " fast_search=" << z.fast_search_range
-                  << " roi=(" << z.roi_start_x << "," << z.roi_start_y << ")-("
+                  << " search=(" << z.search_range_x << "," << z.search_range_y << ")";
+        if (z.algo_mode == 1)
+            std::cout << " pitch_times=" << z.pitch_times << " choose=" << z.choose_amount;
+        else
+            std::cout << " fast_search=" << z.fast_search_range;
+        std::cout << " roi=(" << z.roi_start_x << "," << z.roi_start_y << ")-("
                   << z.roi_end_x << "," << z.roi_end_y << ")\n";
-        // 註：AlgorithmWay/PitchTime/ChooseAmount/Blob* 在 gpu_algo kernel 無對應，已忽略。
 
         zones.push_back(z);
         ++idx;

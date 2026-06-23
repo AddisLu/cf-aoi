@@ -1074,6 +1074,123 @@ void calibrateLensShadingFromImage(
 // Host Interface - Ultra Fast Version
 // ============================================================================
 
+// ============================================================================
+// SUB(灰階差)8-Way-Star 投票 kernel — 忠實移植 legacy Algo_8WAY_STAR_SUB_8bits
+//   出處：Reference/PrjCfAoi/CudaCore/CUDA_Kernel.cu:1044-1564（gather+投票）
+//        + GetCompareIndex（CUDA_KernelFunction.cu:204-242，3×3 SAD 局部匹配）。
+//   ⚠️ 新增 kernel，不改既有 DIV/AI kernel（§7 不變式 1）。輸出 255/128/0 與 DIV 同。
+//   本版實作內部像素(Type-1 全 8-way)；邊界 margin skip（本 recipe BypassEdge=50 ≥ pitch reach
+//   52 → 邊界 zone-type 差異落在 bypass 內，見 docs/SUB_pipeline_port_plan.md）。
+// ============================================================================
+
+// 中心 3×3 取樣偏移，順序與 legacy RescentData(CUDA_Kernel.cu:1077-1085)一致：
+//   (0,0)(0,-1)(+1,-1)(+1,0)(+1,+1)(0,+1)(-1,+1)(-1,0)(-1,-1)
+__constant__ int c_sub_rdx[9] = { 0, 0, 1, 1, 1, 0,-1,-1,-1};
+__constant__ int c_sub_rdy[9] = { 0,-1,-1, 0, 1, 1, 1, 0,-1};
+
+// 3×3 SAD 局部最佳匹配：在 [-searchX..searchX]×[-searchY..searchY] 找與中心 3×3 最相似之候選，
+// 回傳該候選中心像素之 linear index（= legacy GetCompareIndex）。
+__device__ __forceinline__ int subGetCompareIndex(
+    const uint8_t* __restrict__ d_input, const int width,
+    const int cx, const int cy,          // 中心像素
+    const int compX, const int compY,    // 目標鄰點（未加搜尋偏移）
+    const int searchX, const int searchY)
+{
+    uint8_t rc[9];
+    #pragma unroll
+    for (int k = 0; k < 9; ++k)
+        rc[k] = d_input[(cy + c_sub_rdy[k]) * width + (cx + c_sub_rdx[k])];
+
+    unsigned int best = 0xFFFFFFFFu;
+    int bx = 0, by = 0;
+    for (int sy = -searchY; sy <= searchY; ++sy) {
+        for (int sx = -searchX; sx <= searchX; ++sx) {
+            int sad = 0;
+            #pragma unroll
+            for (int k = 0; k < 9; ++k) {
+                int v = d_input[(compY + sy + c_sub_rdy[k]) * width + (compX + sx + c_sub_rdx[k])];
+                sad += abs((int)rc[k] - v);
+            }
+            if ((unsigned)sad < best) { best = (unsigned)sad; bx = sx; by = sy; }
+        }
+    }
+    return (compY + by) * width + (compX + bx);
+}
+
+__global__ void kernelSub8WayStarVoting(
+    const uint8_t* __restrict__ d_input,
+    uint8_t* __restrict__ d_binary,
+    const int width, const int height,
+    const int pitch_x, const int pitch_y,
+    const int pitch_times, const int choose_amount,
+    const float ThB, const float ThD,
+    const int search_x, const int search_y)
+{
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    // 最遠取樣 = pitch*pitch_times（最遠方向）+ search（搜尋窗）+ 1（3×3 鄰域）
+    const int margin_x = pitch_x * pitch_times + search_x + 1;
+    const int margin_y = pitch_y * pitch_times + search_y + 1;
+    const int idx = y * width + x;
+    if (x < margin_x || x >= width - margin_x ||
+        y < margin_y || y >= height - margin_y) {
+        d_binary[idx] = 0;
+        return;
+    }
+
+    const int center = d_input[idx];
+
+    // 8 方向單位偏移（上/右上/右/右下/下/左下/左/左上）— 與 legacy 同序
+    const int wx[8] = { 0, 1, 1, 1, 0,-1,-1,-1};
+    const int wy[8] = {-1,-1, 0, 1, 1, 1, 0,-1};
+
+    int countBP = 0, countDP = 0;
+    for (int p = 0; p < pitch_times; ++p) {
+        const int pX = pitch_x * (p + 1);
+        const int pY = pitch_y * (p + 1);
+        #pragma unroll
+        for (int w = 0; w < 8; ++w) {
+            const int tx = x + wx[w] * pX;
+            const int ty = y + wy[w] * pY;
+            const int ci = subGetCompareIndex(d_input, width, x, y, tx, ty, search_x, search_y);
+            const int diff = center - (int)d_input[ci];   // legacy: CompareResult = center - neighbor
+            if ((float)diff >= ThB) ++countBP;             // legacy: >= ThBP
+            if ((float)diff <= ThD) ++countDP;             // legacy: <= ThDP
+        }
+    }
+
+    uint8_t result = 0;
+    if (countBP >= choose_amount)      result = 255;  // Bright defect（與 DIV kernel 同值）
+    else if (countDP >= choose_amount) result = 128;  // Dark defect
+    d_binary[idx] = result;
+}
+
+void launchSubVotingKernel(
+    const uint8_t* d_input,
+    uint8_t* d_binary,
+    const KernelParams& params,
+    dim3 blockDim,
+    cudaStream_t stream
+) {
+    dim3 gridDim(
+        (params.width  + blockDim.x - 1) / blockDim.x,
+        (params.height + blockDim.y - 1) / blockDim.y
+    );
+    int pt = params.pitch_times  < 1 ? 1 : params.pitch_times;
+    int ca = params.choose_amount < 1 ? 1 : params.choose_amount;
+    kernelSub8WayStarVoting<<<gridDim, blockDim, 0, stream>>>(
+        d_input, d_binary,
+        params.width, params.height,
+        params.pitch_x, params.pitch_y,
+        pt, ca,
+        params.BTH, params.DTH,
+        params.search_range_x, params.search_range_y
+    );
+    CUDA_CHECK(cudaGetLastError());
+}
+
 void launchFast8WayKernel(
     const uint8_t* d_input,
     uint8_t* d_binary,

@@ -252,10 +252,17 @@ public:
         params.search_range_y = cfg.search_range_y;
         params.BTH = cfg.BTH;
         params.DTH = cfg.DTH;
+        params.pitch_times   = cfg.pitch_times;
+        params.choose_amount = cfg.choose_amount;
 
-        // Step 4: 8-Way comparison
-        launchFast8WayKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
-                             blockDim, stream, cfg.fast_search_range);
+        // Step 4: 偵測 —— DIV(比例式) 或 SUB(灰階差 8-Way-Star 投票，legacy 移植)
+        if (cfg.algo_mode == 1) {
+            launchSubVotingKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
+                                  blockDim, stream);
+        } else {
+            launchFast8WayKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
+                                 blockDim, stream, cfg.fast_search_range);
+        }
 
         // Step 5: CCL
         launchFastCCLKernel(gpu_mem.getBinaryPtr(), gpu_mem.getLabelsPtr(),
