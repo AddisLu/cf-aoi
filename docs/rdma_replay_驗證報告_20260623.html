@@ -50,7 +50,7 @@
   <ul>
     <li><span class="pill p-ok">不塞車</span> 全量 744 張（24 CCD × 31）跑完，收端佇列全程是空的、零背壓、零錯誤；GPU 不是瓶頸。</li>
     <li><span class="pill p-ok">找到並修掉真瓶頸（15.7×）</span> 原本傳輸卡在 86MB/s——根因是 <code>crc32_ieee</code> 逐位元（非 MTU、非 fabric：MTU 9000 無改善、原生 RDMA 達 11.4GB/s）。改 slice-by-8 後 <b>85.8→1346 MB/s、2.2→34.6 fps</b>（commit <code>b9d7d16</code>）。</li>
-    <li><span class="pill p-ok">24CCD 一台 Spark 夠</span> / <span class="pill p-warn">37CCD 臨界</span> 修正後管線 34.6fps：744 張 ~21.5s（節拍內）；1110 張 ~32s（略超 30s，GPU 6.8ms 仍有大餘裕，收端管線再優化即穩進）。缺陷 &lt;100 顆為輕負載。</li>
+    <li><span class="pill p-ok">24CCD 一台 Spark 夠</span> / <span class="pill p-warn">37CCD 臨界</span> 修正後管線 34.6fps：744 張 ~21.5s（節拍內）；1110 張 ~32s（略超 30s，GPU 6.8ms 仍有大餘裕，需結構性重構「3 步驟」即穩進，非調參，見下）。缺陷 &lt;100 顆為輕負載。</li>
     <li><span class="pill p-warn">配方待接手調</span> 目前的 baseline 配方「pitch 沒對準面板週期」，把整片像素陣列都當成缺陷（多數張數頂到 10000 上限），所以這一輪「真實缺陷數」還不能用，也分不出你說有缺陷的 IP04 第 27、28 張。需要拿舊機台已調好的配方來移植。</li>
   </ul>
 </div>
@@ -141,11 +141,22 @@
 <tr><td>生產（37 CCD × ~30）</td><td class="n">~1110</td><td class="n warn"><b>~32 s</b></td><td class="n warn">略超 30s</td><td><span class="pill p-warn">臨界</span></td></tr>
 </table>
 <ul>
-  <li><b>GPU 不是瓶頸</b>：每張 6.8–8.1ms（124–147fps 能力）。目前 34.6fps 的限制是收端「CRC 驗證 + 40.8MB memcpy」與同步 N-slot 協議的串接負擔，<b>還可再優化</b>（slice-by-16 / 硬體 CRC、或省去收端冗餘 CRC〔RDMA RC 本就保證送達〕、或非同步多筆 in-flight）→ 趨近 GPU 上限 147fps → 1110 張 ~7.5s，餘裕充足。</li>
+  <li><b>GPU 不是瓶頸</b>：每張 6.8–8.1ms（124–147fps 能力）。34.6fps 的限制是<b>同步 N-slot 協議結構</b>（送端單一 txbuf、逐幀 post_write+poll）＋ 收端 memcpy 鏈 ＋ GPU 每幀 streamSync。</li>
+  <li><b>已實測：調參打不破 ~33fps（牆是結構性的，非 CRC/記憶體/slots）</b>：
+    <table style="margin-top:6px">
+    <tr><th>變因</th><th class="n">fps</th></tr>
+    <tr><td>CRC slice-by-8 + cudaHostAlloc + 4 slots（現狀）</td><td class="n ok">~33</td></tr>
+    <tr><td>跳過 CRC（兩端）+ 4 slots</td><td class="n bad">5（送端變快→credit 耗盡→RNR 風暴）</td></tr>
+    <tr><td>跳過 CRC + 16 slots</td><td class="n">28</td></tr>
+    <tr><td>跳過 CRC + 非-Mapped ring + 16 slots</td><td class="n">28</td></tr>
+    <tr><td>跳過 CRC + 一般 malloc ring + 16 slots</td><td class="n bad">20（更差，CUDA-pinned 對 NIC 較佳）</td></tr>
+    </table>
+    → 沒有一個調參組合能超過 CRC-ON 的 33fps。</li>
+  <li><b>要破牆＝結構性重構（即「3 步驟」，非調參）</b>：① 送端非同步多緩衝（K 個 txbuf、多筆 in-flight、不逐幀 poll，<code>rdma_sender.cpp:71-87</code>）② 收端去多餘 memcpy（直接 <code>cudaMemcpyAsync</code> slot→device，<code>rdma_source.cpp:185</code> + <code>gpu_pipeline.cpp:136</code>）③ GPU 雙緩衝（≥2 stream + ping-pong d_input，移 per-frame <code>streamSync</code>，<code>gpu_pipeline.cpp:271</code>）→ 趨近 GPU 上限 147fps → 1110 張 ~7.5s。<b>屬 RDMA+CUDA 熱路徑重構，需逐步驗證正確性/決定性（rdma_sender 為生產 grab 共用，不可破 L4），建議專注一輪完成。</b></li>
   <li>缺陷 &lt;100 顆 = 輕負載（GPU ~7ms 低端），上表已是此情境。</li>
   <li>生產為 37 CCD 經交換器<b>並行</b>餵入，但收端是單台 Spark 單一處理序，故吞吐看收端序列速率（34.6fps，優化後更高）。</li>
 </ul>
-<p class="big ok">一台 Spark：24CCD/744 張在節拍內 ✅；37CCD/1110 張臨界（目前 ~32s），GPU 有大量餘裕、收端管線再優化即穩進節拍。</p>
+<p class="big ok">一台 Spark：24CCD/744 張在節拍內 ✅；37CCD/1110 張臨界（目前 ~32s），GPU 餘裕大；要進節拍需結構性重構（3 步驟：非同步送端+收端去拷貝+GPU雙緩衝），已驗證調參無效。</p>
 </div>
 
 <h2>三、結論與後續</h2>
@@ -155,7 +166,7 @@
 <tr><td>傳輸瓶頸根因</td><td><span class="pill p-ok">已修 15.7×</span></td><td><code>crc32_ieee</code> 逐位元→slice-by-8（commit <code>b9d7d16</code>）；非 MTU/fabric</td></tr>
 <tr><td>(b) RDMA 鏈路穩定性</td><td><span class="pill p-ok">已持久化</span></td><td><code>cf-rdma</code> 設定檔；換插槽要更新介面名</td></tr>
 <tr><td>(c) 真實缺陷偵測（含 IP04 27/28）</td><td><span class="pill p-warn">待配方</span></td><td><b>提供舊機台 T550QVN10 配方</b>讓我移植；或 Control Step1 逐 CCD 調</td></tr>
-<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">24CCD ✅</span> / <span class="pill p-warn">37CCD 臨界</span></td><td>744 張 ~21.5s（節拍內）；1110 張 ~32s（GPU 餘裕大，收端再優化即穩進 30s）</td></tr>
+<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">24CCD ✅</span> / <span class="pill p-warn">37CCD 臨界</span></td><td>744~21.5s節拍內；1110~32s臨界，需3步驟結構重構(非調參)進節拍</td></tr>
 </table>
 
 <h2>附錄：重現步驟</h2>
