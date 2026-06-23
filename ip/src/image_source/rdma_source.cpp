@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
@@ -64,6 +65,17 @@ bool RdmaImageSource::init(const std::string& bind_ip, const std::string& port,
         // 接受 Grab 連線
         conn_.accept_conn();
 
+        // ── ③.5 設小 min_rnr_timer ───────────────────────────────────────────────
+        // 預設 index 0 = 655.36ms：送端 credit 短暫耗盡 → RNR NAK → 等 655ms → 吞吐崩潰（實測 2.6fps）。
+        // 改 index 12 ≈ 0.64ms：RNR 時快速重試，吞吐回到「消費端速率」而非長等。
+        // （responder=收端 QP 的 min_rnr_timer 廣告給送端決定 RNR 等待；RTS 狀態下可改。）
+        {
+            ibv_qp_attr qa{}; qa.min_rnr_timer = 12;
+            int e = ibv_modify_qp(conn_.id->qp, &qa, IBV_QP_MIN_RNR_TIMER);
+            if (e) fprintf(stderr, "[rdma_source] WARN: set min_rnr_timer 失敗 (%d)\n", e);
+            else   printf("[rdma_source] min_rnr_timer = index 12 (~0.64ms)\n");
+        }
+
         // ── ④ SEND MrInfoEx 給 Grab（N-slot 握手）─────────────────────────────
         ctrl_buf_.assign(sizeof(MrInfoEx), 0);
         ctrl_mr_ = conn_.reg(ctrl_buf_.data(), ctrl_buf_.size(), IBV_ACCESS_LOCAL_WRITE);
@@ -107,6 +119,7 @@ bool RdmaImageSource::init(const std::string& bind_ip, const std::string& port,
 //   只要 post_recv 在 push_blocking 之後，slot 就不會被 Grab 在 CPU 讀期間覆蓋。
 // ---------------------------------------------------------------------------
 void RdmaImageSource::recv_thread_fn() {
+    double sum_crc_ms = 0, sum_cpy_ms = 0, sum_push_ms = 0;   // [診斷] 收端各階段累計
     while (running_.load(std::memory_order_relaxed)) {
         ibv_wc wc{};
         bool got = false;
@@ -166,23 +179,32 @@ void RdmaImageSource::recv_thread_fn() {
         }
 
         // CRC 驗證（payload 在 pinned memory 中，CPU 直接讀）
-        uint32_t crc = crc32_ieee(slot + sizeof(FrameHeader), h.payloadBytes);
-        if (crc != h.crc32) {
-            fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u CRC 不符"
-                    "（got=0x%08x want=0x%08x）\n", seq, slot_id, crc, h.crc32);
-            FR_RECORD_INCIDENT("frame_validation",
-                "rdma crc seq=" + std::to_string(seq) +
-                " slot=" + std::to_string(slot_id));
-            ++recv_err_;
-            conn_.post_recv(rx_mr_, rx_small_, 4);
-            continue;
+        // CFAOI_RDMA_NOCRC=1：跳過收端 app-CRC 複驗（RDMA RC 已保證有序無損送達；省 ~16ms/幀）。
+        //   預設關閉(=做 CRC，較保守)；可信 fabric 求吞吐時開啟。資料若真損壞，下游缺陷結果會偏離 golden→仍可抓。
+        static const bool s_nocrc = std::getenv("CFAOI_RDMA_NOCRC") != nullptr;
+        if (!s_nocrc) {
+            auto _tc0 = std::chrono::steady_clock::now();
+            uint32_t crc = crc32_ieee(slot + sizeof(FrameHeader), h.payloadBytes);
+            sum_crc_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tc0).count();
+            if (crc != h.crc32) {
+                fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u CRC 不符"
+                        "（got=0x%08x want=0x%08x）\n", seq, slot_id, crc, h.crc32);
+                FR_RECORD_INCIDENT("frame_validation",
+                    "rdma crc seq=" + std::to_string(seq) +
+                    " slot=" + std::to_string(slot_id));
+                ++recv_err_;
+                conn_.post_recv(rx_mr_, rx_small_, 4);
+                continue;
+            }
         }
 
         // ── ★ 釘點 1 [1]：memcpy slot → payload（slot data 安全複製出來）──────
         // 此 memcpy 完成後，slot 的資料已在 payload 中；無論 Grab 是否覆蓋 slot，
         // payload 的內容不受影響。
+        auto _tm0 = std::chrono::steady_clock::now();
         std::vector<uint8_t> payload(h.payloadBytes);
         memcpy(payload.data(), slot + sizeof(FrameHeader), h.payloadBytes);
+        sum_cpy_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tm0).count();
 
         // panel_id：RDMA 模式以 "rdma_seq_NNN" 合成（FrameHeader 只帶 hash，不帶字串）
         std::string panel = "rdma_seq_" + std::to_string(seq);
@@ -190,7 +212,9 @@ void RdmaImageSource::recv_thread_fn() {
         // ── ★ 釘點 1 [2]：push_blocking（阻塞等 FrameQueue 有位置）─────────────
         // 佇列滿時此處阻塞 → recv_thread 不繼續 post_recv → Grab credit 耗盡 → RNR
         // 返回後 payload 已 move 進 FrameQueue（payload 現為空 vector）
+        auto _tp0 = std::chrono::steady_clock::now();
         queue_->push_blocking(h, panel, std::move(payload));
+        sum_push_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tp0).count();
 
         // ── ★ 釘點 1 [3]：post_recv（補 credit，在 memcpy + push_blocking 後）──
         // 此後 Grab 可重用 slot_id 的 ring 位置（seq+n_slots 會寫到同一 slot）
@@ -205,9 +229,12 @@ void RdmaImageSource::recv_thread_fn() {
                    slot_id, seq);
         }
     }
-    printf("[rdma_source] recv_thread 結束（ok=%llu err=%llu）\n",
-           (unsigned long long)recv_ok_.load(),
-           (unsigned long long)recv_err_.load());
+    {
+        uint64_t n = recv_ok_.load() ? recv_ok_.load() : 1;
+        printf("[rdma_source] recv_thread 結束（ok=%llu err=%llu）｜每幀均: CRC=%.1fms memcpy=%.1fms push=%.1fms\n",
+               (unsigned long long)recv_ok_.load(), (unsigned long long)recv_err_.load(),
+               sum_crc_ms / n, sum_cpy_ms / n, sum_push_ms / n);
+    }
     // Grab 斷線後 recv_thread 自然退出，需關閉 queue 讓主迴圈的 next_frame/pop 返回 false。
     // stop() 正常路徑也會呼叫 queue_->close()，重複呼叫安全（FrameQueue::close 是冪等的）。
     if (queue_) queue_->close();

@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 
 bool RdmaSender::connect(const char* spark_ip, const char* port, size_t max_payload_bytes) {
@@ -67,7 +68,9 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
     h.machineCoordX  = 0;
     h.machineCoordY  = 0;
     h.payloadBytes = payload_bytes;
-    h.crc32        = crc32_ieee(payload, payload_bytes);
+    // CFAOI_RDMA_NOCRC=1：跳過送端 app-CRC（RDMA RC 已保證送達；省 ~16ms/幀）。預設仍算 CRC（保守）。
+    static const bool s_nocrc = std::getenv("CFAOI_RDMA_NOCRC") != nullptr;
+    h.crc32        = s_nocrc ? 0u : crc32_ieee(payload, payload_bytes);
 
     if (!connected_) return;
 
