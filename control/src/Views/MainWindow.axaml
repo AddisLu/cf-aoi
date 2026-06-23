@@ -105,31 +105,31 @@
             </StackPanel>
           </Border>
 
+          <!-- 導覽精簡為操作流程必要 6 項（移除 4 個未啟用佔位：Step2-3/4/5、機況確認）。
+               順序＝操作流程：監控 → 配方/檢測 → 系統設定。 -->
           <StackPanel Spacing="4">
-            <TextBlock Text="驗證步驟" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
-                       Foreground="{DynamicResource Txt3}" Margin="10,6,0,4"/>
+            <!-- 監控（生產時主畫面 / 上位機介面）-->
             <Button Classes="nav" Classes.active="{Binding IsDashboard}"
                     Command="{Binding NavigateCommand}" CommandParameter="dashboard" Content="主控台"/>
-            <Button Classes="nav" Classes.active="{Binding IsStep1}"
-                    Command="{Binding NavigateCommand}" CommandParameter="step1" Content="Step 1：演算法驗證"/>
-            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 對位專屬，新版未啟用" Content="Step 2-3：RDMA 驗證　(未啟用)"/>
-            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 對位專屬，新版未啟用" Content="Step 4：存圖模式　(未啟用)"/>
-            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 對位專屬，新版未啟用" Content="Step 5：完整生產　(未啟用)"/>
 
             <Border Height="1" Background="{DynamicResource Line}" Margin="6,10"/>
-
-            <TextBlock Text="工具" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
+            <TextBlock Text="配方 / 檢測" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
                        Foreground="{DynamicResource Txt3}" Margin="10,2,0,4"/>
             <Button Classes="nav" Classes.active="{Binding IsZone}"
                     Command="{Binding NavigateCommand}" CommandParameter="zone" Content="配方編輯"/>
+            <Button Classes="nav" Classes.active="{Binding IsStep1}"
+                    Command="{Binding NavigateCommand}" CommandParameter="step1" Content="演算法驗證"/>
             <Button Classes="nav" Classes.active="{Binding IsSort}"
                     Command="{Binding NavigateCommand}" CommandParameter="sort" Content="缺陷分類"/>
+
+            <Border Height="1" Background="{DynamicResource Line}" Margin="6,10"/>
+            <TextBlock Text="系統" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Txt3}" Margin="10,2,0,4"/>
             <Button Classes="nav" Classes.active="{Binding IsSettings}"
                     Command="{Binding NavigateCommand}" CommandParameter="settings" Content="系統設定"/>
             <Button Classes="nav" Classes.active="{Binding IsSingleCcd}"
                     Command="{Binding NavigateCommand}" CommandParameter="singleccd"
                     ToolTip.Tip="從系統設定的宣告陣列點一顆 CCD 進入；可直接開啟（未選則顯提示）" Content="單 CCD 設定"/>
-            <Button Classes="nav" IsEnabled="False" ToolTip.Tip="MIL 專屬，新版未啟用" Content="機況確認　(未啟用)"/>
           </StackPanel>
         </DockPanel>
       </Border>
