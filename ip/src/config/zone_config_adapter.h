@@ -52,7 +52,9 @@ struct ZoneConfig {
     // === 演算法模式 ===
     // 0 = DIV（比例式 center/mean₈ vs BTH/DTH，gpu_algo kernel）
     // 1 = SUB（灰階差 8-Way-Star 投票，legacy 移植；BTH/DTH 為灰階差，配 pitch_times/choose_amount）
+    // 2 = DIV-voting（融合：DIV 比值逐路 + legacy 投票 + 暗區棄權；BTH/DTH 為比值域）
     int algo_mode = 0;
+    int mean_low_threshold = 40;  // ← MeanLowThreshold：DIV-voting 暗區棄權門檻(dark_eps)
     int pitch_times   = 1;       // ← legacy PitchTime（SUB：每方向 pitch 倍數；DIV 忽略）
     int choose_amount = 1;       // ← legacy ChooseAmount（SUB：≥幾路超標才算缺陷；DIV 忽略）
 

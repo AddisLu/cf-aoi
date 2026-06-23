@@ -19,6 +19,8 @@ struct KernelParams {
     // SUB(灰階差投票)模式用：DIV 模式忽略。BTH/DTH 在 SUB 模式為灰階差(如 +17/-16)、DIV 為比例(如 1.2/0.7)。
     int pitch_times = 1;     // legacy PitchTimes：每方向比較幾個 pitch 倍數（8 方向 × pitch_times = 投票路數）
     int choose_amount = 1;   // legacy ChooseAmount：≥幾路超 ThB/ThD 才判缺陷
+    // 融合 DIV-voting(algo_mode=2)用：BTH/DTH 為比值域(如 1.40/0.60)。
+    int dark_eps = 0;        // 暗區棄權門檻(=MeanLowThreshold)：鄰點 < dark_eps 該路不投票(杜絕暗邊界比值爆衝→邊緣 FP)。0=不棄權。
 };
 
 // CUDA error checking macro
@@ -68,6 +70,16 @@ void launchRemapFitSrc(uint8_t* d_img, int width, int height, int* d_hist, int* 
                        cudaStream_t stream = 0);
 void launchSmooth3x3(uint8_t* d_img, uint8_t* d_scratch, int width, int height,
                      int times, dim3 blockDim, cudaStream_t stream = 0);
+
+// 融合 DIV-voting kernel — DIV 比值(照度不變) × legacy 逐路投票(robustness) × 暗區棄權(邊緣 FP 改善)。
+// BTH/DTH 為比值域；輸出 255/128/0 與 DIV/SUB 同(下游相容)。新增 kernel，不改既有 DIV/SUB/AI。
+void launchDivVotingKernel(
+    const uint8_t* d_input,
+    uint8_t* d_binary,
+    const KernelParams& params,
+    dim3 blockDim,
+    cudaStream_t stream = 0
+);
 
 // Fast CCL kernel
 void launchFastCCLKernel(

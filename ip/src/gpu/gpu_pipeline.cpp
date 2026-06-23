@@ -264,11 +264,14 @@ public:
         params.DTH = cfg.DTH;
         params.pitch_times   = cfg.pitch_times;
         params.choose_amount = cfg.choose_amount;
+        params.dark_eps      = cfg.mean_low_threshold;
 
-        // Step 4: 偵測 —— DIV(比例式) 或 SUB(灰階差 8-Way-Star 投票，legacy 移植)
-        if (cfg.algo_mode == 1) {
-            // SUB 前處理（legacy 偵測前順序：Ip_Remap → 3×3 高斯平滑×SmoothTimes2；d_binary 暫作平滑 scratch）
-            if (cfg.preproc_remap) {
+        // Step 4: 偵測 —— DIV(比例單次) / SUB(灰階差投票,legacy) / DIV-voting(融合:比值逐路投票)
+        if (cfg.algo_mode == 1 || cfg.algo_mode == 2) {
+            // 前處理（legacy 偵測前順序：Ip_Remap → 3×3 高斯平滑×SmoothTimes2；d_binary 暫作平滑 scratch）
+            // ★ remap 只用於 SUB(mode1)：它減 min 會破壞 DIV 比值 center/neighbor 的照度不變性，
+            //   故 DIV-voting(mode2) 不做 remap（比值本身抵消照度）；兩者皆做高斯平滑降噪。
+            if (cfg.preproc_remap && cfg.algo_mode == 1) {
                 launchRemapFitSrc(gpu_mem.getInputPtr(), w, h,
                                   gpu_mem.getHistDevice(), gpu_mem.getHistHost(), stream);
             }
@@ -277,8 +280,12 @@ public:
                                 cfg.smooth_times2, blockDim, stream);
                 CUDA_CHECK(cudaMemsetAsync(gpu_mem.getBinaryPtr(), 0, (size_t)w * h, stream));
             }
-            launchSubVotingKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
-                                  blockDim, stream);
+            if (cfg.algo_mode == 1)
+                launchSubVotingKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
+                                      blockDim, stream);
+            else
+                launchDivVotingKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
+                                      blockDim, stream);
         } else {
             launchFast8WayKernel(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(), params,
                                  blockDim, stream, cfg.fast_search_range);

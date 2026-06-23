@@ -1168,6 +1168,104 @@ __global__ void kernelSub8WayStarVoting(
 }
 
 // ============================================================================
+// 融合偵測 kernel — DIV 比值 × legacy 逐路投票 × 暗區棄權（algo_mode=2, "DIV-voting"）
+//   融合新舊優點：每路比較用 DIV 比值 center/neighbor（照度/背光乘性不變，新 Demo 優點）
+//   + legacy 16 路(8方向×PitchTimes)+ 3×3 SAD 局部匹配 + 投票 robustness（舊 SUB 優點）。
+//   ★ 邊緣 Defect 誤判改善（核心融合問題）：
+//     ① 暗區棄權：鄰點 < dark_eps(=MeanLowThreshold) 該路不投票 → 杜絕暗邊界 mean→0 時比值爆衝的邊緣 FP。
+//     ② 投票門檻按「有效路數」比例：need=ceil(choose/16 × valid)，邊緣抽走部分路時靈敏度一致（不會因抽路而漏，也不因抽路變敏感而誤判）。
+//     ③ 有效路太少(valid<過半)→ 判背景：角落/深暗區兜底，不冒險判缺。
+//   閾值 BTH/DTH 為比值域（如 1.40/0.60，recipe 直接給，不經 SUB→R 換算）。整數定點避免除法。
+//   ★ 新增第三支 kernel，不改既有 DIV/SUB/AI kernel（§7 不變式 1）。輸出 255/128/0 下游相容。
+// ============================================================================
+__global__ void kernelDivVoting8WayStar(
+    const uint8_t* __restrict__ d_input,
+    uint8_t* __restrict__ d_binary,
+    const int width, const int height,
+    const int pitch_x, const int pitch_y,
+    const int pitch_times, const int choose_amount,
+    const float BTH, const float DTH,
+    const int search_x, const int search_y,
+    const int dark_eps)
+{
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    const int margin_x = pitch_x * pitch_times + search_x + 1;
+    const int margin_y = pitch_y * pitch_times + search_y + 1;
+    const int idx = y * width + x;
+    if (x < margin_x || x >= width - margin_x ||
+        y < margin_y || y >= height - margin_y) {
+        d_binary[idx] = 0;
+        return;
+    }
+
+    const int center = d_input[idx];
+    const int wx[8] = { 0, 1, 1, 1, 0,-1,-1,-1};
+    const int wy[8] = {-1,-1, 0, 1, 1, 1, 0,-1};
+
+    const int  SCALE = 1024;
+    const long bth_s = (long)lroundf(BTH * SCALE);   // ratio≥BTH ⇔ center*SCALE ≥ neighbor*bth_s
+    const long dth_s = (long)lroundf(DTH * SCALE);   // ratio≤DTH ⇔ center*SCALE ≤ neighbor*dth_s
+    const long lhs   = (long)center * SCALE;
+
+    int countBP = 0, countDP = 0, valid = 0;
+    for (int p = 0; p < pitch_times; ++p) {
+        const int pX = pitch_x * (p + 1);
+        const int pY = pitch_y * (p + 1);
+        #pragma unroll
+        for (int w = 0; w < 8; ++w) {
+            const int tx = x + wx[w] * pX;
+            const int ty = y + wy[w] * pY;
+            const int ci = subGetCompareIndex(d_input, width, x, y, tx, ty, search_x, search_y);
+            const int nb = (int)d_input[ci];
+            if (nb < dark_eps) continue;             // ① 暗區/邊界該路棄權（防比值爆衝→邊緣 FP）
+            ++valid;
+            if (lhs >= (long)nb * bth_s) ++countBP;  // center/nb ≥ BTH → 亮票
+            if (lhs <= (long)nb * dth_s) ++countDP;  // center/nb ≤ DTH → 暗票
+        }
+    }
+
+    const int total_ways = 8 * pitch_times;
+    uint8_t result = 0;
+    const int min_valid = (total_ways + 1) / 2;      // ③ 需過半路有效才判（角落兜底）
+    if (valid >= min_valid) {
+        // ② 門檻按有效路比例：邊緣抽走部分路時靈敏度一致
+        int need = (int)ceilf((float)choose_amount / (float)total_ways * (float)valid);
+        if (need < 1) need = 1;
+        if (countBP >= need)      result = 255;
+        else if (countDP >= need) result = 128;
+    }
+    d_binary[idx] = result;
+}
+
+void launchDivVotingKernel(
+    const uint8_t* d_input,
+    uint8_t* d_binary,
+    const KernelParams& params,
+    dim3 blockDim,
+    cudaStream_t stream
+) {
+    dim3 gridDim(
+        (params.width  + blockDim.x - 1) / blockDim.x,
+        (params.height + blockDim.y - 1) / blockDim.y
+    );
+    int pt = params.pitch_times  < 1 ? 1 : params.pitch_times;
+    int ca = params.choose_amount < 1 ? 1 : params.choose_amount;
+    kernelDivVoting8WayStar<<<gridDim, blockDim, 0, stream>>>(
+        d_input, d_binary,
+        params.width, params.height,
+        params.pitch_x, params.pitch_y,
+        pt, ca,
+        params.BTH, params.DTH,
+        params.search_range_x, params.search_range_y,
+        params.dark_eps
+    );
+    CUDA_CHECK(cudaGetLastError());
+}
+
+// ============================================================================
 // SUB 前處理 — 忠實移植 legacy 偵測前的 Ip_Remap + 高斯平滑（CamProc.cs:591-641）
 //   legacy 順序：Ip_Remap(MimRemap M_FIT_SRC_DATA) → 5×5×SmoothTimes → 3×3×SmoothTimes2 → 偵測。
 //   ★ 新增 kernel，不改既有 DIV/AI kernel（§7 不變式 1）。

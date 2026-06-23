@@ -123,7 +123,10 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
             return a.find(b) != std::string::npos;
         };
         bool is_sub = has_awc && contains_ci(awc, "sub");
-        bool is_div = (has_awc && contains_ci(awc, "div")) || (cmp == "DIV");
+        // 融合 DIV-voting：M_AlgorithmWayCompare 含 'div' 且帶投票結構標記(star/way)，如 Awc_8_Way_Star_Div。
+        bool is_fused = has_awc && contains_ci(awc, "div") &&
+                        (contains_ci(awc, "star") || contains_ci(awc, "way"));
+        bool is_div = !is_fused && ((has_awc && contains_ci(awc, "div")) || (cmp == "DIV"));
 
         ZoneConfig z = defaults;
         z.recipe_name = recipe_name;
@@ -158,6 +161,23 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
             tag_int(blk, "SmoothTimes2", z.smooth_times2);
             if (z.smooth_times  < 0) z.smooth_times  = 0;
             if (z.smooth_times2 < 0) z.smooth_times2 = 0;
+        } else if (is_fused) {
+            // 融合 DIV-voting：BTH/DTH 為比值域(如 1.40/0.60)，配 PitchTime/ChooseAmount/MeanLowThreshold(暗區棄權)。
+            z.algo_mode = 2;
+            tag_int(blk, "PitchTime",    z.pitch_times);
+            tag_int(blk, "ChooseAmount", z.choose_amount);
+            tag_int(blk, "MeanLowThreshold", z.mean_low_threshold);
+            if (z.pitch_times   < 1) z.pitch_times   = 1;
+            if (z.choose_amount < 1) z.choose_amount = 1;
+            std::string preproc;
+            if (extract_tag(blk, "M_ImagePreproc", preproc) && contains_ci(preproc, "remap"))
+                z.preproc_remap = true;
+            tag_int(blk, "SmoothTimes2", z.smooth_times2);
+            if (z.smooth_times2 < 0) z.smooth_times2 = 0;
+            if (z.DTH >= 1.0f || z.BTH <= 1.0f)
+                std::cerr << "[ZoneConfig] WARN zone " << idx
+                          << " DIV-voting 但 BTH=" << z.BTH << " DTH=" << z.DTH
+                          << "（比值域應 BTH>1>DTH>0）\n";
         } else if (is_div) {
             // DIV（比例式）：BTH/DTH 為比例。防呆：DTH<0 是 SUB 域值誤標 DIV（舊靜默假 PASS 漏洞）。
             z.algo_mode = 0;
@@ -180,7 +200,8 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
         tag_int(blk, "EndX",   z.roi_end_x);
         tag_int(blk, "EndY",   z.roi_end_y);
 
-        std::cout << "[ZoneConfig] zone " << idx << (z.algo_mode == 1 ? " SUB" : " DIV")
+        const char* mode_str = z.algo_mode == 1 ? " SUB" : (z.algo_mode == 2 ? " DIV-voting" : " DIV");
+        std::cout << "[ZoneConfig] zone " << idx << mode_str
                   << ": BTH=" << z.BTH << " DTH=" << z.DTH
                   << " pitch=(" << z.pitch_x << "," << z.pitch_y << ")"
                   << " search=(" << z.search_range_x << "," << z.search_range_y << ")";
@@ -188,6 +209,10 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
             std::cout << " pitch_times=" << z.pitch_times << " choose=" << z.choose_amount
                       << " remap=" << (z.preproc_remap ? 1 : 0)
                       << " smooth(5x5/3x3)=" << z.smooth_times << "/" << z.smooth_times2;
+        else if (z.algo_mode == 2)
+            std::cout << " pitch_times=" << z.pitch_times << " choose=" << z.choose_amount
+                      << " dark_eps=" << z.mean_low_threshold
+                      << " remap=" << (z.preproc_remap ? 1 : 0) << " smooth3x3=" << z.smooth_times2;
         else
             std::cout << " fast_search=" << z.fast_search_range;
         std::cout << " roi=(" << z.roi_start_x << "," << z.roi_start_y << ")-("
