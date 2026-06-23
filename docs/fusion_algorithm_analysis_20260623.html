@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<title>偵測演算法融合分析 — DIV比值×SUB投票×LSC×多尺度 (2026-06-23)</title>
+<style>
+body{font-family:-apple-system,"Noto Sans TC",sans-serif;max-width:1040px;margin:24px auto;padding:0 18px;color:#1a1a1a;line-height:1.65}
+h1{font-size:24px;border-bottom:3px solid #7c3aed;padding-bottom:8px}
+h2{font-size:19px;margin-top:26px;color:#5b21b6;border-left:4px solid #7c3aed;padding-left:10px}
+h3{font-size:15px;margin-top:16px;color:#334155}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+th,td{border:1px solid #cbd5e1;padding:6px 9px;text-align:left;vertical-align:top}
+th{background:#f5f3ff}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;margin:14px 0}
+.verdict{border-left:5px solid #7c3aed;background:#faf5ff}
+.big{font-size:16px;font-weight:700}
+.ok{color:#16a34a}.warn{color:#b45309}.bad{color:#dc2626}.mut{color:#64748b}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.p-ok{background:#dcfce7;color:#166534}.p-warn{background:#fef3c7;color:#92400e}.p-bad{background:#fee2e2;color:#991b1b}
+code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:12.5px}
+</style></head><body>
+
+<h1>偵測演算法融合分析與驗證</h1>
+<p class="sub">DIV 比值 × SUB 逐路投票 × LSC × 多尺度　·　2026-06-23　·　Spark GB10 sm_121　·　commits <code>6cefbdf</code>/<code>854c8ef</code></p>
+
+<div class="card verdict">
+<b>一句話結論</b>
+<ul>
+<li><span class="pill p-ok">全 GPU 確認</span> 偵測 5 步(DIV/SUB/DIV-voting → CCL → blob)+ 前處理(LSC/remap/平滑/多尺度)<b>全為 <code>__global__</code> kernel</b>；唯一關鍵路徑 CPU 殘留是 remap 的 min/max readback(可 GPU reduction 化)。</li>
+<li><span class="pill p-ok">融合已實作+驗證</span> 新增第三支 kernel <code>kernelDivVoting8WayStar</code>(mode2)：每路 DIV 比值(照度不變)+ legacy 16 路投票(robustness)+ 暗區棄權&比例門檻(<b>邊緣 Defect 誤判改善</b>)+ LSC + 多尺度(<b>大顆 Defect 補強</b>)。不改既有 DIV/SUB/AI kernel。</li>
+<li><span class="pill p-ok">驗收保持</span> IP04 027(X5894 Y135725)/028(X1853 Y142371) 在融合 mode2(DTH=0.80)仍精確檢出。</li>
+<li><span class="pill p-warn">產線前待收尾</span> ① Blob 過濾(Step E)壓 size&lt;3 雜訊 FP(實測 338→65)；② 4× 多尺度異常待除錯(預設用 2×)；③ 閾值改原生比值域(per-recipe 調)。</li>
+</ul>
+</div>
+
+<h2>一、全 GPU 可行性</h2>
+<p>偵測核心 100% 在 GPU：DIV(<code>kernelFast8WayComparison</code>)/SUB(<code>kernelSub8WayStarVoting</code>)/融合(<code>kernelDivVoting8WayStar</code>) → CCL(<code>kernelFastCCL*</code>) → blob(<code>kernelFusedFlattenBlobStats</code>)；前處理 LSC/remap/高斯平滑/多尺度 downsample-upscale 皆 kernel。CPU 殘留：remap 256-bin 直方圖 min/max readback(每幀一次 sync，可改 GPU reduction)、CCL 收斂判斷(改 device-loop 風險高、觸 bit-exact 不變式，建議不動)、recipe 解析/結果下載/defect_rules 後處理(幀邊界、量小，留 CPU 合理)。<b>結論：演算法本體可全 GPU，且現已是。</b></p>
+
+<h2>二、新舊演算法優缺點</h2>
+<table>
+<tr><th>面向</th><th>舊 / legacy SUB(灰階差投票)</th><th>新 / Demo DIV + LSC + 多尺度</th></tr>
+<tr><td>逐路比較</td><td>center − neighbor(<b>灰階差</b>)</td><td>center / mean₈(<b>比值</b>)</td></tr>
+<tr><td>背光/照度變異</td><td class="bad">差值隨亮度線性縮放 → 閾值跨亮/暗區不一致，須 remap 補償</td><td class="ok">比值約掉乘性增益 g(I=g·r) → <b>照度不變,只剩反射率對比</b></td></tr>
+<tr><td>鏡頭 vignetting(空間)</td><td class="bad">全域 remap 無法逐區校正 → 邊角系統性漏抓</td><td class="ok">LSC 徑向增益校正 + 比值本為局部 → 改善</td></tr>
+<tr><td>pattern/雜訊 robustness</td><td class="ok">16/24 路 ChooseAmount 多數投票 → 強</td><td class="bad">單次和比較(非投票) → 弱</td></tr>
+<tr><td>大顆 Defect(&gt;pitch)</td><td class="bad">8 鄰落缺陷內無對比 → 漏</td><td class="ok">多尺度 resize-redetect 補(但原未接線)</td></tr>
+<tr><td>暗區穩定性</td><td class="ok">差值有界(≤255)</td><td class="bad">mean→0 比值爆衝 → 邊緣 FP</td></tr>
+<tr><td>生產 recipe</td><td class="ok">24 顆皆此、閾值已調</td><td class="bad">無生產 DIV recipe、LSC 預設關</td></tr>
+</table>
+
+<h2>三、融合演算法（<code>kernelDivVoting8WayStar</code>, mode2）</h2>
+<p>保留 legacy 投票骨架(16 路=8方向×PitchTimes、每路 3×3 SAD 局部匹配、ChooseAmount 多數決)，但<b>每路比較改用 DIV 比值</b>，整數定點 <code>center·1024 vs neighbor·round(TH·1024)</code> 避除法。融合各家優點：</p>
+<table>
+<tr><th>融合點</th><th>來源</th><th>作用</th></tr>
+<tr><td>每路 DIV 比值</td><td>新 Demo</td><td>背光/照度乘性不變</td></tr>
+<tr><td>16 路 ChooseAmount 投票 + 3×3 SAD</td><td>舊 SUB</td><td>pattern/雜訊/skew robustness</td></tr>
+<tr><td>LSC 徑向校正(前處理,可選)</td><td>新 Demo</td><td>鏡頭 vignetting</td></tr>
+<tr><td><b>暗區棄權</b>(鄰點&lt;dark_eps 該路不投)</td><td>新增(對抗複查定案)</td><td><b>邊緣 FP 改善①</b>：杜絕暗邊界比值爆衝</td></tr>
+<tr><td><b>比例投票門檻</b>(need=⌈choose/16×valid⌉)</td><td>新增</td><td><b>邊緣 FP 改善②</b>：邊緣抽路時靈敏度一致(不漏不誤)</td></tr>
+<tr><td>有效路&lt;過半→判背景</td><td>新增</td><td><b>邊緣 FP 改善③</b>：角落/深暗兜底</td></tr>
+<tr><td>多尺度 resize-redetect(2×/4×)</td><td>新 Demo(原休眠,本次接線)</td><td>大顆 Defect 補強</td></tr>
+</table>
+<p class="mut">⚠️ remap 只用於 SUB(mode1)：它減 min 會破壞比值 center/neighbor 的照度不變性，故 DIV-voting 不做 remap。</p>
+
+<h2>四、驗證（Spark GB10, IP04 真圖）</h2>
+<h3>(a) 缺陷檢出保持</h3>
+<p>融合 mode2(DTH=0.80, dark_eps=40, 全 panel 拼接)：<b>027→1(X5894 Y135725)、028→1(X1853 Y142371)</b> 皆檢出 ✓。</p>
+<h3>(b) 照度不變性</h3>
+<table>
+<tr><th>027 單 slice</th><th>SUB+remap</th><th>DIV-voting</th></tr>
+<tr><td>均勻調暗 ×1.0/0.85/0.70</td><td class="ok">皆檢出(remap 正規化全域亮度)</td><td class="ok">皆檢出(比值不變)，total=1 更乾淨</td></tr>
+<tr><td>水平漸層背光 1.0→0.5</td><td class="ok">仍檢出(027 對比強)</td><td class="ok">仍檢出, total=1 vs SUB 2</td></tr>
+</table>
+<p class="mut">均勻/中度變異下 SUB+remap 亦 robust(remap 補全域亮度)；DIV 真正不可取代的優勢在<b>空間性 vignette(remap 全域 min/max 補不了)</b>+ 免 remap + FP 更乾淨。</p>
+<h3>(c) 邊緣 FP / Blob</h3>
+<p>融合 mode2 IP04 全 panel DTH=0.80 = 338 缺陷，size 分布：<b>size1=209, size2=64, size≥3=65</b>。→ recipe <code>BlobMinSize=3</code>(Step E)後剩 <b>65</b>，逼近 SUB+remap 的 46。<b>FP 差距主為 size 1-2 雜訊，Blob 過濾即可收斂。</b></p>
+<h3>(d) 大顆 Defect 多尺度補強</h3>
+<table>
+<tr><th>合成 100×100 暗塊</th><th class="n">blob 區最大 Size</th><th>說明</th></tr>
+<tr><td>multiscale=0(全解析)</td><td class="n">234</td><td>僅抓邊緣環,中心無對比</td></tr>
+<tr><td>multiscale=1(+2×)</td><td class="n ok">298</td><td>2× 縮回 pitch 範圍 → 中心補進 ✓</td></tr>
+</table>
+
+<h2>五、產線建議與待收尾</h2>
+<ul>
+<li><b>跑片用融合 mode2</b>：recipe 以 <code>M_AlgorithmWayCompare=Awc_8_Way_Star_Div</code> 標記 → 守門自動走 mode2；閾值直接給<b>比值域</b>(BrightThreshold&gt;1、DarkThreshold&lt;1，如 1.2/0.8)，不經 SUB→R 換算。</li>
+<li><b>Step E Blob 過濾(BlobMinSize/MergeDistance)</b>：壓 size&lt;3 雜訊 FP(實測 338→65)、合併鄰近 → 必做。</li>
+<li><b>4× 多尺度除錯</b>：multiscale=2 結果異常(maxSize=2)，4× downsample/upscale 或 blob-on-large-region 疑 bug → 暫用 2×。</li>
+<li><b>閾值 per-recipe 調</b>：DTH=0.80 保 027+028;0.75 漏 028(弱)。產線依缺陷規格 + (若有)舊機台 golden 逐 CCD 調。</li>
+<li><b>LSC 標定</b>：開 LSC 需先標 k1/k2/k3(多環擬合)+ 跨架構一致性驗證(改像素值會動邊界，須重驗不變式 12)。</li>
+<li><b>remap min/max GPU 化</b>(可選優化)：消每幀一次 stream sync。</li>
+</ul>
+<p class="big ok">融合演算法已可跑片(mode2)，集 DIV 照度不變 + SUB 投票 robustness + LSC + 邊緣 FP 改善 + 大顆補強於一身、全 GPU；產線前補 Blob 過濾即收斂 FP。</p>
+
+</body></html>
