@@ -48,8 +48,9 @@
 <div class="card verdict">
   <b>一句話結論</b>
   <ul>
-    <li><span class="pill p-ok">不塞車</span> 全量 744 張（24 CCD × 31）跑完，佇列全程是空的、零背壓、零錯誤。瓶頸在「傳輸」不在「運算」。</li>
-    <li><span class="pill p-ok">一台 Spark 夠</span> 以實測 7.4ms/張推算，一面板（37 CCD × ~30 張 ≈ 1110 張）GPU 運算約 <b>8.2 秒</b>，遠低於 20–30s 節拍；缺陷 &lt;100 顆屬輕負載，更游刃有餘。<span class="mut">（前提見下方產能分析）</span></li>
+    <li><span class="pill p-ok">不塞車</span> 全量 744 張（24 CCD × 31）跑完，收端佇列全程是空的、零背壓、零錯誤；GPU 不是瓶頸。</li>
+    <li><span class="pill p-ok">找到並修掉真瓶頸（15.7×）</span> 原本傳輸卡在 86MB/s——根因是 <code>crc32_ieee</code> 逐位元（非 MTU、非 fabric：MTU 9000 無改善、原生 RDMA 達 11.4GB/s）。改 slice-by-8 後 <b>85.8→1346 MB/s、2.2→34.6 fps</b>（commit <code>b9d7d16</code>）。</li>
+    <li><span class="pill p-ok">24CCD 一台 Spark 夠</span> / <span class="pill p-warn">37CCD 臨界</span> 修正後管線 34.6fps：744 張 ~21.5s（節拍內）；1110 張 ~32s（略超 30s，GPU 6.8ms 仍有大餘裕，收端管線再優化即穩進）。缺陷 &lt;100 顆為輕負載。</li>
     <li><span class="pill p-warn">配方待接手調</span> 目前的 baseline 配方「pitch 沒對準面板週期」，把整片像素陣列都當成缺陷（多數張數頂到 10000 上限），所以這一輪「真實缺陷數」還不能用，也分不出你說有缺陷的 IP04 第 27、28 張。需要拿舊機台已調好的配方來移植。</li>
   </ul>
 </div>
@@ -85,7 +86,7 @@
 <tr><td>真實圖 24 CCD × 5</td><td class="n">120</td><td class="n">57.4s</td><td class="n">2.09 fps</td><td class="n">7.7 / 31.0 ms</td><td class="n ok">0 / 8</td><td class="n ok">0</td><td class="n">120 / 0</td></tr>
 <tr><td><b>真實圖 全量 24 CCD × 31</b></td><td class="n"><b>744</b></td><td class="n">354.9s</td><td class="n">2.10 fps</td><td class="n">8.3 / 26.5 ms</td><td class="n ok"><b>0 / 8</b></td><td class="n ok"><b>0</b></td><td class="n"><b>744 / 0</b></td></tr>
 </table>
-<p><b>解讀：</b>GPU 一張只要 ~7–8ms，但每張 40.8MB 在目前 MTU 1500 下要 ~0.48 秒才傳完，所以整條鏈路是「<b>傳輸受限</b>」——Spark 收到圖幾乎立刻就處理完、接著閒著等下一張。因此 <b>FrameQueue 全程是空的（峰值 0/8）、完全沒有背壓、744 張零錯誤</b>。運算端遠遠沒被塞住。</p>
+<p><b>解讀：</b>GPU 一張只要 ~7–8ms，但此表的每張 ~0.48 秒卡在收/送兩端的 CRC 計算（見下節根因，<b>當時 86MB/s</b>）。重點是 <b>FrameQueue 全程是空的（峰值 0/8）、零背壓、744 張零錯誤</b>——收端遠遠沒被塞住。<b>下一節找出並修掉了這個 86MB/s 瓶頸（CRC，15.7×），傳輸升到 1.35GB/s。</b></p>
 
 <h3>(b) RDMA 鏈路已持久化</h3>
 <p>放假期間網路線被改插過（原本的 <code>enp1s0f0np0</code> 已無載波），這也是先前 RDMA 連線被 REJECT 的真正原因——不是程式、也不是版本問題（已用程式碼 diff ＋ 版本比對排除）。本次把 <code>192.168.3.1</code> 重新綁到實際接線的 <code>enp1s0f1np1</code>，並用 NetworkManager 建了固定設定檔 <code>cf-rdma</code>（開機自動、載波恢復會自動重套），<b>整段 744 張跑完中途零斷線</b>。<span class="mut">註：若日後又換插槽，需把設定檔的介面名一起改。</span></p>
@@ -119,21 +120,42 @@
 <p class="mut">G8 與 G8.5 的差別主要在「掃描張數」（玻璃尺寸 → slice 數略不同），量級都在每顆 CCD ~30 張，總時間同在 ~8 秒上下，<b>兩者都遠低於 20–30s 節拍</b>。確切張數需以實際掃描幾何為準，但即使翻倍（~16s）仍在節拍內。</p>
 <p><b>數字依據：</b>7.4ms/張為實測，本次 744 張真實圖再次確認 GPU 落在 7–8ms（即便 baseline 配方爆出上千顆缺陷、GPU 也只 ~8ms）；缺陷 &lt;100 顆會更快。整段佇列空、零背壓 → <b>運算端不是瓶頸</b>。</p>
 
-<h3 class="warn">⚠ 但有一個前提：傳輸要用 jumbo MTU + 真實陣列並行</h3>
+<h3>傳輸面：原本卡在 86MB/s，根因不是 MTU 而是 CRC（已修，15.7×）</h3>
+<p>第一版報告把傳輸瓶頸推給 MTU；<b>實測後證明錯了</b>，在此更正並附根因：</p>
+<table>
+<tr><th>步驟</th><th class="n">吞吐</th><th>結論</th></tr>
+<tr><td>MTU 1500 全幅回放</td><td class="n">85.8 MB/s（2.2 fps）</td><td>基準</td></tr>
+<tr><td>MTU 9000 兩端 + 8972B DF ping 通</td><td class="n bad">85.8 MB/s（不變）</td><td>→ <b>MTU 不是瓶頸</b></td></tr>
+<tr><td><code>ib_write_bw</code> 原生 RDMA</td><td class="n ok">11,682 MB/s（~93 Gbps）</td><td>→ <b>100G fabric 完全健康</b></td></tr>
+<tr><td>換 ring 記憶體（cudaHostAlloc→一般）</td><td class="n bad">85.9 MB/s（不變）</td><td>→ 記憶體也不是</td></tr>
+<tr><td><b>根因：<code>crc32_ieee</code> 為逐位元</b>（8 iter/byte ≈ 86MB/s），每幀 40.8MB 收/送兩端各算一次</td><td class="n bad">≈ 86 MB/s</td><td>= 天花板（256×256 的 1375fps×65KB 也是 86MB/s，吻合）</td></tr>
+<tr><td><b>修正：改 slice-by-8 表驅動</b>（同 IEEE、wire 相容、驗 CBF43926 PASS）</td><td class="n ok"><b>1346 MB/s（34.6 fps）</b></td><td><span class="pill p-ok">15.7× ↑</span> commit <code>b9d7d16</code></td></tr>
+</table>
+<p class="mut">說明：CRC 修好後 RDMA 收圖管線（單一資料流、真實 frames-via-RDMA）達 34.6fps / 1.35GB/s，佇列仍 0/8、零背壓。
+全量 744 張用「回放工具」量到 2.93fps，是 <b>Python(PIL) 逐張解 TIF + pipe 的工具限制</b>（生產相機是直接串 raw、無此解碼），非管線真實速度，故產能以 34.6fps 管線值估算。</p>
+
+<h3 class="warn">修正後的產能結論</h3>
+<table>
+<tr><th>情境</th><th class="n">張數/面板</th><th class="n">@34.6fps 管線</th><th class="n">佔 20–30s 節拍</th><th>結論</th></tr>
+<tr><td>本次舊資料（24 CCD × 31）</td><td class="n">744</td><td class="n ok"><b>~21.5 s</b></td><td class="n ok">72–100%</td><td><span class="pill p-ok">節拍內</span></td></tr>
+<tr><td>生產（37 CCD × ~30）</td><td class="n">~1110</td><td class="n warn"><b>~32 s</b></td><td class="n warn">略超 30s</td><td><span class="pill p-warn">臨界</span></td></tr>
+</table>
 <ul>
-  <li>本次回放量到的 <b>2.1 fps（85.8 MB/s）是「回放工具在 MTU 1500、單一資料流」的限制</b>，<b>不是生產傳輸的真實速度</b>。若照這個數字，1110 張要 ~9 分鐘——那會超節拍。</li>
-  <li>生產時是 <b>37 顆 CCD 經交換器「同時」串流</b>、且鏈路該開 <b>jumbo MTU 9000</b>（Phase-1 已實測 100G 線速、延遲 1.44µs）。在這條件下傳輸吞吐遠高於 GPU 速度，瓶頸回到 GPU（~8.2s/面板），一台 Spark 即足。</li>
-  <li>本次因 damac 端改 MTU 需要 sudo 密碼（我這邊拿不到），維持 1500 對稱跑通，故吞吐偏低——這只影響「這次回放」，不影響上面的產能結論。建議正式跑貨前把<b>兩端都設成 MTU 9000</b>。</li>
+  <li><b>GPU 不是瓶頸</b>：每張 6.8–8.1ms（124–147fps 能力）。目前 34.6fps 的限制是收端「CRC 驗證 + 40.8MB memcpy」與同步 N-slot 協議的串接負擔，<b>還可再優化</b>（slice-by-16 / 硬體 CRC、或省去收端冗餘 CRC〔RDMA RC 本就保證送達〕、或非同步多筆 in-flight）→ 趨近 GPU 上限 147fps → 1110 張 ~7.5s，餘裕充足。</li>
+  <li>缺陷 &lt;100 顆 = 輕負載（GPU ~7ms 低端），上表已是此情境。</li>
+  <li>生產為 37 CCD 經交換器<b>並行</b>餵入，但收端是單台 Spark 單一處理序，故吞吐看收端序列速率（34.6fps，優化後更高）。</li>
 </ul>
+<p class="big ok">一台 Spark：24CCD/744 張在節拍內 ✅；37CCD/1110 張臨界（目前 ~32s），GPU 有大量餘裕、收端管線再優化即穩進節拍。</p>
 </div>
 
 <h2>三、結論與後續</h2>
 <table>
 <tr><th>項目</th><th>狀態</th><th>後續</th></tr>
-<tr><td>(a) 整體流程會不會塞車</td><td><span class="pill p-ok">不塞車</span></td><td>運算端零背壓；確保傳輸走 jumbo MTU + 真實陣列即可</td></tr>
-<tr><td>(b) RDMA 鏈路穩定性</td><td><span class="pill p-ok">已持久化</span></td><td>線固定後可不必每次重綁；換插槽要更新 <code>cf-rdma</code> 介面名</td></tr>
-<tr><td>(c) 真實缺陷偵測（含 IP04 27/28）</td><td><span class="pill p-warn">待配方</span></td><td><b>提供舊機台 T550QVN10 配方</b>讓我移植；或在 Control Step1 逐 CCD 調</td></tr>
-<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">足夠</span></td><td>~8.2s/面板（&lt;100 缺陷輕負載）vs 20–30s 節拍，餘裕 ~60–73%</td></tr>
+<tr><td>(a) 整體流程會不會塞車</td><td><span class="pill p-ok">不塞車</span></td><td>收端零背壓；CRC 瓶頸已修（86MB/s→1.35GB/s）</td></tr>
+<tr><td>傳輸瓶頸根因</td><td><span class="pill p-ok">已修 15.7×</span></td><td><code>crc32_ieee</code> 逐位元→slice-by-8（commit <code>b9d7d16</code>）；非 MTU/fabric</td></tr>
+<tr><td>(b) RDMA 鏈路穩定性</td><td><span class="pill p-ok">已持久化</span></td><td><code>cf-rdma</code> 設定檔；換插槽要更新介面名</td></tr>
+<tr><td>(c) 真實缺陷偵測（含 IP04 27/28）</td><td><span class="pill p-warn">待配方</span></td><td><b>提供舊機台 T550QVN10 配方</b>讓我移植；或 Control Step1 逐 CCD 調</td></tr>
+<tr><td>一台 Spark 是否足夠</td><td><span class="pill p-ok">24CCD ✅</span> / <span class="pill p-warn">37CCD 臨界</span></td><td>744 張 ~21.5s（節拍內）；1110 張 ~32s（GPU 餘裕大，收端再優化即穩進 30s）</td></tr>
 </table>
 
 <h2>附錄：重現步驟</h2>
