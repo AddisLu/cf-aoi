@@ -49,6 +49,17 @@
 ### 6. 座標系 / slice（CamProc.cs:1016-1531）
 legacy 把每 CCD N 張 slice 在 Y 拼成大 buffer（高=ImageSizeY×FrameCnt≈155000），用全域 Y ROI 偵測；每 frame 算 band [cint_frame×ImageSizeY, +ImageSizeY) 與 ROI 取交集，缺陷 GlobalPosY=frameStartY+local。現行 IP 逐 frame、無此映射（main.cpp:166-173 直接 clamp）。
 
+## 進度（2026-06-23）
+
+| 步驟 | 狀態 | 結果 |
+|------|------|------|
+| **A. SUB 投票 kernel + 守門** | ✅ commit `6ec2ff8` | 8-Way-Star SUB(16路逐路差+3×3 SAD+ChooseAmount投票)；守門改讀 M_AlgorithmWayCompare。IP04 img027→1缺陷✓、clean→0、bit-exact。 |
+| **C/D. Ip_Remap + 高斯平滑** | ✅ commit `21ea99c` | 平滑降噪(029 FP 482→285)；remap 對比拉伸(直方圖 min/max)。remap 會放大噪點 FP → 需 Step E Blob 控制。 |
+| **B. --stitch 全panel拼接** | ✅ commit `21ea99c` | 目錄 slice 在 Y vconcat 成整片 panel 再偵測。025-029 拼接:027 於 panel 座標正確檢出。 |
+| **★ ROI 真因** | ✅ 已解 | **028 一直漏抓 = 我手寫測試 recipe 誤用 IP01 的 ROI X[4013,8160]；IP04 真實 ROI 是 X[0,8160] 全寬。** 028 缺陷在 X=1853(左半,Size=1 PointDark)→被排除。改全寬後 027→1✓、028→1✓ = **Addis 驗收達標**。**教訓:用各 CCD 自己的 RecipeInfo.xml,勿手寫假設值。** |
+| **E. Blob 過濾** | ⏳ 待做 | BlobMinSize=3/MergeDistance=26 壓 029 類 FP。**⚠️ 開放問題:028 真缺陷 Size=1,若 BlobMinSize=3 直接過濾會把它濾掉 → 需 legacy golden 確認 legacy 的 Size 度量(是否含平滑擴散/bounding-box)才不會誤濾。** |
+| **F. 真 recipe 全鏈重驗** | ⏳ 待做 | 用 IP04 真 RecipeInfo.xml(全panel ROI Y→146k)+ 全 31 slice 拼接;需把 31 slice 弄到 Spark(damac→spark 直送 SSH 信任被自動拒;Mac 中轉慢;或建 RDMA-stitch)。 |
+
 ## 分階段實作 + 驗證（每步 commit+push+L3）
 
 | 步驟 | 內容 | 驗證 |
