@@ -12,7 +12,9 @@ public enum AlgorithmWayCompare
     Awc_4_Way_Arrow_Sub = 0, Awc_4_Way_Arrow_Div,
     Awc_2_Way_UD_Sub, Awc_2_Way_UD_Div,
     Awc_2_Way_RL_Sub, Awc_2_Way_RL_Div,
-    Awc_8_Way_Star_Sub, Awc_None
+    Awc_8_Way_Star_Sub,
+    Awc_8_Way_Star_Div,   // ← 融合 DIV-voting(mode2)：DIV 比值逐路投票（IP 守門認 'div'+'star'→mode2）
+    Awc_None
 }
 
 /// <summary>
@@ -64,6 +66,17 @@ public partial class ZoneSettingModel : ObservableObject
     [ObservableProperty][property: Category("Filter")] private double blobDarkMergeDistance = 1;
     [ObservableProperty][property: Category("Filter")] private double blobBrightMergeDistance = 1;
     [ObservableProperty][property: Category("Filter")] private double blobAllMergeDistance = 1;
+
+    // ===== 融合 DIV-voting (mode2) 參數（IP 從 DetectRoi 讀取）=====
+    [ObservableProperty][property: Category("Fusion")] private int meanLowThreshold = 40;  // dark_eps：暗區棄權門檻(鄰點<此值該路不投,壓暗邊界FP)
+    [ObservableProperty][property: Category("Fusion")] private int enableMultiscale = 1;   // 0=關 / 1=+2× / 2=+2×+4×（大顆 Defect resize-redetect 補強）
+
+    // ===== LSC 鏡頭暗角校正（通常機台級;此處可 per-recipe 覆寫,預設關待現場校正係數）=====
+    [ObservableProperty][property: Category("LSC")] private bool lscEnable = false;
+    [ObservableProperty][property: Category("LSC")] private double lscK1 = 0.15;     // 二次項(主暗角)
+    [ObservableProperty][property: Category("LSC")] private double lscK2 = 0.05;     // 四次項
+    [ObservableProperty][property: Category("LSC")] private double lscK3 = 0.0;      // 六次項
+    [ObservableProperty][property: Category("LSC")] private double lscMaxGain = 1.5; // 增益上限(防過校正)
 
     /// <summary>UI 顯示用標籤（ZoneList 下拉）。</summary>
     [XmlIgnore]

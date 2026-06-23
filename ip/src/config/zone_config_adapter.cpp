@@ -151,6 +151,14 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
         if (z.blob_max_size < 0) z.blob_max_size = 0;
         if (z.blob_merge_distance < 0) z.blob_merge_distance = 0;
 
+        // 融合(mode2)多尺度 + LSC 鏡頭暗角校正（Control UI 可設,從 DetectRoi 讀;缺省沿用 ini/base）
+        tag_int(blk, "EnableMultiscale", z.enable_multiscale);
+        { std::string le; if (extract_tag(blk, "LscEnable", le)) z.enable_lsc = contains_ci(le, "true"); }
+        tag_double_as_float(blk, "LscK1", z.lsc_k1);
+        tag_double_as_float(blk, "LscK2", z.lsc_k2);
+        tag_double_as_float(blk, "LscK3", z.lsc_k3);
+        tag_double_as_float(blk, "LscMaxGain", z.lsc_max_gain);
+
         if (is_sub) {
             // SUB（灰階差 8-Way-Star 投票）：BTH/DTH 為灰階差(+17/-16)，配 PitchTime/ChooseAmount。
             z.algo_mode = 1;

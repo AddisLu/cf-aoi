@@ -147,33 +147,45 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
         void Add(string prop, string disp, bool ip, string kind, IEnumerable? opt = null)
             => ParamRows.Add(new ParamRow(_target, prop, disp, ip, kind, opt));
 
-        Add("ImagePreproc", "ImagePreProc", false, "enumPre", ImagePreprocValues);
-        Add("SmoothTimes", "SmoothTimes", false, "text");
-        Add("SmoothTimes2", "SmoothTimes2", false, "text");
-        Add("DarkThreshold", "DarkThreshold", true, "text");
-        Add("BrightThreshold", "BrightThreshold", true, "text");
-        Add("SobelDetectEnable", "SobelEnable", false, "bool");
-        Add("SobelDarkThreshold", "SobelDark", false, "text");
-        Add("SobelBrightThreshold", "SobelBright", false, "text");
-        Add("AlgorithmWay", "AlgorithmWay", false, "text");
+        // ip=true 表 IP 偵測實際吃此參數（mode1 SUB / mode2 DIV-voting / Step E Blob 已接）。
+        Add("AlgorithmWayCompare", "演算法模式(Way×Compare)", true, "enumWay", AlgorithmWayCompareValues); // ★ mode 選擇器(SUB/DIV/DIV-voting)
         Add("AlgorithmCompare", "AlgorithmCompare", true, "compare", AlgorithmCompareOptions);
-        Add("AlgorithmWayCompare", "AlgorithmWayCompare", false, "enumWay", AlgorithmWayCompareValues);
-        Add("Adjustment", "Adjustment", false, "text");
-        Add("PitchTime", "PitchTime", false, "text");
-        Add("ChooseAmount", "ChooseAmount", false, "text");
+        Add("AlgorithmWay", "AlgorithmWay", false, "text");
+        Add("ImagePreproc", "ImagePreProc(Remap)", true, "enumPre", ImagePreprocValues);
+        Add("SmoothTimes", "SmoothTimes(5×5未實作)", false, "text");
+        Add("SmoothTimes2", "SmoothTimes2(3×3)", true, "text");
+        Add("DarkThreshold", "DarkThreshold(SUB灰階差/DIV比值)", true, "text");
+        Add("BrightThreshold", "BrightThreshold(SUB灰階差/DIV比值)", true, "text");
+        Add("PitchTime", "PitchTime(投票pitch倍數)", true, "text");
+        Add("ChooseAmount", "ChooseAmount(投票門檻)", true, "text");
         Add("PitchX", "PitchX", true, "text");
         Add("PitchY", "PitchY", true, "text");
         Add("SearchX", "SearchX", true, "text");
         Add("SearchY", "SearchY", true, "text");
-        Add("EdgePassRatio", "EdgePassRatio", false, "text");
-        Add("EdgePassThreshold", "EdgePassThreshold", false, "text");
-        Add("BlobMaxSize", "BlobMaxSize", false, "text");
-        Add("BlobMinSize", "BlobMinSize", false, "text");
+        // ── 融合 DIV-voting(mode2)新參數 ──
+        Add("MeanLowThreshold", "MeanLowThreshold(暗區棄權dark_eps)", true, "text");
+        Add("EnableMultiscale", "EnableMultiscale(0關/1+2×/2+2×4×大顆補強)", true, "text");
+        // ── LSC 鏡頭暗角校正(預設關,現場校正係數後開)──
+        Add("LscEnable", "LSC 啟用", true, "bool");
+        Add("LscK1", "LSC k1(二次/主暗角)", true, "text");
+        Add("LscK2", "LSC k2(四次)", true, "text");
+        Add("LscK3", "LSC k3(六次)", true, "text");
+        Add("LscMaxGain", "LSC 增益上限", true, "text");
+        // ── Blob 過濾(Step E 已接;只 Min/Max/AllMerge 進 IP)──
+        Add("BlobMinSize", "BlobMinSize(DIV-voting建議1)", true, "text");
+        Add("BlobMaxSize", "BlobMaxSize", true, "text");
+        Add("BlobAllMergeDistance", "BlobAllMergeDistance", true, "text");
         Add("BlobElongation", "BlobElongation", false, "text");
         Add("BlobFeretElong", "BlobFeretElong", false, "text");
         Add("BlobDarkMergeDistance", "BlobDarkMergeDistance", false, "text");
         Add("BlobBrightMergeDistance", "BlobBrightMergeDistance", false, "text");
-        Add("BlobAllMergeDistance", "BlobAllMergeDistance", false, "text");
+        // 其他 legacy 相容欄(IP 未接)
+        Add("SobelDetectEnable", "SobelEnable", false, "bool");
+        Add("SobelDarkThreshold", "SobelDark", false, "text");
+        Add("SobelBrightThreshold", "SobelBright", false, "text");
+        Add("Adjustment", "Adjustment", false, "text");
+        Add("EdgePassRatio", "EdgePassRatio", false, "text");
+        Add("EdgePassThreshold", "EdgePassThreshold", false, "text");
     }
 
     // 共用配方切換/重載 → 重建 ROI 清單、選第一個
