@@ -369,6 +369,17 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     不可能出現 slot 覆蓋。`--rdma-slots` 預設 4（4×40MB=160MB host pinned memory）。
     **實測數據（2026-06-17）**：Phase 1 連續 120 幀 CRC=OK、1375fps/86MB/s、slot 繞回正確；
     Phase 2 背壓（--test-consumer-delay-ms 200）→ Grab 降至 9.6fps（非斷線）、QP 未進 error state。
+    **⚠️ min_rnr_timer 陷阱（2026-06-23 全幅 8160×5000 實機，commit `dee1a15`）**：`rdma_cm` 預設
+    `min_rnr_timer = index 0 = 655.36ms`。若送端速率 > 收端、credit 短暫耗盡 → RNR NAK → 送端等 **655ms** →
+    吞吐崩潰（實測 2.6fps）。**這就是「33fps 牆」的隱形成因**：原 app-CRC 的 16ms/幀意外把送端降速對齊收端、
+    剛好避開 RNR；CRC 一關送端變快即 RNR 崩潰。**修法**：收端 `accept_conn()` 後
+    `ibv_modify_qp(qp, {min_rnr_timer=12}, IBV_QP_MIN_RNR_TIMER)`（~0.64ms，RTS 狀態可改、安全永遠開）→
+    RNR 快速重試、吞吐回到消費端速率。配合送端非同步多緩衝（`grab/src/rdma_sender.cpp` N-buffer
+    lazy FIFO poll，commit `66bc8ba`）+ app-CRC 改 env 可選（`CFAOI_RDMA_NOCRC=1`，RC 已保證有序無損；
+    關 CRC 仍 bit-exact）→ **33→73.8fps（2.2×）**。73.8fps → 37CCD/1110 張 ~15s，遠進 20–30s 節拍。
+    **收端 slot→host memcpy（11.7ms/幀）是生產必要上限**（缺陷小圖從 host 影像裁切，`io/result_saver.cpp`），
+    故 device-direct（slot→device 跳 host）只利 `--no-save` 合成壓測、不利生產 → 不做。詳見
+    `docs/rdma_replay_驗證報告_20260623.html`。
     **注意**：RoCE v2（非 IB）Grab 斷線後 `IBV_WC_WR_FLUSH_ERR` **不保證立即出現**；
     需在 recv_thread no-event 分支輪詢 CM event channel（`check_cm_disconnect()`），
     否則 recv_thread 永不退出，`queue_->close()` 永不呼叫，主迴圈 pop 永久阻塞（commit `de047a3` 修正）。
