@@ -64,13 +64,39 @@ constexpr uint16_t FRAME_VERSION = 2;
 // crc32_ieee — 標準 IEEE 802.3 CRC32（多項式 0xEDB88320，與 zlib 相同）。
 //   驗證：crc32_ieee("123456789",9) == 0xCBF43926（標準測試向量）。
 // -----------------------------------------------------------------------------
-inline uint32_t crc32_ieee(const void* data, uint64_t len, uint32_t crc = 0xFFFFFFFFu) {
-    const uint8_t* p = static_cast<const uint8_t*>(data);
-    for (uint64_t i = 0; i < len; ++i) {
-        crc ^= p[i];
-        for (int k = 0; k < 8; ++k)
-            crc = (crc >> 1) ^ (0xEDB88320u & (~((crc & 1u) - 1u)));
+// slice-by-8 表驅動（與逐位元版同 IEEE 結果、wire 相容）。
+// 原因：逐位元 CRC 對每幀 40.8MB 在收/送兩端各約 86MB/s，是 RDMA 收圖吞吐的真正瓶頸
+// （ib_write_bw 原生 RDMA 達 11.4GB/s）。表初始化用 C++11 thread-safe static local，跨 TU 單例。
+struct Crc32Table {
+    uint32_t t[8][256];
+    Crc32Table() {
+        for (uint32_t n = 0; n < 256; ++n) {
+            uint32_t c = n;
+            for (int k = 0; k < 8; ++k) c = (c >> 1) ^ (0xEDB88320u & (~((c & 1u) - 1u)));
+            t[0][n] = c;
+        }
+        for (uint32_t n = 0; n < 256; ++n) {
+            uint32_t c = t[0][n];
+            for (int k = 1; k < 8; ++k) { c = t[0][c & 0xff] ^ (c >> 8); t[k][n] = c; }
+        }
     }
+};
+inline const Crc32Table& crc32_tbl() { static const Crc32Table T; return T; }
+
+inline uint32_t crc32_ieee(const void* data, uint64_t len, uint32_t crc = 0xFFFFFFFFu) {
+    const auto& T = crc32_tbl();
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+    for (; len >= 8; len -= 8, p += 8) {
+        uint32_t lo = crc ^ ((uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+                             ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+        uint32_t hi = (uint32_t)p[4] | ((uint32_t)p[5] << 8) |
+                      ((uint32_t)p[6] << 16) | ((uint32_t)p[7] << 24);
+        crc = T.t[7][lo & 0xff] ^ T.t[6][(lo >> 8) & 0xff] ^
+              T.t[5][(lo >> 16) & 0xff] ^ T.t[4][(lo >> 24) & 0xff] ^
+              T.t[3][hi & 0xff] ^ T.t[2][(hi >> 8) & 0xff] ^
+              T.t[1][(hi >> 16) & 0xff] ^ T.t[0][(hi >> 24) & 0xff];
+    }
+    for (; len; --len, ++p) crc = T.t[0][(crc ^ *p) & 0xff] ^ (crc >> 8);
     return crc ^ 0xFFFFFFFFu;
 }
 
