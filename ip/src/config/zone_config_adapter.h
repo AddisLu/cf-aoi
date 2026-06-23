@@ -63,6 +63,11 @@ struct ZoneConfig {
     int  smooth_times  = 0;      // ← SmoothTimes（5×5 高斯次數；目前僅支援 3×3，5×5 待補）
     int  smooth_times2 = 0;      // ← SmoothTimes2（3×3 高斯 Gau3x3_8 次數）
 
+    // === Blob 過濾（Step E：偵測後 CPU 後處理；0 = 關，向下相容）===
+    int  blob_min_size      = 0; // ← BlobMinSize：連通元件 size < 此值 → 丟（壓 size 1-2 雜訊 FP 主力）
+    int  blob_max_size      = 0; // ← BlobMaxSize：size > 此值 → 丟（0 = 不限）
+    int  blob_merge_distance = 0;// ← BlobAllMergeDistance：中心距 ≤ 此值之同型缺陷合併成一顆
+
     // === Threshold ===
     // DIV 域：BTH=BrightThreshold(比例,如1.2)、DTH=DarkThreshold(比例,如0.7)
     // SUB 域：BTH=BrightThreshold(灰階差,如+17)、DTH=DarkThreshold(灰階差,如-16)

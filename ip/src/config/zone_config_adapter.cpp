@@ -143,6 +143,14 @@ std::vector<ZoneConfig> from_recipe_xml_content(const std::string& xml,
         tag_int(blk, "SearchY", z.search_range_y);
         z.fast_search_range = clampi(z.search_range_y, 0, 2);  // DIV gpu 局部搜尋是垂直向
 
+        // Blob 過濾參數（Step E；所有模式適用，缺省 0=關）
+        tag_int(blk, "BlobMinSize", z.blob_min_size);
+        tag_int(blk, "BlobMaxSize", z.blob_max_size);
+        tag_int(blk, "BlobAllMergeDistance", z.blob_merge_distance);
+        if (z.blob_min_size < 0) z.blob_min_size = 0;
+        if (z.blob_max_size < 0) z.blob_max_size = 0;
+        if (z.blob_merge_distance < 0) z.blob_merge_distance = 0;
+
         if (is_sub) {
             // SUB（灰階差 8-Way-Star 投票）：BTH/DTH 為灰階差(+17/-16)，配 PitchTime/ChooseAmount。
             z.algo_mode = 1;

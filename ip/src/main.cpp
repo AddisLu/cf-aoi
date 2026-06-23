@@ -251,6 +251,10 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
             }
         }
 
+        // Step E Blob 過濾（size 範圍 + 鄰近合併；CPU 後處理，預設 0=關 → 不改結果）。
+        // 置於 verify 之後、BypassEdge/Rule 之前（blob 連通元件過濾為最先的後處理層）。
+        defect_rules::apply_blob(dr.defects, z.blob_min_size, z.blob_max_size, z.blob_merge_distance);
+
         // #32 邊界略過 + #16 Rule 改判（CPU 後處理；預設全關 → 不改結果）。
         // 置於 verify 之後：verify 比的是 GPU 兩跑決定性（未過濾）；過濾本身亦決定性。
         defect_rules::apply(dr.defects, r.x, r.y, gray, gray.cols, gray.rows, saving_cfg);

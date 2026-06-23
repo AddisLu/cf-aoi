@@ -72,6 +72,62 @@ inline void apply(std::vector<DefectInfo>& defects, int roi_off_x, int roi_off_y
     defects = std::move(kept);
 }
 
+// Step E — Blob 過濾：size 範圍過濾 + 鄰近合併（對齊 legacy BlobMinSize/MaxSize/AllMergeDistance）。
+// defects 為連通元件（blob 分析輸出，含 size 與 bbox），且已 canonical 排序 → 決定性、CUDA-free。
+//   ① size 過濾：size < min 或 > max → 丟（min 為 FP 抑制主力：去 size 1-2 雜訊；實測 IP04 338→65）。
+//   ② 合併：中心距 ≤ merge_distance 之同型缺陷以 union-find 併成一顆（bbox 聯集、size 相加、bbox 中心）。
+// 全 0 → 原樣（向下相容，不破 bit-exact 不變式 #10）。
+inline void apply_blob(std::vector<DefectInfo>& defects,
+                       int blob_min_size, int blob_max_size, int merge_distance) {
+    if (blob_min_size <= 0 && blob_max_size <= 0 && merge_distance <= 0) return;
+
+    // ① size 過濾
+    if (blob_min_size > 0 || blob_max_size > 0) {
+        std::vector<DefectInfo> kept; kept.reserve(defects.size());
+        for (const auto& d : defects) {
+            if (blob_min_size > 0 && d.size < blob_min_size) continue;
+            if (blob_max_size > 0 && d.size > blob_max_size) continue;
+            kept.push_back(d);
+        }
+        defects = std::move(kept);
+    }
+
+    // ② 鄰近合併（union-find by center distance，同型 bright/dark）
+    if (merge_distance > 0 && defects.size() > 1) {
+        const long md2 = (long)merge_distance * (long)merge_distance;
+        const int n = (int)defects.size();
+        std::vector<int> parent(n);
+        for (int i = 0; i < n; ++i) parent[i] = i;
+        auto find = [&parent](int a) { while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+        for (int i = 0; i < n; ++i)
+            for (int j = i + 1; j < n; ++j) {
+                if (defects[i].is_bright != defects[j].is_bright) continue;
+                long dx = (long)(defects[i].center_x - defects[j].center_x);
+                long dy = (long)(defects[i].center_y - defects[j].center_y);
+                if (dx * dx + dy * dy <= md2) { int ri = find(i), rj = find(j); if (ri != rj) parent[ri] = rj; }
+            }
+        std::vector<DefectInfo> merged;
+        std::vector<int> rootIdx(n, -1);
+        for (int i = 0; i < n; ++i) {
+            int r = find(i);
+            if (rootIdx[r] < 0) { rootIdx[r] = (int)merged.size(); merged.push_back(defects[i]); }
+            else {
+                DefectInfo& m = merged[rootIdx[r]];
+                m.size  += defects[i].size;
+                m.min_x  = std::min(m.min_x, defects[i].min_x);
+                m.min_y  = std::min(m.min_y, defects[i].min_y);
+                m.max_x  = std::max(m.max_x, defects[i].max_x);
+                m.max_y  = std::max(m.max_y, defects[i].max_y);
+            }
+        }
+        for (auto& m : merged) {
+            m.center_x = (m.min_x + m.max_x) * 0.5f;
+            m.center_y = (m.min_y + m.max_y) * 0.5f;
+        }
+        defects = std::move(merged);
+    }
+}
+
 // 重算 bright/dark 計數（過濾後）。回傳缺陷總數。
 inline int recount(const std::vector<DefectInfo>& defects, int& num_bright, int& num_dark) {
     num_bright = 0; num_dark = 0;
