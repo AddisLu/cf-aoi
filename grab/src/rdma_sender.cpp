@@ -6,35 +6,36 @@
 #include <stdexcept>
 
 bool RdmaSender::connect(const char* spark_ip, const char* port, size_t max_payload_bytes) {
-    size_t frame_cap = sizeof(FrameHeader) + max_payload_bytes;
-
-    txbuf_.resize(frame_cap);
+    frame_cap_ = sizeof(FrameHeader) + max_payload_bytes;
     ctrl_buf_.resize(sizeof(MrInfoEx));  // Step 3：接收 MrInfoEx（256 bytes）
 
     try {
         conn_.connect(spark_ip, port);
 
-        mr_      = conn_.reg(txbuf_.data(),    txbuf_.size(),    IBV_ACCESS_LOCAL_WRITE);
+        // 先握手取得 n_slots（才知道要配幾個送端緩衝）
         ctrl_mr_ = conn_.reg(ctrl_buf_.data(), ctrl_buf_.size(), IBV_ACCESS_LOCAL_WRITE);
-
-        // 預掛 RECV 等 IP server SEND MrInfoEx（N-slot ring 握手）
         conn_.post_recv(ctrl_mr_, ctrl_buf_.data(), (uint32_t)ctrl_buf_.size());
         conn_.poll_one();
-
         memcpy(&remote_, ctrl_buf_.data(), sizeof(remote_));
 
         // 驗證：每個 slot 必須能容納一幀
-        if (remote_.n_slots == 0 || remote_.slot_size < frame_cap) {
+        if (remote_.n_slots == 0 || remote_.slot_size < frame_cap_) {
             fprintf(stderr, "[rdma_sender] MrInfoEx 無效：n_slots=%u slot_size=%u frame_cap=%zu\n",
-                    remote_.n_slots, remote_.slot_size, frame_cap);
+                    remote_.n_slots, remote_.slot_size, frame_cap_);
             conn_.close();
             return false;
         }
 
+        // N 緩衝環（= n_slots 個）：一塊大 buffer 一個 MR，可同時 ≤N 筆 in-flight
+        n_buf_ = remote_.n_slots;
+        txbuf_.resize((size_t)n_buf_ * frame_cap_);
+        mr_ = conn_.reg(txbuf_.data(), txbuf_.size(), IBV_ACCESS_LOCAL_WRITE);
+        posted_ = 0;
+
         connected_ = true;
-        printf("[rdma_sender] N-slot 連線成功：n_slots=%u slot_size=%uMB addr=0x%lx rkey=0x%x\n",
+        printf("[rdma_sender] N-slot 連線成功：n_slots=%u slot_size=%uMB addr=0x%lx rkey=0x%x（送端 %u 緩衝 async）\n",
                remote_.n_slots, remote_.slot_size >> 20,
-               (unsigned long)remote_.addr, remote_.rkey);
+               (unsigned long)remote_.addr, remote_.rkey, n_buf_);
         return true;
 
     } catch (const std::exception& e) {
@@ -68,28 +69,42 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
     h.payloadBytes = payload_bytes;
     h.crc32        = crc32_ieee(payload, payload_bytes);
 
-    // [FrameHeader(256B) || payload] → txbuf
-    memcpy(txbuf_.data(), &h, sizeof(h));
-    memcpy(txbuf_.data() + sizeof(h), payload, payload_bytes);
-
     if (!connected_) return;
 
-    // Step 3：N-slot 定址 — slot_id = frame_seq % n_slots，write_addr 落在對應 slot
-    // 背壓：若 IP 端 post_recv credit 耗盡 → WRITE_WITH_IMM 觸發 RNR（rnr_retry_count=7=∞）
-    //       → Grab NIC 無限重試（指數退避）→ poll_one() 阻塞直到 IP 補 post_recv → 自然背壓
+    // N-buffer pipeline：本幀用緩衝 buf_idx；保留 ≤ n_buf_ 筆 in-flight。
+    // completion 為 FIFO（單一 RC QP 保序）→ 緩衝滿時 poll 掉最舊一筆，正好是 n_buf_ 幀前用同一 buf_idx 者，
+    // 釋放後才覆寫，故同步安全（不會在 WRITE 進行中改寫緩衝）。
+    uint32_t buf_idx = (uint32_t)(frame_seq % n_buf_);
+    uint8_t* buf     = txbuf_.data() + (size_t)buf_idx * frame_cap_;
+    try {
+        while (posted_ >= n_buf_) { conn_.poll_one(); --posted_; }
+    } catch (const std::exception& e) {
+        if (connected_) {
+            fprintf(stderr, "[rdma_sender] poll 失敗（seq=%llu）：%s\n",
+                    (unsigned long long)frame_seq, e.what());
+            connected_ = false;
+        }
+        return;
+    }
+
+    // [FrameHeader(256B) || payload] → 該緩衝
+    memcpy(buf, &h, sizeof(h));
+    memcpy(buf + sizeof(h), payload, payload_bytes);
+
+    // N-slot 定址 — slot_id = frame_seq % n_slots（= buf_idx），write_addr 落在對應 slot
+    // 背壓：IP credit 耗盡 → WRITE_WITH_IMM RNR（rnr_retry_count=7=∞）→ 後續 poll_one 阻塞 → 自然背壓
     uint32_t slot_id    = (uint32_t)(frame_seq % remote_.n_slots);
     uint64_t write_addr = remote_.addr + (uint64_t)slot_id * remote_.slot_size;
-
     uint32_t total = (uint32_t)(sizeof(h) + payload_bytes);
     try {
-        conn_.post_write_imm(mr_, txbuf_.data(), total,
+        conn_.post_write_imm(mr_, buf, total,
                              write_addr, remote_.rkey, (uint32_t)frame_seq);
-        conn_.poll_one();  // 等 NIC 送完；RNR 時此處阻塞（rnr_retry_count=7=∞）
+        ++posted_;   // async：不逐幀 poll，讓 ≤ n_buf_ 筆同時 in-flight（pipeline）
     } catch (const std::exception& e) {
         if (connected_) {
             fprintf(stderr, "[rdma_sender] 發送失敗（seq=%llu）：%s\n",
                     (unsigned long long)frame_seq, e.what());
-            connected_ = false;  // 停止後續嘗試
+            connected_ = false;
         }
         return;
     }
@@ -100,6 +115,10 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
 
 void RdmaSender::disconnect() {
     if (!connected_) return;
+    // 排空剩餘 in-flight WRITE 完成（確保最後幾幀資料確實送達後才關連線）
+    try { while (posted_ > 0) { conn_.poll_one(); --posted_; } }
+    catch (...) { /* 對端可能已斷，忽略殘餘完成 */ }
+    posted_ = 0;
     conn_.close();
     mr_       = nullptr;
     ctrl_mr_  = nullptr;

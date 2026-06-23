@@ -1,7 +1,8 @@
 #pragma once
-// RdmaSender — Grab 端 RDMA 發送（single-slot，同步）
-// 封裝 RcConn::connect → MrInfo 握手 → per-frame post_write_imm。
-// Step 2 用同步 poll_one（逐幀等 NIC 送完），驗通後可改 pipeline。
+// RdmaSender — Grab 端 RDMA 發送（N-buffer 非同步 pipeline）
+// 封裝 RcConn::connect → MrInfoEx 握手 → 多筆 in-flight post_write_imm。
+// 2026-06-23：由「single-slot 同步逐幀 poll」升級為「N 緩衝、≤N 筆 in-flight、lazy FIFO poll」，
+// 解除送端逐幀等待的吞吐瓶頸（wire 格式不變，與 IP/grab 完全相容）。
 
 #include "rdma_common.h"
 #include "../../shared/FrameHeader.h"
@@ -34,8 +35,11 @@ private:
     MrInfoEx  remote_{};   // Step 3：N-slot 握手（addr/rkey/n_slots/slot_size）
     ibv_mr*   mr_      = nullptr;
     ibv_mr*   ctrl_mr_ = nullptr;
-    std::vector<uint8_t> txbuf_;
+    std::vector<uint8_t> txbuf_;     // N_buf × frame_cap（多緩衝環，多筆 in-flight）
     std::vector<uint8_t> ctrl_buf_;
+    size_t   frame_cap_   = 0;       // 每幀緩衝大小 = sizeof(FrameHeader)+max_payload
+    uint32_t n_buf_       = 1;       // 送端緩衝數（= remote n_slots）
+    uint32_t posted_      = 0;       // 已 post 未 poll 的 WRITE 數（pipeline 深度，≤ n_buf_）
     bool     connected_   = false;
     uint64_t sent_frames_ = 0;
     uint64_t sent_bytes_  = 0;
