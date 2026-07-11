@@ -430,7 +430,8 @@ a.srclink:hover, span.xref:hover { background: var(--accent-soft); }
   </div>
   <div class="searchbox"><input type="search" id="siteSearch" placeholder="🔍 搜尋全書（函式名/關鍵字/incident…）" aria-label="全書搜尋"></div>
   <div class="searchresults" id="searchResults"></div>
-  <div class="navgroup">教材</div>
+  <div class="navgroup" id="grpStart">上手指南</div>
+  <div class="navgroup" id="grpTeach">教材</div>
   <!-- nav items injected by JS -->
   <div class="navgroup" id="grpPractice">實戰破案</div>
   <div class="navgroup" id="grpRef">參考手冊</div>
@@ -441,13 +442,171 @@ a.srclink:hover, span.xref:hover { background: var(--accent-soft); }
 
 <main><div class="page" id="content">
 
+<!-- ═══════════ G1: Day 1 ═══════════ -->
+<section class="chapter" id="g1" data-title="Day 1：環境建置與第一次編譯">
+<span class="eyebrow">Getting Started 01 — Day One</span>
+<h2>Day 1：環境建置與第一次編譯</h2>
+<p class="lede">第一天只有一個目標：把程式在您手上的機器跑起來、看到綠燈。這一章從零開始——裝什麼、指令怎麼下、第一次編譯會踩什麼坑，最後用兩個「絕對安全」的沙盒任務驗證環境沒問題。照著做，一個下午可以完成。</p>
+
+<h3>先認機器：哪台裝什麼</h3>
+<div class="tablewrap"><table>
+<tr><th>機器</th><th>角色</th><th>你要在上面建置什麼</th></tr>
+<tr><td><strong>DGX Spark</strong>（GB10，ARM）</td><td>🏭 <strong>實機</strong>：IP 運算節點</td><td><code>cfaoi_ip</code>（CUDA 13.0，sm_121）</td></tr>
+<tr><td><strong>截取中心</strong>（damac，x86＋ConnectX-5）</td><td>🏭 <strong>實機</strong>：Grab 取像節點</td><td><code>cfaoi_grab</code>（pylon＋RDMA）</td></tr>
+<tr><td>MacBook（或任何桌機）</td><td>💻 操作機：Control UI＋編輯程式</td><td><code>dotnet build</code>（跨平台，免 GPU）</td></tr>
+<tr><td>RTX2080 開發機（x86）</td><td>🔬 離線驗證機：演算法調參/回歸</td><td><code>cfaoi_ip</code>（CUDA 12.6，sm_75；無相機/RDMA）</td></tr>
+</table></div>
+<div class="callout"><span class="tag">💡 第一天您只需要其中一台</span><p>有 NVIDIA GPU 的 Linux 機器 → 走 IP 路線；只有 Mac/一般電腦 → 走 Control 路線。兩條路線的沙盒任務都在本章結尾。</p></div>
+
+<h3>環境依賴清單（實測版本）</h3>
+<div class="tablewrap"><table>
+<tr><th>端</th><th>依賴</th><th>參考版本（實測）</th><th>備註</th></tr>
+<tr><td rowspan="4"><strong>IP</strong></td><td>OS</td><td>Ubuntu 24.04 LTS（RTX 開發機實測）／DGX OS（Spark）</td><td>x86 與 ARM 跑同一份源碼</td></tr>
+<tr><td>CUDA Toolkit</td><td>12.6（RTX，sm_75）／13.0（Spark，sm_121）</td><td>⚠ <code>nvcc</code> 常不在 PATH：<code>export PATH=/usr/local/cuda/bin:$PATH</code></td></tr>
+<tr><td>cmake / gcc</td><td>cmake ≥3.24（實測 3.28.3）／gcc 13.3</td><td>apt 版即可</td></tr>
+<tr><td>函式庫</td><td>OpenCV 4.6.0、nlohmann-json、fmt</td><td><code>sudo apt install libopencv-dev nlohmann-json3-dev libfmt-dev</code>；libibverbs/librdmacm 可選（無則只有離線模式，屬正常）</td></tr>
+<tr><td rowspan="2"><strong>Grab</strong></td><td>pylon SDK</td><td>26.05（Basler 官網下載，裝到 /opt/pylon）</td><td>找不到時設 <code>PYLON_ROOT</code></td></tr>
+<tr><td>RDMA</td><td>libibverbs＋librdmacm（必要）</td><td>NIC 需 RoCE v2（link_layer=Ethernet）</td></tr>
+<tr><td><strong>Control</strong></td><td>.NET SDK</td><td>專案目標 net8.0；SDK 8 或 10 皆可（Mac 實測 10.0.301）</td><td>Mac/Windows/Linux 同一份碼</td></tr>
+</table></div>
+
+<h3>Repo 目錄結構：先有空間感</h3>
+<div class="card"><pre style="background:var(--panel);color:var(--ink);box-shadow:none;border:none;padding:6px 4px;margin:0"><code>cf-aoi/
+├── docs/            📚 文件（CLAUDE.md 總綱、STATUS.md 誠實帳本、本說明書、驗證報告）
+├── ip/              🧠 IP 程式（C++/CUDA，跑在 Spark／RTX）→ R1 章
+│   ├── src/         主源碼（main / gpu / config / image_source / diag …）
+│   ├── config/      default_zone.ini 預設參數
+│   └── build/       編譯輸出（cfaoi_ip、align_verify …）
+├── grab/            📷 Grab 程式（C++/pylon/RDMA，跑在截取中心）→ R2 章
+├── control/src/     🖥 Control 程式（C# Avalonia，跑在操作機）→ R3 章
+├── shared/          🔗 FrameHeader.h（Grab↔IP wire format，兩端共用）
+├── scripts/         🧰 驗證腳本/模擬器/launchers → P3 百寶箱
+├── tools/           🔧 golden_maker 等獨立小工具
+├── recipes/         ⚠ 測試用途；執行期配方在 ~/cf-aoi/recipes（見 G2）
+└── Reference/       🏛 舊系統源碼（唯讀考古用，勿改）→ P5 考古法</code></pre></div>
+
+<h3>取得程式碼與建置</h3>
+<pre><code># 0) 取碼（四台機器都 clone 同一個 repo，GitHub 是唯一真相）
+git clone git@github.com:AddisLu/cf-aoi.git && cd cf-aoi
+
+# 1) IP（在有 NVIDIA GPU 的 Linux 上；Spark 用 121、RTX2080 用 75）
+export PATH=/usr/local/cuda/bin:$PATH
+cd ip && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=75
+cmake --build build -j$(nproc)          # 產出 build/cfaoi_ip + align_verify 等
+
+# 2) Grab（在截取中心；需 pylon + ibverbs）
+cd grab && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+
+# 3) Control（任何機器）
+cd control/src && dotnet build          # 或 dotnet run 直接起 UI</code></pre>
+
+<h3>第一次編譯常見錯誤</h3>
+<div class="tablewrap"><table>
+<tr><th>症狀</th><th>原因與解法</th></tr>
+<tr><td><code>nvcc: command not found</code></td><td>CUDA 不在 PATH → <code>export PATH=/usr/local/cuda/bin:$PATH</code>（寫進 ~/.bashrc）</td></tr>
+<tr><td>CMake 找不到 pylon</td><td><code>export PYLON_ROOT=/opt/pylon</code> 再重新 cmake</td></tr>
+<tr><td>cmake 訊息「No RDMA → Step 1 (offline) only」</td><td><strong>不是錯誤</strong>——沒裝 ibverbs 就只編離線模式，開發機屬正常</td></tr>
+<tr><td>OpenCV/nlohmann/fmt 找不到</td><td><code>sudo apt install libopencv-dev nlohmann-json3-dev libfmt-dev</code></td></tr>
+<tr><td>Spark 上編譯架構錯</td><td>確認 <code>-DCMAKE_CUDA_ARCHITECTURES=121</code>（GB10）；RTX 是 75</td></tr>
+</table></div>
+
+<h3>Hello World：兩個絕對安全的沙盒任務</h3>
+<p>這兩個任務<strong>不碰任何生產資料、不需要相機、跑壞了也不會弄壞任何東西</strong>——它們就是設計來驗證環境的。</p>
+<div class="callout hands"><span class="tag">🔧 Track A（Linux＋GPU 機器）：跑 align_verify</span>
+<p>它是對位數學的單元驗證器，<strong>純 CPU、不需要 GPU 在場</strong>：</p>
+<pre><code>cd ip && ./build/align_verify
+# 期望最後一行：結果: PASS 18 / FAIL 0 (共 18)   ← 看到就代表 IP 端環境 OK</code></pre>
+<p>加碼（有 GPU 時）：跑一張真實面板圖，對黃金數字 2606（P5）：</p>
+<pre><code>./build/cfaoi_ip --mode offline-file --input ../test_images/IP01_Origin000002.tif \
+    --output /tmp/day1 --no-save-images
+# 期望 log：[Diag] … 總缺陷(DetectionResult)=2606</code></pre></div>
+<div class="callout hands"><span class="tag">🔧 Track B（Mac／任何電腦）：跑 Control selftest</span>
+<pre><code>cd control/src && dotnet run -- --selftest store
+# 期望全部 PASS ← Control 端環境 OK（此測試用假資料，不需要 IP 在線）
+dotnet run        # 再起一次 UI，看到主視窗＝Day 1 完成 🎉</code></pre></div>
+<p>兩條 Track 任一過關，您的 Day 1 就達標了。明天開始照 00 章的學習路線走；迫不及待想看實戰的，直接跳 P1。</p>
+</section>
+
+<!-- ═══════════ G2: 部署與組態 ═══════════ -->
+<section class="chapter" id="g2" data-title="部署與組態：實機怎麼跑">
+<span class="eyebrow">Getting Started 02 — Deployment</span>
+<h2>部署與組態：實機怎麼跑、檔案放哪</h2>
+<p class="lede">生產實機是兩台：<strong>截取中心（跑 Grab）＋ DGX Spark（跑 IP）</strong>；Mac 是操作機（Control）、RTX2080 是離線驗證機。這一章回答三個部署最常見的問題：程式用什麼方式常駐？每個組態檔的絕對路徑在哪？重開機後要還原什麼？</p>
+
+<h3>四台機器與 repo 絕對路徑</h3>
+<div class="tablewrap"><table>
+<tr><th>機器</th><th>跑什麼</th><th>repo 路徑</th><th>SSH（Tailscale）</th></tr>
+<tr><td>🏭 DGX Spark（spark-c16f）</td><td><code>cfaoi_ip</code>（RDMA 收圖＋GPU 檢測）</td><td><code>/home/auo001/Addis/cf-aoi</code></td><td><code>auo001@spark-c16f.tailffdb68.ts.net</code></td></tr>
+<tr><td>🏭 截取中心（damac）</td><td><code>cfaoi_grab</code>（相機＋RDMA 送圖）</td><td><code>/home/damac/Addis/cf-aoi</code></td><td><code>damac@damac.tailffdb68.ts.net</code></td></tr>
+<tr><td>💻 MacBook</td><td>Control UI（唯一作者：編輯/commit/push）</td><td><code>/Users/yourulyu/coding/cf-aoi</code></td><td>—（本機）</td></tr>
+<tr><td>🔬 RTX2080（addis-b850m-ds3h）</td><td><code>cfaoi_ip</code> 離線驗證/每晚回歸</td><td><code>/home/addis/cf-aoi</code></td><td><code>addis@addis-b850m-ds3h.tailffdb68.ts.net</code></td></tr>
+</table></div>
+<div class="callout warn"><span class="tag">⚠ 同步鐵則</span><p>實機上<strong>只 pull 不編輯</strong>（<code>git sync</code> 別名有三道防線）；改碼一律在 Mac → commit → push → 實機 pull。絕不 scp 源碼。</p></div>
+
+<h3>程式怎麼常駐（現況與建議）</h3>
+<p><strong>現況（誠實）</strong>：repo 目前沒有 systemd unit——驗證階段都是 tmux／nohup 手動跑，或用 <code>scripts/run.sh</code>／<code>scripts/launchers/</code>（它們會自動 cd 到正確目錄，順便避開下面的 CWD 陷阱）：</p>
+<pre><code># Spark（IP）——注意：一定從 ip/ 目錄啟動，或 --output 給絕對路徑
+cd ~/Addis/cf-aoi/ip
+tmux new -s ip './build/cfaoi_ip --mode offline-tcp --output /home/auo001/cfaoi_output'
+
+# 截取中心（Grab）
+cd ~/Addis/cf-aoi/grab
+tmux new -s grab './build/cfaoi_grab --rdma-dest 192.168.3.1:18515'</code></pre>
+<div class="callout crit"><span class="tag">⚠ CWD 陷阱（審計 P3-3）</span><p>IP 的 <code>--output</code>、config、_diag 全是<strong>啟動目錄相對路徑</strong>。從錯的目錄啟動＝程式看似正常、但結果寫進另一棵 output 樹，歷史結果「整批消失」。對策：固定用 run.sh／絕對路徑／下面的 systemd。</p></div>
+<p><strong>上線建議（正式生產前補）</strong>：改用 systemd——固定 WorkingDirectory 根治 CWD 陷阱，Restart 接住 CUDA 錯誤 exit（審計 P0-7 配套）。範本：</p>
+<pre><code># /etc/systemd/system/cfaoi-ip.service（Spark）
+[Unit]
+Description=CF-AOI IP
+After=network-online.target
+
+[Service]
+User=auo001
+WorkingDirectory=/home/auo001/Addis/cf-aoi/ip
+ExecStart=/home/auo001/Addis/cf-aoi/ip/build/cfaoi_ip --mode offline-tcp --output /home/auo001/cfaoi_output
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+# sudo systemctl enable --now cfaoi-ip；journalctl -u cfaoi-ip -f 看 console</code></pre>
+
+<h3>組態檔總表：什麼檔、放哪、版控嗎、誰讀它</h3>
+<div class="tablewrap"><table>
+<tr><th>檔案</th><th>實體位置</th><th>版控</th><th>誰讀</th><th>備註</th></tr>
+<tr><td><code>appsettings.json</code></td><td><code>control/src/</code>（build 會複製到 bin/…）</td><td>✅</td><td>Control</td><td>改 <code>src/</code> 下那份再重跑；⚠ 本機 Host 改動別 commit（審計 P3-4）</td></tr>
+<tr><td><code>cam_config.json</code>（曝光/增益）</td><td><code>grab/</code>（執行目錄）</td><td>❌ 本機檔</td><td>Grab</td><td>新機器 <code>cp cam_config.example.json cam_config.json</code></td></tr>
+<tr><td><code>array_topology.json</code>（37 槽宣告）</td><td><code>control/src/config/</code></td><td>❌ 本機檔</td><td>Control</td><td>同上有 .example 模板</td></tr>
+<tr><td><code>RecipeInfo.xml</code>（配方）</td><td><strong>執行期</strong> <code>~/cf-aoi/recipes/{配方}/{IP0}/</code>（Mac 操作機上）</td><td>❌</td><td>Control 讀→XML 內容經 TCP 送 IP</td><td>⚠ 不是 repo 的 recipes/！生產 SUB 配方在 Spark，見 P5</td></tr>
+<tr><td><code>default_zone.ini</code>（IP 預設參數＋[Optical]）</td><td><code>ip/config/</code></td><td>✅</td><td>IP</td><td>[GPU] block_dim 是死設定（永遠 16×16）</td></tr>
+<tr><td>檢測結果/缺陷小圖</td><td><code>&lt;output&gt;/&lt;yyyyMMdd&gt;/&lt;panel&gt;_&lt;recipe&gt;/</code>（Spark）</td><td>—</td><td>上位機/DefectSort</td><td>⚠ 無自動清理（審計 P3-1），排程留意磁碟</td></tr>
+<tr><td>行車記錄</td><td><code>&lt;output&gt;/_diag/</code>（Spark）</td><td>—</td><td>你＋Log 分析器</td><td>出事第一個看這裡（06 章）</td></tr>
+<tr><td>原圖存檔（SaveSourceImage 開啟時）</td><td><code>&lt;output&gt;/source/*.bin</code></td><td>—</td><td>重現用</td><td>raw Mono8</td></tr>
+</table></div>
+
+<h3>重開機後的還原清單（實機）</h3>
+<p>Spark／截取中心重開機後，RDMA 鏈路<strong>不會自己好</strong>（STATUS 記載的真實踩坑：MTU 沒還原 → RDMA-CM 全被 REJECT）：</p>
+<pre><code># 兩台都檢查（順序照做）
+ip addr | grep 192.168.3.        # ① RDMA 網段 IP 還在嗎（Spark .1 / 截取中心 .2）
+ping -c2 192.168.3.2             # ② 對端通嗎
+ip link show | grep mtu          # ③ 兩端 MTU 一致（jumbo 9000）——不一致必 REJECT
+ibv_devinfo | grep state         # ④ PORT_ACTIVE
+# ⑤ 相機 NIC（截取中心）：192.168.5.x、MTU 9000
+# 建議：把 ①③ 寫成 NetworkManager 設定檔或 systemd oneshot 持久化（damac 已有 cf-rdma 設定檔前例）</code></pre>
+
+<h3>上線前 60 秒健檢</h3>
+<pre><code>ssh spark  'cd ~/Addis/cf-aoi && git log -1 --format=%h'   # 兩台 commit 一致？
+ssh damac  'cd ~/Addis/cf-aoi && git log -1 --format=%h'
+echo $CFAOI_RDMA_NOCRC                                      # 兩端要嘛都設要嘛都不設
+# Control 起來後：三顆連線燈綠（上位機/Grab/IP）→ 用 upstream_simulator.py 排演一輪</code></pre>
+</section>
+
 <!-- ═══════════ CH0 ═══════════ -->
 <section class="chapter" id="ch0" data-title="這套系統在做什麼">
 <span class="eyebrow">Chapter 00 — Overview</span>
 <h2>這套系統在做什麼</h2>
 <div class="quickpaths">
   <button class="qp" data-go="p1"><span class="qico">🚨</span><span class="qt">我遇到 bug 了</span><span class="qd">從行車記錄器的線索一路走到修好上線——七步破案流程，每步附命令與工具。</span><span class="qgo">→ P1 破案之路</span></button>
-  <button class="qp" data-go="ch1"><span class="qico">🎓</span><span class="qt">我是新接手的</span><span class="qd">照 00–08 章順序讀，跟著一塊面板走完整個系統，每章有小測驗收。</span><span class="qgo">→ 從 01 資料流開始</span></button>
+  <button class="qp" data-go="g1"><span class="qico">🎓</span><span class="qt">我是新接手的</span><span class="qd">Day 1 先把環境建起來、跑出第一個綠燈，再照 00–08 章學系統。</span><span class="qgo">→ G1 Day 1 環境建置</span></button>
   <button class="qp" data-go="r1"><span class="qico">📖</span><span class="qt">我要查某段碼</span><span class="qd">檔案地圖 × Function 進入點 × 流程圖——R1 IP、R2 Grab、R3 Control、P4 函式詳解卡。全書 file:line 都可點開直接看碼。</span><span class="qgo">→ R1 參考手冊</span></button>
   <button class="qp" data-go="logan"><span class="qico">🩺</span><span class="qt">我有一段 _diag Log</span><span class="qd">拖進分析器：自動時間軸、逐 incident 診斷、定位出錯程式碼、產生重現命令。</span><span class="qgo">→ Log 分析器</span></button>
 </div>
@@ -477,6 +636,19 @@ a.srclink:hover, span.xref:hover { background: var(--accent-soft); }
   </div>
   <div class="link-lbl">Grab → IP：RDMA（RoCE v2 · 100G）libibverbs · FrameHeader 256B</div>
 </div></div>
+
+<h3>三支程式 ↔ Repo 資料夾（看 code 時對號入座）</h3>
+<div class="diagram"><div class="diag-col">
+  <div class="duo">
+    <div class="node"><div class="nm">CONTROL <span class="env">control/src/</span></div><div class="role">Views/ViewModels（UI）＋Controllers（8787/8200/8100 通訊）＋Services（配方/分析）→ 詳見 R3</div></div>
+    <div class="node"><div class="nm">GRAB <span class="env">grab/src/</span></div><div class="role">cam_pylon（相機）＋rdma_sender（送圖）＋control_server（8100）→ 詳見 R2</div></div>
+  </div>
+  <div class="duo">
+    <div class="node"><div class="nm">IP <span class="env">ip/src/</span></div><div class="role">main（模式）＋gpu/（演算法）＋config/（守門）＋diag/（行車記錄）→ 詳見 R1</div></div>
+    <div class="node"><div class="nm">共用 <span class="env">shared/・scripts/・docs/</span></div><div class="role">FrameHeader wire 格式｜驗證腳本百寶箱（P3）｜文件與本說明書</div></div>
+  </div>
+</div></div>
+<p>環境建置與完整目錄樹在 G1；部署路徑與組態檔在 G2。</p>
 
 <h3>「IP」這個詞有三個意思——先分清楚</h3>
 <p>這是本專案最容易混淆的地方，文件裡固定用三層詞彙：</p>
@@ -1718,10 +1890,12 @@ window.DEMO_LOG={"jsonl":"{\"ai_active\":false,\"gpu\":{\"free_mb\":7542,\"integ
 <script>
 /* ─────────── chapters nav ─────────── */
 const chapters = Array.from(document.querySelectorAll('section.chapter'));
+const startIds = chapters.map(s => s.id).filter(id => /^g\d+$/.test(id));
 const teachIds = chapters.map(s => s.id).filter(id => /^ch\d+$/.test(id));
 const pracIds  = chapters.map(s => s.id).filter(id => /^p\d+$/.test(id));
 const refIds   = chapters.map(s => s.id).filter(id => /^r\d+$/.test(id));
 const nav = document.getElementById('sidenav');
+const grpTeach = document.getElementById('grpTeach');
 const grpPractice = document.getElementById('grpPractice');
 const grpRef = document.getElementById('grpRef');
 const grpAssess = document.getElementById('grpAssess');
@@ -1732,6 +1906,7 @@ function makeNavItem(id, num) {
   b.innerHTML = '<span class="navnum">' + num + '</span>' + s.dataset.title + '<span class="readmark" data-read="'+id+'"></span>';
   return b;
 }
+startIds.forEach((id, i) => nav.insertBefore(makeNavItem(id, 'G' + (i+1)), grpTeach));
 teachIds.forEach((id, i) => nav.insertBefore(makeNavItem(id, String(i).padStart(2,'0')), grpPractice));
 pracIds.forEach((id, i) => nav.insertBefore(makeNavItem(id, 'P' + (i+1)), grpRef));
 refIds.forEach((id, i) => nav.insertBefore(makeNavItem(id, 'R' + (i+1)), grpAssess));
@@ -1745,11 +1920,11 @@ let readSet = new Set(LS.get('read', []));
 function show(id) {
   chapters.forEach(s => s.classList.toggle('visible', s.id === id));
   nav.querySelectorAll('.navitem').forEach(b => b.classList.toggle('active', b.dataset.target === id));
-  if (/^(ch|r|p)\d+$/.test(id)) { readSet.add(id); LS.set('read', [...readSet]); refreshReadMarks(); }
+  if (/^(ch|r|p|g)\d+$/.test(id)) { readSet.add(id); LS.set('read', [...readSet]); refreshReadMarks(); }
   window.scrollTo({top:0});
   LS.set('lastPage', id);
 }
-const allReadable = [...teachIds, ...pracIds, ...refIds];
+const allReadable = [...startIds, ...teachIds, ...pracIds, ...refIds];
 function refreshReadMarks() {
   nav.querySelectorAll('[data-read]').forEach(m => m.textContent = readSet.has(m.dataset.read) ? '✓' : '');
   const done = allReadable.filter(id => readSet.has(id)).length;
@@ -1789,9 +1964,9 @@ nav.addEventListener('click', e => {
 });
 
 /* chapter prev/next */
-const allIds = [...teachIds, ...pracIds, ...refIds, 'quiz', 'checklist'];
+const allIds = [...startIds, ...teachIds, ...pracIds, ...refIds, 'quiz', 'checklist'];
 chapters.forEach(s => {
-  const isTeach = /^ch\d+$/.test(s.id), isRef = /^(r|p)\d+$/.test(s.id);
+  const isTeach = /^ch\d+$/.test(s.id), isRef = /^(r|p|g)\d+$/.test(s.id);
   if (!isTeach && !isRef) return;
   const i = allIds.indexOf(s.id);
   const navDiv = document.createElement('div');
@@ -2144,7 +2319,7 @@ function resolveBase(base, ctxId) {
 }
 const RE_PATH = /((?:ip|grab|control|shared|scripts|tools)\/[A-Za-z0-9_\-./]+?\.(?:h|hpp|cpp|cu|cuh|cs|py|sh|ini))(?::(\d+))?/g;
 const RE_BASE = /(?<![\w/.])([A-Za-z_][\w.]*\.(?:h|cpp|cu|cs|py))[:：](\d+)/g;
-const RE_XREF = /(?<![\w])(P[1-5]|R[1-4])(?![\w])|(?:教材\s*)?0([0-8])\s*章/g;
+const RE_XREF = /(?<![\w])(P[1-5]|R[1-4]|G[1-2])(?![\w])|(?:教材\s*)?0([0-8])\s*章/g;
 function linkifySection(sec) {
   const walker = document.createTreeWalker(sec, NodeFilter.SHOW_TEXT, {
     acceptNode(n) {
@@ -2196,6 +2371,8 @@ document.addEventListener('click', e => {
 
 /* ── 索引頁 ── */
 const TERMS = [
+  ['Day 1 環境建置/建置指令', 'g1'], ['Hello World 沙盒任務', 'g1'], ['部署/組態檔位置/systemd', 'g2'],
+  ['重開機 RDMA 還原清單', 'g2'],
   ['DIV / SUB / mode2 三演算法', 'ch3'], ['Pitch 爆量陷阱', 'ch3'], ['bit-exact 決定性', 'ch3'],
   ['CCL 收斂迴圈', 'ch3'], ['RecipeInfo.xml 結構', 'ch4'], ['守門（algo_mode 判定）', 'ch4'],
   ['對位 eff_* / SET_ALIGN', 'ch4'], ['N-slot ring / credit 背壓', 'ch5'], ['min_rnr_timer 33fps 牆', 'ch5'],
