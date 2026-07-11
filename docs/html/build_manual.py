@@ -21,13 +21,25 @@ DEMO = os.path.join(ROOT, "docs", "html", "demo_diag")
 BUNDLE = [
     ("ip/src",                {".h", ".hpp", ".cpp", ".cu", ".cuh"}),
     ("ip/config",             {".ini"}),
+    ("ip",                    {".md", ".txt"}),      # CLAUDE.md + CMakeLists.txt
     ("grab/src",              {".h", ".cpp"}),
+    ("grab",                  {".md", ".txt"}),
     ("shared",                {".h"}),
     ("control/src/Controllers", {".cs"}),
     ("control/src/Services",  {".cs"}),
     ("control/src/Models",    {".cs"}),
+    ("control/src/ViewModels", {".cs"}),
+    ("control/src/Views",     {".axaml", ".cs"}),
+    ("control/src/Controls",  {".axaml", ".cs"}),
+    ("control",               {".md"}),
     ("scripts",               {".py", ".sh"}),
+    ("docs",                  {".md"}),              # 總綱/STATUS/說明/驗證報告/審計（遞迴含 verification/）
+    ("docs/html",             {".py", ".html"}),     # build_manual.py + incident-viewer.html
+    ("tools",                 {".md", ".cpp", ".h"}),
+    ("control/src",           {".json"}),            # appsettings + config/*.example.json（bin/obj 已剪枝）
+    ("grab",                  {".json"}),            # cam_config.example.json
 ]
+SKIP_FILES = {"cf-aoi-training.html"}   # 別把說明書自己打包進自己
 MAX_FILE_BYTES = 400_000   # 單檔保險絲（不預期觸發）
 
 def collect():
@@ -39,7 +51,7 @@ def collect():
         for dirpath, dirnames, filenames in os.walk(absbase):
             dirnames[:] = [d for d in dirnames if d not in ("__pycache__", "build", "bin", "obj")]
             for fn in sorted(filenames):
-                if os.path.splitext(fn)[1].lower() not in exts:
+                if fn in SKIP_FILES or os.path.splitext(fn)[1].lower() not in exts:
                     continue
                 p = os.path.join(dirpath, fn)
                 rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
