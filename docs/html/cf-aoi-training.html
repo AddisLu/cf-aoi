@@ -316,6 +316,7 @@ nav.side { top: 46px; height: calc(100vh - 46px); }
   background: var(--panel); border-left: 1px solid var(--line);
   box-shadow: -8px 0 28px rgba(23,37,44,.18); display: flex; flex-direction: column;
 }
+.codepanel[hidden] { display: none; }   /* display:flex 會蓋掉 hidden 的 UA 規則，必須顯式補回 */
 .cp-head {
   display: flex; align-items: center; gap: 8px; padding: 9px 14px;
   border-bottom: 1px solid var(--line); background: var(--panel2); flex-wrap: wrap;
