@@ -362,6 +362,45 @@ nav.side { top: 52px; height: calc(100vh - 52px); }
 .cp-pop { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; display: flex; gap: 6px; }
 .cp-pop[hidden] { display: none; }
 .cp-pop .btn { font-size: 12.5px; padding: 4px 12px; }
+
+/* ── Code Folding ── */
+.cl .ln { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.cl .ln i.fold {
+  font-style: normal; cursor: pointer; color: var(--ink-3); width: 13px; text-align: center;
+  font-size: 9px; user-select: none; visibility: hidden;
+}
+.cl .ln i.fold[data-fold] { visibility: visible; }
+.cl .ln i.fold[data-fold]:hover { color: var(--accent); }
+.cl.fold-hidden { display: none; }
+.cl.fold-start .lc::after { content: "  ⋯"; color: var(--ink-3); background: var(--panel2); border-radius: 4px; padding: 0 6px; }
+
+/* ── Inline Peek（Alt+Click 內嵌預覽）── */
+.peek {
+  margin: 2px 8px 6px 52px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.peek-head {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  background: var(--accent-soft); font-family: var(--mono); font-size: 11.5px;
+}
+.peek-head .rf { color: var(--accent); font-weight: 700; flex: 1; }
+.peek-head .btn { font-size: 11px; padding: 1px 9px; }
+.peek-body { max-height: 300px; overflow: auto; padding: 4px 0; }
+.peek-body .cl .ln { min-width: 46px; }
+
+/* ── Hover Tooltip ── */
+.cp-tip {
+  position: fixed; z-index: 65; max-width: 520px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 24px rgba(23,37,44,.18);
+  padding: 10px 14px; font-size: 12.5px;
+}
+.cp-tip[hidden] { display: none; }
+.cp-tip .tt-sig { font-family: var(--mono); font-size: 12px; color: var(--ink); white-space: pre-wrap; }
+.cp-tip .tt-doc { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); margin-top: 6px; white-space: pre-wrap; border-top: 1px dashed var(--line); padding-top: 6px; }
+.cp-tip .tt-links { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+.cp-tip .tt-links .btn { font-size: 11.5px; padding: 2px 10px; }
+.cp-tip .tt-src { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); margin-top: 4px; }
 .cp-head {
   display: flex; align-items: center; gap: 8px; padding: 9px 14px;
   border-bottom: 1px solid var(--line); background: var(--panel2); flex-wrap: wrap;
@@ -1909,7 +1948,7 @@ grep -rn "ChooseAmount" Reference/PrjCfAoi/ --include="*.cs" --include="*.cu" | 
     <span id="cpFindCount"></span>
     <button class="btn" id="cpFindPrev" title="上一個">↑</button>
     <button class="btn" id="cpFindNext" title="下一個">↓</button>
-    <span class="cp-hint">💡 ⌘/Ctrl＋點符號＝移至定義｜雙擊符號＝定義/引用選單</span>
+    <span class="cp-hint">💡 懸停＝說明｜⌘/Ctrl點＝定義｜Alt點＝Peek 內嵌預覽｜雙擊＝選單｜行號 ▾＝摺疊</span>
   </div>
   <div class="cp-body" id="cpBody"></div>
   <div class="cp-refs" id="cpRefs" hidden>
@@ -1918,6 +1957,7 @@ grep -rn "ChooseAmount" Reference/PrjCfAoi/ --include="*.cs" --include="*.cu" | 
   </div>
 </aside>
 <div class="cp-pop" id="cpPop" hidden></div>
+<div class="cp-tip" id="cpTip" hidden></div>
 
 <script id="srcdata">
 window.SRC_META={"generated":"2026-07-12 06:43","commit":"0482549","files":100,"lines":18305,"fns":540};
@@ -2347,10 +2387,16 @@ function openCode(path, line, opt) {
   $('cpVscode').href = 'vscode://file/' + repoRoot + '/' + path + (line ? ':' + line : '');
   if (!hiCache[path]) hiCache[path] = hiFile(SRC[path], langOf(path));
   const lines = hiCache[path];
+  const fm = foldMapOf(path);
   const body = $('cpBody');
-  body.innerHTML = lines.map((h, i) =>
-    '<div class="cl' + (line && i+1 === +line ? ' hl' : '') + '" id="cl' + (i+1) + '">' +
-    '<span class="ln">' + (i+1) + '</span><span class="lc">' + (h || ' ') + '</span></div>').join('');
+  body.innerHTML = lines.map((h, i) => {
+    const n = i + 1;
+    const g = fm[n] ? '<i class="fold" data-fold="' + n + '" title="摺疊 ' + n + '–' + fm[n] + ' 行">▾</i>'
+                    : '<i class="fold"></i>';
+    return '<div class="cl' + (line && n === +line ? ' hl' : '') + '" id="cl' + n + '" data-n="' + n + '">' +
+      '<span class="ln">' + g + n + '</span><span class="lc">' + (h || ' ') + '</span></div>';
+  }).join('');
+  foldedStarts.clear(); closePeek();
   if (line) { const t = $('cl' + line); if (t) t.scrollIntoView({block: 'center'}); }
   else body.scrollTop = 0;
   if (!(opt && opt.noHist)) histPush(path, curLine);
@@ -2401,7 +2447,9 @@ function findStep(d) {
   if (!findHits.length) return;
   if (findCur >= 0) { const p = $('cl' + findHits[findCur]); if (p) p.classList.remove('find-cur'); }
   findCur = (findCur + d + findHits.length) % findHits.length;
-  const l = findHits[findCur], el = $('cl' + l);
+  const l = findHits[findCur];
+  ensureVisible(l);
+  const el = $('cl' + l);
   if (el) { el.classList.add('find-cur'); el.scrollIntoView({ block: 'center' }); }
   $('cpFindCount').textContent = (findCur + 1) + '/' + findHits.length;
 }
@@ -2462,15 +2510,167 @@ $('cpRefsList').addEventListener('click', e => {
 });
 $('cpRefsClose').addEventListener('click', () => $('cpRefs').hidden = true);
 
-/* ⌘/Ctrl＋點＝移至定義；雙擊＝跳出「定義/引用」小選單 */
+/* ── Code Folding（{ } 括號摺疊；字元級掃描跳過字串/註解；Python 無大括號不適用）── */
+const foldCache = {};
+const foldedStarts = new Set();
+function computeFoldRanges(text, lang) {
+  const map = {};
+  if (lang === 'py' || lang === 'txt') return map;
+  let inB = false, line = 1; const stack = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], c2 = text.substr(i, 2);
+    if (c === '\n') { line++; continue; }
+    if (inB) { if (c2 === '*/') { inB = false; i++; } continue; }
+    if (c2 === '//') { while (i < text.length && text[i] !== '\n') i++; line++; continue; }
+    if (c2 === '/*') { inB = true; i++; continue; }
+    if (c === '"' || c === "'") {
+      const q = c; i++;
+      while (i < text.length && text[i] !== '\n' && !(text[i] === q && text[i-1] !== '\\')) i++;
+      continue;
+    }
+    if (c === '{') stack.push(line);
+    else if (c === '}') { const s = stack.pop(); if (s && line > s && !map[s]) map[s] = line; }
+  }
+  return map;
+}
+function foldMapOf(path) {
+  if (!foldCache[path]) foldCache[path] = computeFoldRanges(SRC[path], langOf(path));
+  return foldCache[path];
+}
+function applyFolds() {
+  const fm = foldMapOf(curPath);
+  const hidden = new Set();
+  foldedStarts.forEach(s => { for (let l = s + 1; l <= fm[s]; l++) hidden.add(l); });
+  $('cpBody').querySelectorAll('.cl[data-n]').forEach(el => {
+    const n = +el.dataset.n;
+    el.classList.toggle('fold-hidden', hidden.has(n));
+    if (fm[n]) {
+      el.classList.toggle('fold-start', foldedStarts.has(n));
+      const arrow = el.querySelector('i.fold'); if (arrow) arrow.textContent = foldedStarts.has(n) ? '▸' : '▾';
+    }
+  });
+}
+function toggleFold(n) { foldedStarts.has(n) ? foldedStarts.delete(n) : foldedStarts.add(n); applyFolds(); }
+function ensureVisible(l) {
+  const fm = foldMapOf(curPath); let changed = false;
+  foldedStarts.forEach(s => { if (l > s && l <= fm[s]) { foldedStarts.delete(s); changed = true; } });
+  if (changed) applyFolds();
+}
+
+/* ── Inline Peek（Alt+Click：目標函式原始碼就地展開）── */
+let peekEl = null;
+function closePeek() { if (peekEl) { peekEl.remove(); peekEl = null; } }
+function openPeek(afterLine, word) {
+  const defs = FN.filter(e => e.n === word);
+  if (!defs.length) { showRefs(word); return; }
+  renderPeek(afterLine, defs, 0);
+}
+function renderPeek(afterLine, defs, di) {
+  const d = defs[di];
+  if (!hiCache[d.p]) hiCache[d.p] = hiFile(SRC[d.p], langOf(d.p));
+  const fm = foldMapOf(d.p);
+  const end = Math.min(fm[d.l] || (d.l + 24), d.l + 79, hiCache[d.p].length);
+  const seg = hiCache[d.p].slice(d.l - 1, end);
+  const host = $('cl' + afterLine);
+  if (!host) { openCode(d.p, d.l); return; }
+  closePeek();
+  peekEl = document.createElement('div'); peekEl.className = 'peek';
+  peekEl.innerHTML =
+    '<div class="peek-head"><span class="rf">' + d.p + ':' + d.l + '</span>' +
+    (defs.length > 1 ? '<button class="btn" data-pk="cy">' + (di+1) + '/' + defs.length + ' ⭯</button>' : '') +
+    '<button class="btn" data-pk="open">開啟檔案</button><button class="btn" data-pk="x" title="Esc">✕</button></div>' +
+    '<div class="peek-body">' + seg.map((h, i) =>
+      '<div class="cl"><span class="ln">' + (d.l + i) + '</span><span class="lc">' + (h || ' ') + '</span></div>').join('') + '</div>';
+  host.after(peekEl);
+  peekEl.querySelector('[data-pk=x]').onclick = closePeek;
+  peekEl.querySelector('[data-pk=open]').onclick = () => { closePeek(); openCode(d.p, d.l); };
+  const cy = peekEl.querySelector('[data-pk=cy]');
+  if (cy) cy.onclick = () => renderPeek(afterLine, defs, (di + 1) % defs.length);
+  peekEl.scrollIntoView({ block: 'nearest' });
+}
+
+/* ── Hover Tooltip（懸停顯示簽名＋docstring＋說明書關聯）── */
+const tip = $('cpTip');
+let tipTimer = null, tipHideTimer = null, tipWord = '';
+const MANUAL_LINKS = {   // 函式 → 說明書章節（P4 導師卡/相關章）
+  process_image: 'p4', from_recipe_xml_content: 'p4', apply_blob: 'p4', zone_rect: 'p4',
+  launchFastCCLKernel: 'p4', deliver_result: 'p4', run_align: 'p4', push_blocking: 'p4',
+  send_frame: 'p4', record_incident: 'p4', AnalyzeAsync: 'p4', SendCommandAsync: 'p4',
+  record_recipe: 'ch6', tick_stats: 'ch6',
+  kernelSub8WayStarVoting: 'ch3', kernelDivVoting8WayStar: 'ch3', kernelFast8WayComparison: 'ch3',
+  apply_align_shift: 'ch4',
+};
+function docstringOf(d) {
+  const lines = SRC[d.p].split('\n');
+  const sig = (lines[d.l - 1] || '').trim();
+  const doc = [];
+  for (let i = d.l - 2; i >= 0 && doc.length < 4; i--) {
+    const t = (lines[i] || '').trim();
+    if (/^(\/\/|\/\*|\*|#)/.test(t)) doc.unshift(t.replace(/^\/\*+|\*+\/$/g, '').replace(/^(\/\/|\*|#)\s?/, ''));
+    else break;
+  }
+  return { sig, doc: doc.join('\n') };
+}
+function hideTip(now) {
+  clearTimeout(tipHideTimer);
+  if (now) { tip.hidden = true; return; }
+  tipHideTimer = setTimeout(() => { tip.hidden = true; }, 260);
+}
+tip.addEventListener('mouseenter', () => clearTimeout(tipHideTimer));
+tip.addEventListener('mouseleave', () => hideTip());
+function showTip(word, x, y) {
+  const defs = FN.filter(e => e.n === word);
+  if (!defs.length) { hideTip(true); return; }
+  const d = defs[0], info = docstringOf(d);
+  tipWord = word;
+  tip.innerHTML =
+    '<div class="tt-sig">' + esc(info.sig) + '</div>' +
+    (info.doc ? '<div class="tt-doc">' + esc(info.doc) + '</div>' : '') +
+    '<div class="tt-links">' +
+    '<button class="btn primary" data-tt="def">⇢ 定義' + (defs.length > 1 ? '（' + defs.length + '）' : '') + '</button>' +
+    '<button class="btn" data-tt="peek">👁 Peek</button>' +
+    '<button class="btn" data-tt="ref">☰ 引用</button>' +
+    (MANUAL_LINKS[word] ? '<span class="xref" data-go="' + MANUAL_LINKS[word] + '">📖 說明書相關章節</span>' : '') +
+    '</div>' +
+    '<div class="tt-src">' + d.p + ':' + d.l + '（' + d.k + '）</div>';
+  tip.style.left = Math.min(x + 12, window.innerWidth - 540) + 'px';
+  tip.style.top = Math.min(y + 16, window.innerHeight - 180) + 'px';
+  tip.hidden = false;
+}
+tip.addEventListener('click', e => {
+  const act = e.target.closest('[data-tt]')?.dataset.tt;
+  if (!act) return;      // xref 交給全域 handler
+  hideTip(true);
+  if (act === 'def') gotoDef(tipWord);
+  if (act === 'ref') showRefs(tipWord);
+  if (act === 'peek') openPeek(hoverLine || curLine || 1, tipWord);
+});
+
+/* ── 手勢路由：摺疊箭頭 → Alt=Peek → ⌘/Ctrl=定義 ── */
 const pop = $('cpPop');
 function hidePop() { pop.hidden = true; }
+let hoverLine = 0;
 $('cpBody').addEventListener('click', e => {
   hidePop();
-  if (!(e.metaKey || e.ctrlKey)) return;
+  const arrow = e.target.closest('i.fold[data-fold]');
+  if (arrow) { toggleFold(+arrow.dataset.fold); return; }
+  const cl = e.target.closest('.cl[data-n]');
   const w = wordAtPoint(e);
+  if (e.altKey && cl && w && /^[A-Za-z_]\w{2,}$/.test(w)) { e.preventDefault(); openPeek(+cl.dataset.n, w); return; }
+  if (!(e.metaKey || e.ctrlKey)) return;
   if (w && /^[A-Za-z_]\w{2,}$/.test(w)) { e.preventDefault(); gotoDef(w); }
 });
+$('cpBody').addEventListener('mousemove', e => {
+  const cl = e.target.closest('.cl[data-n]');
+  hoverLine = cl ? +cl.dataset.n : hoverLine;
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => {
+    const w = wordAtPoint(e);
+    if (w && /^[A-Za-z_]\w{2,}$/.test(w) && w !== tipWord) showTip(w, e.clientX, e.clientY);
+    else if (!w) hideTip();
+  }, 350);
+});
+$('cpBody').addEventListener('mouseleave', () => { clearTimeout(tipTimer); hideTip(); });
 $('cpBody').addEventListener('dblclick', e => {
   const w = wordAtPoint(e);
   if (!w || !/^[A-Za-z_]\w{2,}$/.test(w)) return;
@@ -2489,7 +2689,7 @@ $('cpBody').addEventListener('dblclick', e => {
     if (act === 'ref') showRefs(w);
   };
 });
-$('cpBody').addEventListener('scroll', hidePop);
+$('cpBody').addEventListener('scroll', () => { hidePop(); hideTip(true); });
 
 /* 可調寬度 + 專注模式 */
 const setW = w => document.documentElement.style.setProperty('--cpw', w);
@@ -2512,9 +2712,15 @@ $('cpMax').addEventListener('click', () => {
     dragging = false; h.classList.remove('on');
     LS.set('cpw', getComputedStyle(document.documentElement).getPropertyValue('--cpw').trim());
   });
+  h.addEventListener('dblclick', () => {   // 雙擊拖曳條＝還原預設寬
+    setW('min(640px, 52vw)'); maxed = false; LS.set('cpw', 'min(640px, 52vw)');
+  });
 }
 
-function closeCode() { $('codePanel').hidden = true; document.body.classList.remove('cp-open'); hidePop(); }
+function closeCode() {
+  $('codePanel').hidden = true; document.body.classList.remove('cp-open');
+  hidePop(); hideTip(true); closePeek();
+}
 $('cpClose').addEventListener('click', closeCode);
 $('cpCopy').addEventListener('click', () =>
   navigator.clipboard.writeText(curPath + (curLine ? ':' + curLine : '')).catch(()=>{}));
@@ -2523,7 +2729,12 @@ $('cpRoot').addEventListener('click', () => {
   if (r) { repoRoot = r.replace(/\/$/, ''); LS.set('repoRoot', repoRoot); }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { hidePop(); if (document.activeElement !== $('cpFind')) closeCode(); }
+  if (e.key === 'Escape') {   // ESC 鏈：Tooltip → Peek → 浮動選單 → 關面板（一次關一層）
+    if (!tip.hidden) { hideTip(true); return; }
+    if (peekEl) { closePeek(); return; }
+    if (!pop.hidden) { hidePop(); return; }
+    if (document.activeElement !== $('cpFind')) closeCode();
+  }
   // ⌘/Ctrl+F：面板開啟時聚焦檔內搜尋（不攔全域瀏覽器搜尋於面板關閉時）
   if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !$('codePanel').hidden) {
     e.preventDefault(); $('cpFind').focus(); $('cpFind').select();
