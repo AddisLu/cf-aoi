@@ -74,6 +74,29 @@ def recipe_xml(pitch_x, pitch_y, blob_min=0):
 <BlobMinSize>{blob_min}</BlobMinSize><BlobMaxSize>0</BlobMaxSize>
 </DetectRoi></DetectRoiList><DetectIoiList/></Recipe>"""
 
+def load_flood_image(path_arg):
+    """載入 flood 測試影像 → (bytes, w, h)。TIF 用 Pillow；PGM 純 Python。找不到回 (None,0,0)。"""
+    candidates = [path_arg] if path_arg else []
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(here, "..", "test_images", "IP01_Origin000002.tif"))
+    for p in candidates:
+        if not p or not os.path.isfile(p): continue
+        if p.lower().endswith(".pgm"):
+            with open(p, "rb") as f: data = f.read()
+            # 極簡 P5 解析（magic\n w h\n maxval\n raw）
+            parts = data.split(b"\n", 3)
+            if parts[0].strip() != b"P5": continue
+            w, h = map(int, parts[1].split())
+            return parts[3][: w * h], w, h
+        try:
+            from PIL import Image
+            im = Image.open(p).convert("L")
+            return im.tobytes(), im.width, im.height
+        except ImportError:
+            print(f"[SKIP] 需要 Pillow 解 {p}（pip3 install pillow）")
+            return None, 0, 0
+    return None, 0, 0
+
 def read_events(diag_dir):
     events = []
     for jl in sorted(glob.glob(os.path.join(diag_dir, "*.jsonl"))):
@@ -94,6 +117,8 @@ def main():
     ap.add_argument("--host", default="127.0.0.1"); ap.add_argument("--port", type=int, default=8200)
     ap.add_argument("--out", required=True, help="IP --output 目錄（_diag 在其下）")
     ap.add_argument("--stats-frames", type=int, default=205, help="D 項送幀數（≥200 才會出 stats 行）")
+    ap.add_argument("--flood-image", default=None,
+                    help="C 項爆量測試影像（TIF 需 Pillow / PGM 免依賴）；預設找 test_images/IP01_Origin000002.tif")
     a = ap.parse_args()
     diag = os.path.join(a.out, "_diag")
     pre_inc_files = set(glob.glob(os.path.join(diag, "incident_*.json")))
@@ -136,36 +161,40 @@ def main():
     check("B2 jsonl：incident 行=1 + incident_suppressed 摘要 ≥1",
           n_bad_inc == 1 and n_supp >= 1, f"incident行={n_bad_inc} suppressed行={n_supp}")
 
-    # ── C. defect_flood：Pitch 錯配網格 → 觸頂 ──────────────────────────────
-    # 網格：亮點 pitch=26；配方 pitch=30 → 每顆點與週期鄰居不一致 → 爆量（>10000 觸頂）。
-    # 配方帶 BlobMinSize=5（會把 size1-2 全洗掉）→ 驗「訊號取過濾前計數、不被 Blob 遮蔽」。
-    W, H = 4096, 3328
-    img = grid_bytes(W, H, 128, 255, 26)       # ~158×128 ≈ 20k 顆亮點
-    r = send_cmd(s, "LOAD_RECIPE", {"recipe": "FRV2_C", "recipe_xml": recipe_xml(30, 30, blob_min=5), "panel_id": "flood"})
-    check("C0 LOAD_RECIPE(錯 pitch + BlobMinSize=5) → OK", r.get("status") == "OK", f"resp={r}")
-    r = send_with_payload(s, "SEND_IMAGE_FOR_REVIEW",
-                          {"panel_id": "frv2_flood", "cam_id": 0, "width": W, "height": H,
-                           "payload_bytes": W * H, "frame_seq": 1, "last": True},
-                          img)
-    check("C1 爆量影像處理完成（回 OK）", r.get("status") == "OK", f"resp status={r.get('status')}")
-    ev = read_events(diag)[pre_events:]
-    floods = [e for e in ev if e.get("type") == "incident" and e.get("kind") == "defect_flood"]
-    check("C2 defect_flood incident 落地（過濾前訊號）",
-          len(floods) >= 1, f"defect_flood 行={len(floods)} detail={floods[-1].get('detail','')[:120] if floods else '無'}")
+    # ── C. defect_flood：真實面板圖 + 錯 pitch 30/30 → 觸頂 ─────────────────
+    # 這正是 documented 生產爆量情境（不變式 14：pitch 26→30 → 561→10000）。
+    # 合成圖注意：與 pitch 同週期的點陣會被演算法視為正常網格、平滑/噪點被 best-match
+    # 搜尋抵消 → 觸不了頂（2026-07-12 實測）；故 flood 測試必須用真實紋理影像。
+    # 配方帶 BlobMinSize=5（會把小顆全洗掉）→ 同時驗「訊號取過濾前計數、不被 Blob 遮蔽」。
+    flood_img, fw, fh = load_flood_image(a.flood_image)
+    if flood_img is None:
+        print("[SKIP] C/E：找不到 flood 測試影像（--flood-image 或 test_images/IP01_Origin000002.tif）")
+    else:
+        r = send_cmd(s, "LOAD_RECIPE", {"recipe": "FRV2_C", "recipe_xml": recipe_xml(30, 30, blob_min=5), "panel_id": "flood"})
+        check("C0 LOAD_RECIPE(錯 pitch + BlobMinSize=5) → OK", r.get("status") == "OK", f"resp={r}")
+        r = send_with_payload(s, "SEND_IMAGE_FOR_REVIEW",
+                              {"panel_id": "frv2_flood", "cam_id": 0, "width": fw, "height": fh,
+                               "payload_bytes": fw * fh, "frame_seq": 1, "last": True},
+                              flood_img)
+        check("C1 爆量影像處理完成（回 OK）", r.get("status") == "OK", f"resp status={r.get('status')}")
+        ev = read_events(diag)[pre_events:]
+        floods = [e for e in ev if e.get("type") == "incident" and e.get("kind") == "defect_flood"]
+        check("C2 defect_flood incident 落地（過濾前訊號）",
+              len(floods) >= 1, f"defect_flood 行={len(floods)} detail={floods[-1].get('detail','')[:120] if floods else '無'}")
 
-    # ── E. ZoneSnap 擴欄：flood incident 的 current_frame.zones 帶新欄位 ────
-    zones_ok = False; sample = ""
-    for p in sorted(glob.glob(os.path.join(diag, "incident_*.json"))):
-        if p in pre_inc_files: continue
-        try:
-            with open(p, encoding="utf-8") as f: o = json.load(f)
-        except Exception: continue
-        if o.get("kind") != "defect_flood": continue
-        zs = (o.get("current_frame") or {}).get("zones") or []
-        if zs and all(k in zs[0] for k in ("algo_mode", "multiscale", "blob", "pitch_times", "choose_amount")):
-            zones_ok = True; sample = json.dumps(zs[0], ensure_ascii=False)[:180]
-    check("E1 incident current_frame.zones 帶 algo_mode/multiscale/blob/pitch_times/choose_amount",
-          zones_ok, sample or "flood incident 無 zones 或缺欄位")
+        # ── E. ZoneSnap 擴欄：flood incident 的 current_frame.zones 帶新欄位 ──
+        zones_ok = False; sample = ""
+        for p in sorted(glob.glob(os.path.join(diag, "incident_*.json"))):
+            if p in pre_inc_files: continue
+            try:
+                with open(p, encoding="utf-8") as f: o = json.load(f)
+            except Exception: continue
+            if o.get("kind") != "defect_flood": continue
+            zs = (o.get("current_frame") or {}).get("zones") or []
+            if zs and all(k in zs[0] for k in ("algo_mode", "multiscale", "blob", "pitch_times", "choose_amount")):
+                zones_ok = True; sample = json.dumps(zs[0], ensure_ascii=False)[:180]
+        check("E1 incident current_frame.zones 帶 algo_mode/multiscale/blob/pitch_times/choose_amount",
+              zones_ok, sample or "flood incident 無 zones 或缺欄位")
 
     # ── D. tick_stats：連送 ≥200 張小圖 ────────────────────────────────────
     r = send_cmd(s, "LOAD_RECIPE", {"recipe": "FRV2_D", "recipe_xml": recipe_xml(26, 19), "panel_id": "stats"})
