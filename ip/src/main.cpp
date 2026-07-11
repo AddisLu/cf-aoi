@@ -226,6 +226,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
     if (!zones.empty()) agg.recipe_name = zones.front().recipe_name;
 
     int total_defects_so_far = 0;
+    int  flood_zone = -1, flood_zone_n = 0;   // defect_flood：GPU 過濾前訊號
+    long pre_filter_total = 0;
     for (const auto& z : zones) {
         cv::Rect r = zone_rect(z, gray.cols, gray.rows);
         cv::Mat sub = gray(r);
@@ -249,6 +251,13 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
                 std::cout << "[Verify] ✓ panel=" << panel_id << " zone=" << z.zone_index
                           << " bit-exact (" << dr.num_defects << " defects)\n";
             }
+        }
+
+        // defect_flood 訊號取樣：必須在 apply_blob 之前（過濾後爆量訊號會被洗掉）。
+        pre_filter_total += dr.num_defects;
+        if (dr.num_defects >= kDefectCap && flood_zone < 0) {
+            flood_zone = z.zone_index;
+            flood_zone_n = dr.num_defects;
         }
 
         // Step E Blob 過濾（size 範圍 + 鄰近合併；CPU 後處理，預設 0=關 → 不改結果）。
@@ -280,6 +289,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
             break;
         }
     }
+    if (flood_zone >= 0 || pre_filter_total >= kDefectCap)
+        record_defect_flood(panel_id, flood_zone, flood_zone_n, pre_filter_total);
     return agg;
 }
 
@@ -325,23 +336,17 @@ diag::FrameScene make_scene_params(const std::vector<ZoneConfig>& zones,
     return s;
 }
 
-// 行車紀錄：defect_flood 觸發器——「結果錯但不 crash」盲區的爆量半邊。
-// 任一 zone 觸頂 GPU cap（MAX_DEFECTS=10000，ip/CLAUDE.md 不變式 6；觸頂結果非
-// bit-exact、大概率為 Pitch 設錯/守門誤路由）→ 記 incident，自動把最近 64 張現場
-// （含正常張的缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
-void maybe_record_defect_flood(const InspectionResult& res) {
-    constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
-    int zone_capped = -1, zone_defects = 0, total = 0;
-    for (const auto& zr : res.zones) {
-        total += zr.result.num_defects;
-        if (zr.result.num_defects >= kDefectCap && zone_capped < 0) {
-            zone_capped = zr.zone_index;
-            zone_defects = zr.result.num_defects;
-        }
-    }
-    if (zone_capped < 0 && total < kDefectCap) return;
-    std::string detail = "缺陷爆量 panel=" + res.panel_id +
-        " total=" + std::to_string(total);
+// 行車紀錄：defect_flood 判定（「結果錯但不 crash」盲區的爆量半邊）。
+// ⚠ 必須用 GPU **過濾前**計數（apply_blob 可把 10000 洗成幾十顆，訊號會被 Blob 過濾遮蔽）
+// → 由 process_image 於 apply_blob 之前累計，迴圈結束後呼叫本函式。
+// 任一 zone 觸頂 GPU cap（MAX_DEFECTS=10000，不變式 6；觸頂結果非 bit-exact、大概率
+// Pitch 設錯/守門誤路由）或全 panel 過濾前總數 ≥ cap → 記 incident，自動把最近 64 張
+// 現場（含正常張缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
+constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
+void record_defect_flood(const std::string& panel_id, int zone_capped,
+                         int zone_defects, long pre_filter_total) {
+    std::string detail = "缺陷爆量 panel=" + panel_id +
+        " GPU過濾前total=" + std::to_string(pre_filter_total);
     if (zone_capped >= 0)
         detail += " zone" + std::to_string(zone_capped) + "=" +
                   std::to_string(zone_defects) + "(觸頂cap，結果已非bit-exact)";
@@ -482,7 +487,6 @@ int main(int argc, char** argv) {
                                              args.verify_deterministic, vf,
                                              cli_saving_cfg, machine_optical);
         res.ioi_list = file_ioi;
-        maybe_record_defect_flood(res);   // 爆量自動落地（拼接 panel 亦適用）
         ResultSaver::save(res, panel.data, panel.cols, panel.rows, args.output, args.ip_name, save_opt);
         std::cout << "[Done] 拼接 panel 偵測完成，缺陷 " << res.total_defects() << "\n";
 
@@ -503,7 +507,6 @@ int main(int argc, char** argv) {
             res.ioi_list = file_ioi;   // #23 興趣區
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
-            maybe_record_defect_flood(res);                        // 爆量自動落地（觸頂/總數異常）
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
@@ -627,7 +630,6 @@ int main(int argc, char** argv) {
             res.ioi_list = server.ioi_list();   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
-            maybe_record_defect_flood(res);                        // 爆量自動落地
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
             // TuningRecipe：GPU 跑、結果仍回 TCP，但完全不寫磁碟（量速/調參模式）。
@@ -878,7 +880,6 @@ int main(int argc, char** argv) {
             if (proc_ms > max_proc_ms) max_proc_ms = proc_ms;
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);
-            maybe_record_defect_flood(res);                        // 爆量自動落地
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
