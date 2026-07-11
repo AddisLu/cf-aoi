@@ -42,11 +42,12 @@ def send_raw(s, raw):
     return json.loads(recv_line(s))
 
 # 預期 src 呼叫點（檔名須對；行號比對已知 FR_RECORD_INCIDENT 呼叫點集合，±3 行容編輯漂移）。
-# recipe_load 有兩處呼叫點：main.cpp:357（解析丟例外）/ :466（找不到 DetectRoi）；本腳本的壞 XML 命中後者。
+# recipe_load 兩處呼叫點（2026-07-12 行車紀錄器擴充後行號位移）：main.cpp:418（offline-file
+# 啟動載入失敗）/ :585（offline-tcp LOAD_RECIPE handler）；本腳本的壞 XML 命中後者。
 EXPECT = {
     "bad_json":         ("ip/src/control_server.cpp", {407}),
     "frame_validation": ("ip/src/control_server.cpp", {534, 564}),
-    "recipe_load":      ("ip/src/main.cpp",            {357, 466}),
+    "recipe_load":      ("ip/src/main.cpp",            {418, 585}),
 }
 
 results = []

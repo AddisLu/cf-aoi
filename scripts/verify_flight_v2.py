@@ -25,14 +25,16 @@ def uniform_bytes(w, h, val):
     return bytes([val]) * (w * h)
 
 def grid_bytes(w, h, bg, dot, step):
-    """亮點網格：每 step px 一顆 dot 值像素，其餘 bg。"""
+    """亮點網格：每 step px 一顆 3×3 dot 塊，其餘 bg（單像素撐不起 DIV 比例差 → 用 3×3 塊）。"""
     dot_row = bytearray([bg]) * w
     for x in range(0, w, step):
-        dot_row[x] = dot
+        for dx in range(3):
+            if x + dx < w: dot_row[x + dx] = dot
+    dot_row = bytes(dot_row)
     plain_row = bytes([bg]) * w
     rows = []
     for y in range(h):
-        rows.append(bytes(dot_row) if y % step == 0 else plain_row)
+        rows.append(dot_row if (y % step) < 3 else plain_row)
     return b"".join(rows)
 
 _seq = 0
