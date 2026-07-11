@@ -207,6 +207,24 @@ std::string first_determinism_diff(const DetectionResult& a, const DetectionResu
     return "";
 }
 
+// 行車紀錄：defect_flood 判定（「結果錯但不 crash」盲區的爆量半邊）。
+// ⚠ 必須用 GPU **過濾前**計數（apply_blob 可把 10000 洗成幾十顆，訊號會被 Blob 過濾遮蔽）
+// → 由 process_image 於 apply_blob 之前累計，迴圈結束後呼叫本函式。
+// 任一 zone 觸頂 GPU cap（MAX_DEFECTS=10000，不變式 6；觸頂結果非 bit-exact、大概率
+// Pitch 設錯/守門誤路由）或全 panel 過濾前總數 ≥ cap → 記 incident，自動把最近 64 張
+// 現場（含正常張缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
+constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
+void record_defect_flood(const std::string& panel_id, int zone_capped,
+                         int zone_defects, long pre_filter_total) {
+    std::string detail = "缺陷爆量 panel=" + panel_id +
+        " GPU過濾前total=" + std::to_string(pre_filter_total);
+    if (zone_capped >= 0)
+        detail += " zone" + std::to_string(zone_capped) + "=" +
+                  std::to_string(zone_defects) + "(觸頂cap，結果已非bit-exact)";
+    detail += "；第一懷疑：Pitch 設錯（不變式14）或演算法模式/閾值域錯配";
+    FR_RECORD_INCIDENT("defect_flood", detail);
+}
+
 // 對一張影像跑所有 zone，回傳聚合結果。
 // verify=true 時每個 zone 跑兩次比對 bit-exact，不一致則把 verify_failed 設 true 並印第一個差異。
 // saving_cfg.max_defect_count_pass >= 0 時：累計缺陷超過上限後停止後續 zone（整數比較，zone 完成後才 break）。
@@ -334,24 +352,6 @@ diag::FrameScene make_scene_params(const std::vector<ZoneConfig>& zones,
     s.height    = (int)hdr.height;
     s.zones = zones_to_snaps(zones);
     return s;
-}
-
-// 行車紀錄：defect_flood 判定（「結果錯但不 crash」盲區的爆量半邊）。
-// ⚠ 必須用 GPU **過濾前**計數（apply_blob 可把 10000 洗成幾十顆，訊號會被 Blob 過濾遮蔽）
-// → 由 process_image 於 apply_blob 之前累計，迴圈結束後呼叫本函式。
-// 任一 zone 觸頂 GPU cap（MAX_DEFECTS=10000，不變式 6；觸頂結果非 bit-exact、大概率
-// Pitch 設錯/守門誤路由）或全 panel 過濾前總數 ≥ cap → 記 incident，自動把最近 64 張
-// 現場（含正常張缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
-constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
-void record_defect_flood(const std::string& panel_id, int zone_capped,
-                         int zone_defects, long pre_filter_total) {
-    std::string detail = "缺陷爆量 panel=" + panel_id +
-        " GPU過濾前total=" + std::to_string(pre_filter_total);
-    if (zone_capped >= 0)
-        detail += " zone" + std::to_string(zone_capped) + "=" +
-                  std::to_string(zone_defects) + "(觸頂cap，結果已非bit-exact)";
-    detail += "；第一懷疑：Pitch 設錯（不變式14）或演算法模式/閾值域錯配";
-    FR_RECORD_INCIDENT("defect_flood", detail);
 }
 
 // 把結果補進現場（process 後 record_frame 用）。
