@@ -2759,6 +2759,42 @@ function resolveBase(base, ctxId) {
 const RE_PATH = /((?:ip|grab|control|shared|scripts|tools|docs)\/[A-Za-z0-9_\-./一-鿿]+?\.(?:h|hpp|cpp|cu|cuh|cs|py|sh|ini|md|axaml|txt|json|html))(?::(\d+))?/g;
 const RE_BASE = /(?<![\w/.])([A-Za-z_][\w.]*\.(?:h|cpp|cu|cs|py))[:：](\d+)/g;
 const RE_BARE = /(?<![\w/.>])([A-Za-z_][\w.]*\.(?:h|cpp|cu|cs|py|axaml|json))(?![\w:：.])/g;
+// 模組內相對路徑（src/…、config/…）＋ {h,cpp} 簡寫 ＋ 目錄（尾斜線）——依章節補前綴解析
+const RE_REL = /(?<![\w/.>])((?:src|config|include)\/[A-Za-z0-9_\-./{},]*[A-Za-z0-9_}/])(?::(\d+))?/g;
+const FN_NAMES = new Set(FN.map(e => e.n));
+// 流程/卡片/表格情境中的函式・類別名（camelCase 或含底線才連，避免一般英文字誤連）
+const RE_FNTOK = /(?<![\w>/.$#-])([A-Za-z_]\w{4,})(?![\w/])/g;
+function prefixesFor(secId) {
+  if (secId === 'r2') return ['grab/', 'ip/', 'control/'];
+  if (secId === 'r3') return ['control/', 'ip/', 'grab/'];
+  return ['ip/', 'grab/', 'control/'];
+}
+function resolveRel(tok, secId) {
+  const isDir = tok.endsWith('/');
+  tok = tok.replace(/\/$/, '');
+  const braced = /\.?\{h,\s*cpp\}$/.test(tok);
+  const base = tok.replace(/\.?\{h,\s*cpp\}$/, '');
+  const exts = braced ? ['.cpp', '.h'] : [''];
+  for (const pre of prefixesFor(secId)) {
+    for (const e of exts) {
+      const full = pre + base + e;
+      if (SRC[full]) return { path: full };
+    }
+    if (isDir || !/\.\w+$/.test(base)) {   // 目錄 → 該目錄第一個檔
+      const hit = Object.keys(SRC).find(k => k.startsWith(pre + base + '/'));
+      if (hit) return { path: hit, dir: true };
+    }
+  }
+  return null;
+}
+function inFlowCtx(node) {
+  let el = node.parentElement;
+  while (el && !(el.classList && el.classList.contains('chapter'))) {
+    if (el.matches && el.matches('.fdetail,.seq,.kcard,.node,td')) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
 const RE_XREF = /(?<![\w])(P[1-5]|R[1-4]|G[1-2])(?![\w])|(?:教材\s*)?0([0-8])\s*章/g;
 function linkifySection(sec) {
   const walker = document.createTreeWalker(sec, NodeFilter.SHOW_TEXT, {
@@ -2792,6 +2828,18 @@ function linkifySection(sec) {
       const p = resolveBase(b, sec.id);
       return p ? '<a class="srclink" data-src="' + p + '" title="' + p + '">' + m + '</a>' : m;
     });
+    rep(RE_REL, (m, tok, l) => {   // src/…（模組內相對路徑、{h,cpp} 簡寫、目錄）
+      const r = resolveRel(tok, sec.id);
+      if (!r) return m;
+      return '<a class="srclink" data-src="' + r.path + '" data-line="' + (l || '') + '" title="' + r.path + (r.dir ? '（目錄第一檔，開後可用下拉切換）' : '') + '">' + m + '</a>';
+    });
+    if (inFlowCtx(node)) {
+      rep(RE_FNTOK, (m, t) => {   // 流程情境：函式/類別名 → 定義
+        if (!FN_NAMES.has(t)) return m;
+        if (!(/_/.test(t) || /[a-z][A-Z]/.test(t) || /^kernel|^launch/.test(t))) return m;
+        return '<a class="srclink" data-fn="' + t + '" title="移至定義">' + m + '</a>';
+      });
+    }
     rep(RE_XREF, (m, pr, chn) => {
       const go = pr ? pr.toLowerCase() : 'ch' + chn;
       return document.getElementById(go) ? '<span class="xref" data-go="' + go + '">' + m + '</span>' : m;
@@ -2808,7 +2856,11 @@ document.querySelectorAll('section.chapter').forEach(sec => {
 });
 document.addEventListener('click', e => {
   const sl = e.target.closest('a.srclink');
-  if (sl) { openCode(sl.dataset.src, sl.dataset.line ? +sl.dataset.line : 0); return; }
+  if (sl) {
+    if (sl.dataset.fn) gotoDef(sl.dataset.fn);
+    else openCode(sl.dataset.src, sl.dataset.line ? +sl.dataset.line : 0);
+    return;
+  }
   const xr = e.target.closest('span.xref');
   if (xr) show(xr.dataset.go);
 });
