@@ -332,14 +332,36 @@ nav.side { top: 52px; height: calc(100vh - 52px); }
 .navgroup.collapsed::before { content: "▸ "; }
 
 /* ══ 程式碼檢視器（頁內看碼，不用去翻）══ */
+:root { --cpw: min(640px, 52vw); }
 .codepanel {
-  position: fixed; top: 52px; right: 0; bottom: 0; width: min(640px, 52vw); z-index: 50;
+  position: fixed; top: 52px; right: 0; bottom: 0; width: var(--cpw); z-index: 50;
   background: var(--panel); border-left: 1px solid var(--line);
   box-shadow: -6px 0 24px rgba(23,37,44,.12); display: flex; flex-direction: column;
 }
 .codepanel[hidden] { display: none; }   /* display:flex 會蓋掉 hidden 的 UA 規則，必須顯式補回 */
 /* 面板打開時把內文「推開」而不是蓋住（可讀性）；窄螢幕仍覆蓋 */
-@media (min-width: 1200px) { body.cp-open main { margin-right: min(640px, 52vw); } }
+@media (min-width: 1200px) { body.cp-open main { margin-right: var(--cpw); } }
+.cp-resize { position: absolute; left: -4px; top: 0; bottom: 0; width: 9px; cursor: col-resize; z-index: 3; }
+.cp-resize:hover, .cp-resize.on { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.cp-head select#cpFile { max-width: 230px; }
+.cp-head select#cpOutline { max-width: 190px; font-family: var(--mono); font-size: 11.5px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); }
+.cp-find { display: flex; gap: 8px; align-items: center; padding: 6px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.cp-find input { flex: 0 0 210px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; font-family: var(--mono); font-size: 12px; background: var(--panel2); color: var(--ink); }
+#cpFindCount { font-family: var(--mono); font-size: 11px; color: var(--ink-3); min-width: 52px; }
+.cp-find .btn { padding: 2px 10px; font-size: 12px; }
+.cp-hint { font-size: 11px; color: var(--ink-3); margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl.find-hit .lc { background: color-mix(in srgb, var(--warn-soft) 65%, transparent); }
+.cl.find-cur { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--warn); }
+.cp-refs { max-height: 38%; border-top: 2px solid var(--accent); display: flex; flex-direction: column; background: var(--panel); }
+.cp-refs[hidden] { display: none; }
+.cp-refs-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: var(--panel2); font-size: 12.5px; }
+.cp-refs-list { overflow: auto; font-family: var(--mono); font-size: 12px; padding: 4px 0; }
+.cp-refs-list button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 3px 14px; cursor: pointer; color: var(--ink-2); font: inherit; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.cp-refs-list button:hover { background: var(--accent-soft); color: var(--ink); }
+.cp-refs-list .rf { color: var(--accent); }
+.cp-pop { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; display: flex; gap: 6px; }
+.cp-pop[hidden] { display: none; }
+.cp-pop .btn { font-size: 12.5px; padding: 4px 12px; }
 .cp-head {
   display: flex; align-items: center; gap: 8px; padding: 9px 14px;
   border-bottom: 1px solid var(--line); background: var(--panel2); flex-wrap: wrap;
@@ -1869,16 +1891,33 @@ grep -rn "ChooseAmount" Reference/PrjCfAoi/ --include="*.cs" --include="*.cu" | 
 </div>
 
 <aside class="codepanel" id="codePanel" hidden>
+  <div class="cp-resize" id="cpResize" title="拖曳調整寬度"></div>
   <div class="cp-head">
+    <button class="btn" id="cpBack" title="上一個位置">⟵</button>
+    <button class="btn" id="cpFwd" title="下一個位置">⟶</button>
     <select id="cpFile" aria-label="選擇檔案"></select>
+    <select id="cpOutline" aria-label="檔內符號" title="檔內符號（函式/類別/kernel）"></select>
     <span class="cp-path" id="cpPath"></span>
     <a class="btn" id="cpVscode" href="#" title="用 VS Code 開啟（⚙ 可改本機 repo 路徑）">VS Code</a>
     <button class="btn" id="cpRoot" title="設定本機 repo 根目錄">⚙</button>
-    <button class="btn" id="cpCopy">複製路徑</button>
+    <button class="btn" id="cpCopy" title="複製 路徑:行號">複製</button>
+    <button class="btn" id="cpMax" title="專注模式：放大/還原">⛶</button>
     <button class="btn" id="cpClose" aria-label="關閉">✕</button>
   </div>
+  <div class="cp-find">
+    <input id="cpFind" type="search" placeholder="檔內搜尋（Enter＝下一個）">
+    <span id="cpFindCount"></span>
+    <button class="btn" id="cpFindPrev" title="上一個">↑</button>
+    <button class="btn" id="cpFindNext" title="下一個">↓</button>
+    <span class="cp-hint">💡 ⌘/Ctrl＋點符號＝移至定義｜雙擊符號＝定義/引用選單</span>
+  </div>
   <div class="cp-body" id="cpBody"></div>
+  <div class="cp-refs" id="cpRefs" hidden>
+    <div class="cp-refs-head"><b id="cpRefsTitle"></b><button class="btn" id="cpRefsClose">✕</button></div>
+    <div class="cp-refs-list" id="cpRefsList"></div>
+  </div>
 </aside>
+<div class="cp-pop" id="cpPop" hidden></div>
 
 <script id="srcdata">
 window.SRC_META={"generated":"2026-07-12 06:43","commit":"0482549","files":100,"lines":18305,"fns":540};
@@ -2274,10 +2313,36 @@ function hiFile(text, lang) {
 }
 const hiCache = {};
 let repoRoot = LS.get('repoRoot', '/Users/yourulyu/coding/cf-aoi');
-function openCode(path, line) {
+let curPath = '', curLine = 0;
+
+/* 位置歷史（VS Code 的 ⟵⟶）*/
+const hist = { stack: [], pos: -1 };
+function histPush(path, line) {
+  hist.stack = hist.stack.slice(0, hist.pos + 1);
+  const top = hist.stack[hist.pos];
+  if (top && top.p === path && top.l === line) return;
+  hist.stack.push({ p: path, l: line }); hist.pos++;
+  histBtns();
+}
+function histBtns() {
+  $('cpBack').disabled = hist.pos <= 0;
+  $('cpFwd').disabled = hist.pos >= hist.stack.length - 1;
+}
+function histGo(d) {
+  const n = hist.pos + d;
+  if (n < 0 || n >= hist.stack.length) return;
+  hist.pos = n; const e = hist.stack[n];
+  openCode(e.p, e.l, { noHist: true }); histBtns();
+}
+$('cpBack').addEventListener('click', () => histGo(-1));
+$('cpFwd').addEventListener('click', () => histGo(1));
+
+function openCode(path, line, opt) {
   if (!SRC[path]) { alert('本快照未收錄 ' + path + '（重跑 build_manual.py 或調整打包範圍）'); return; }
   const panel = $('codePanel'); panel.hidden = false;
   document.body.classList.add('cp-open');
+  const fileChanged = (curPath !== path);
+  curPath = path; curLine = +line || 0;
   $('cpFile').value = path; $('cpPath').textContent = path + (line ? ':' + line : '');
   $('cpVscode').href = 'vscode://file/' + repoRoot + '/' + path + (line ? ':' + line : '');
   if (!hiCache[path]) hiCache[path] = hiFile(SRC[path], langOf(path));
@@ -2288,6 +2353,8 @@ function openCode(path, line) {
     '<span class="ln">' + (i+1) + '</span><span class="lc">' + (h || ' ') + '</span></div>').join('');
   if (line) { const t = $('cl' + line); if (t) t.scrollIntoView({block: 'center'}); }
   else body.scrollTop = 0;
+  if (!(opt && opt.noHist)) histPush(path, curLine);
+  if (fileChanged) { fillOutline(path); clearFind(); }
 }
 { // 檔案下拉（依模組分組）
   const sel = $('cpFile'), groups = {};
@@ -2299,14 +2366,169 @@ function openCode(path, line) {
   });
   sel.addEventListener('change', () => openCode(sel.value));
 }
-function closeCode() { $('codePanel').hidden = true; document.body.classList.remove('cp-open'); }
+
+/* Outline：檔內符號下拉（函式/類別/kernel，來自 FN_INDEX）*/
+function fillOutline(path) {
+  const sel = $('cpOutline');
+  const syms = FN.filter(e => e.p === path).sort((a, b) => a.l - b.l);
+  sel.innerHTML = '<option value="">§ 符號（' + syms.length + '）</option>' +
+    syms.map(e => '<option value="' + e.l + '">' + e.l + ' · ' + e.n + (e.k === 'kernel' ? ' ⚡' : e.k === 'type' ? ' ◆' : '') + '</option>').join('');
+}
+$('cpOutline').addEventListener('change', () => {
+  const l = +$('cpOutline').value;
+  if (l) openCode(curPath, l);
+  $('cpOutline').value = '';
+});
+
+/* 檔內搜尋 */
+let findHits = [], findCur = -1;
+function clearFind() {
+  $('cpFind').value = ''; $('cpFindCount').textContent = '';
+  findHits = []; findCur = -1;
+  document.querySelectorAll('.cl.find-hit,.cl.find-cur').forEach(el => el.classList.remove('find-hit', 'find-cur'));
+}
+function runFind() {
+  document.querySelectorAll('.cl.find-hit,.cl.find-cur').forEach(el => el.classList.remove('find-hit', 'find-cur'));
+  findHits = []; findCur = -1;
+  const q = $('cpFind').value.trim().toLowerCase();
+  if (q.length < 2 || !curPath) { $('cpFindCount').textContent = ''; return; }
+  SRC[curPath].split('\n').forEach((t, i) => { if (t.toLowerCase().includes(q)) findHits.push(i + 1); });
+  findHits.forEach(l => { const el = $('cl' + l); if (el) el.classList.add('find-hit'); });
+  $('cpFindCount').textContent = findHits.length ? '0/' + findHits.length : '0 筆';
+  if (findHits.length) findStep(1);
+}
+function findStep(d) {
+  if (!findHits.length) return;
+  if (findCur >= 0) { const p = $('cl' + findHits[findCur]); if (p) p.classList.remove('find-cur'); }
+  findCur = (findCur + d + findHits.length) % findHits.length;
+  const l = findHits[findCur], el = $('cl' + l);
+  if (el) { el.classList.add('find-cur'); el.scrollIntoView({ block: 'center' }); }
+  $('cpFindCount').textContent = (findCur + 1) + '/' + findHits.length;
+}
+$('cpFind').addEventListener('input', () => { runFind(); });
+$('cpFind').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); }
+  if (e.key === 'Escape') { clearFind(); $('cpFind').blur(); e.stopPropagation(); }
+});
+$('cpFindNext').addEventListener('click', () => findStep(1));
+$('cpFindPrev').addEventListener('click', () => findStep(-1));
+
+/* 移至定義 / 全部引用 */
+function wordAtPoint(e) {
+  let range = null;
+  if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
+  else if (document.caretPositionFromPoint) {
+    const p = document.caretPositionFromPoint(e.clientX, e.clientY);
+    if (p) { range = document.createRange(); range.setStart(p.offsetNode, p.offset); }
+  }
+  if (!range || range.startContainer.nodeType !== 3) return '';
+  const t = range.startContainer.nodeValue, i = range.startOffset;
+  let a = i, b = i;
+  while (a > 0 && /[\w]/.test(t[a - 1])) a--;
+  while (b < t.length && /[\w]/.test(t[b])) b++;
+  return t.slice(a, b);
+}
+function gotoDef(word) {
+  const defs = FN.filter(e => e.n === word);
+  if (!defs.length) { showRefs(word); return; }
+  if (defs.length === 1) { openCode(defs[0].p, defs[0].l); return; }
+  // 多重定義（如 .h 宣告 + .cpp 實作）→ 用引用面板列出定義讓使用者挑
+  $('cpRefsTitle').textContent = '「' + word + '」的定義（' + defs.length + ' 處）';
+  $('cpRefsList').innerHTML = defs.map(d =>
+    '<button data-p="' + d.p + '" data-l="' + d.l + '"><span class="rf">' + d.p + ':' + d.l + '</span>  [' + d.k + ']</button>').join('');
+  $('cpRefs').hidden = false;
+}
+function showRefs(word) {
+  const rows = []; const re = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+  outer:
+  for (const [p, txt] of Object.entries(SRC)) {
+    const lines = txt.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (re.test(lines[i])) {
+        rows.push({ p, l: i + 1, s: lines[i].trim().slice(0, 90) });
+        if (rows.length >= 300) break outer;
+      }
+    }
+  }
+  $('cpRefsTitle').textContent = '「' + word + '」的引用（' + rows.length + (rows.length >= 300 ? '+' : '') + ' 處）';
+  $('cpRefsList').innerHTML = rows.length
+    ? rows.map(r => '<button data-p="' + r.p + '" data-l="' + r.l + '"><span class="rf">' + r.p + ':' + r.l + '</span>  ' + esc(r.s) + '</button>').join('')
+    : '<button disabled>（找不到）</button>';
+  $('cpRefs').hidden = false;
+}
+$('cpRefsList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-p]');
+  if (b) openCode(b.dataset.p, +b.dataset.l);
+});
+$('cpRefsClose').addEventListener('click', () => $('cpRefs').hidden = true);
+
+/* ⌘/Ctrl＋點＝移至定義；雙擊＝跳出「定義/引用」小選單 */
+const pop = $('cpPop');
+function hidePop() { pop.hidden = true; }
+$('cpBody').addEventListener('click', e => {
+  hidePop();
+  if (!(e.metaKey || e.ctrlKey)) return;
+  const w = wordAtPoint(e);
+  if (w && /^[A-Za-z_]\w{2,}$/.test(w)) { e.preventDefault(); gotoDef(w); }
+});
+$('cpBody').addEventListener('dblclick', e => {
+  const w = wordAtPoint(e);
+  if (!w || !/^[A-Za-z_]\w{2,}$/.test(w)) return;
+  const nDefs = FN.filter(x => x.n === w).length;
+  pop.innerHTML =
+    '<button class="btn primary" data-act="def">⇢ 定義' + (nDefs ? '（' + nDefs + '）' : '') + '</button>' +
+    '<button class="btn" data-act="ref">☰ 引用</button>' +
+    '<button class="btn" data-act="x">✕</button>';
+  pop.style.left = Math.min(e.clientX, window.innerWidth - 260) + 'px';
+  pop.style.top = (e.clientY + 14) + 'px';
+  pop.hidden = false;
+  pop.onclick = ev => {
+    const act = ev.target.closest('[data-act]')?.dataset.act;
+    hidePop();
+    if (act === 'def') gotoDef(w);
+    if (act === 'ref') showRefs(w);
+  };
+});
+$('cpBody').addEventListener('scroll', hidePop);
+
+/* 可調寬度 + 專注模式 */
+const setW = w => document.documentElement.style.setProperty('--cpw', w);
+{ const saved = LS.get('cpw', null); if (saved) setW(saved); }
+let maxed = false, preMaxW = null;
+$('cpMax').addEventListener('click', () => {
+  maxed = !maxed;
+  if (maxed) { preMaxW = getComputedStyle(document.documentElement).getPropertyValue('--cpw'); setW('calc(100vw - 300px)'); }
+  else setW(preMaxW || 'min(640px, 52vw)');
+});
+{ // 拖曳左緣
+  const h = $('cpResize'); let dragging = false;
+  h.addEventListener('pointerdown', e => { dragging = true; h.classList.add('on'); h.setPointerCapture(e.pointerId); });
+  h.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const w = Math.min(Math.max(window.innerWidth - e.clientX, 380), window.innerWidth - 200);
+    setW(w + 'px'); maxed = false;
+  });
+  h.addEventListener('pointerup', e => {
+    dragging = false; h.classList.remove('on');
+    LS.set('cpw', getComputedStyle(document.documentElement).getPropertyValue('--cpw').trim());
+  });
+}
+
+function closeCode() { $('codePanel').hidden = true; document.body.classList.remove('cp-open'); hidePop(); }
 $('cpClose').addEventListener('click', closeCode);
-$('cpCopy').addEventListener('click', () => navigator.clipboard.writeText(repoRoot + '/' + $('cpFile').value).catch(()=>{}));
+$('cpCopy').addEventListener('click', () =>
+  navigator.clipboard.writeText(curPath + (curLine ? ':' + curLine : '')).catch(()=>{}));
 $('cpRoot').addEventListener('click', () => {
   const r = prompt('本機 repo 根目錄（VS Code 跳轉用）', repoRoot);
   if (r) { repoRoot = r.replace(/\/$/, ''); LS.set('repoRoot', repoRoot); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCode(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { hidePop(); if (document.activeElement !== $('cpFind')) closeCode(); }
+  // ⌘/Ctrl+F：面板開啟時聚焦檔內搜尋（不攔全域瀏覽器搜尋於面板關閉時）
+  if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !$('codePanel').hidden) {
+    e.preventDefault(); $('cpFind').focus(); $('cpFind').select();
+  }
+});
 
 /* ── 全書自動超連結（file:line → 看碼；P/R/章 → 跳章節）── */
 const baseMap = {};
