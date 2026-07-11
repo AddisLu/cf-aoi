@@ -333,7 +333,24 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     scene hook，gpu_ms 零擾動）。跨執行緒抓現場用全域 `std::atomic<const FrameScene*> latest_`（非 thread_local）：
     `CUDA_CHECK` 的 `exit()` 觸發 `std::atexit` handler，讀 `latest_` + `cudaPeekAtLastError()` dump `cuda_fatal`；
     `std::set_terminate` dump `uncaught_exception`。incident kind：`cuda_fatal`/`frame_validation`/`recipe_load`/
-    `bad_json`/`uncaught_exception`。（2026-06-15 RTX 2080 五種 kind + 決定性 + bench-noop 全驗證。）
+    `bad_json`/`uncaught_exception`/`queue_overflow`/`queue_high_watermark`/`source_ring_full`/`rdma_validate`/
+    `defect_flood`。（2026-06-15 RTX 2080 五種 kind + 決定性 + bench-noop 全驗證。）
+    **2026-07-12 修訂（審計 Q2 盲區收口）**——「出事才落地」放寬為「出事＋低頻結構化留痕」，仍不擾動運算：
+    - **ZoneSnap 擴欄**：現場快照補 SUB/融合欄位（algo_mode/multiscale/pitch_times/choose_amount/blob_*/lsc/
+      remap/smooth），出事時可直接回答「這張用哪個演算法跑的」。
+    - **`record_recipe`**：LOAD_RECIPE **成功**也寫一行 `type="recipe"` jsonl（守門判定後每 zone 關鍵參數）——
+      封殺「載錯但合法無痕跡」整族（stale 守門/靜默預設事故的事後還原）。
+    - **`defect_flood` 觸發器**：任一 zone 觸頂 cap=10000 或總數 ≥ cap → 自動 incident（含最近 64 張基線）；
+      第一懷疑 Pitch/演算法域錯配。
+    - **`tick_stats`**：每 200 張寫一行 `type="stats"`（fps/gpu_ms p50/p95/max/queue_peak/defects）——效能退化
+      有基線、hang 有「最後活著時間」上界。與 record_frame 同執行緒、計時區外，bench 仍全 no-op。
+    - **incident 節流**：同 kind 30s 窗內只寫一次完整 incident 檔，期間每 100 筆補一行
+      `incident_suppressed` 摘要＋下次完整寫入帶 `suppressed_since_last`——防持續性錯誤（如 NOCRC 單邊）
+      把 _diag 灌爆 inode。
+    - **race 修復**：record_incident 深拷現場一律移入 ring_mtx_（try_lock＋yield 重試）；搶不到鎖時僅 dump
+      POD 摘要（不碰 string/vector，消除 UB）。
+    - rdma_source 收圖補「payload/尺寸一致性」驗證（w/h∈[1,16384] 且 payload==w×h）→ 失敗記
+      `frame_validation`（P1-6 收口）；rdma-process 的 scene 補填 queue_depth。
 17. **收圖入口驗證（frame-ingress-validate）**：`control_server.cpp` 收圖入口驗證
     **magic/version/headerBytes/payloadBytes + payload CRC32**（用 `shared/FrameHeader.h::crc32_ieee`）+ **尺寸防呆**
     （width/height ∈ [1, 16384]，擋 bogus 尺寸→巨量配置→OOM）；offline-tcp 另支援 client 在 `SEND_IMAGE_FOR_REVIEW`

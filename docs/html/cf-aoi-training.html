@@ -1,0 +1,1032 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CF-AOI 系統訓練教材</title>
+</head>
+<body>
+<style>
+:root {
+  --bg: #f2f5f6;
+  --panel: #ffffff;
+  --panel2: #e9eef0;
+  --ink: #17252c;
+  --ink-2: #4a5d66;
+  --ink-3: #7d8f97;
+  --line: #d5dee1;
+  --accent: #0b7285;
+  --accent-ink: #ffffff;
+  --accent-soft: #e0f1f4;
+  --ok: #2b8a3e;
+  --ok-soft: #e3f3e6;
+  --warn: #b35c00;
+  --warn-soft: #fdf0e0;
+  --crit: #c92a2a;
+  --crit-soft: #fbe7e7;
+  --code-bg: #1b2b33;
+  --code-ink: #cde3ec;
+  --shadow: 0 1px 3px rgba(23,37,44,.08), 0 4px 16px rgba(23,37,44,.06);
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  --sans: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Heiti TC", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f171c;
+    --panel: #16222a;
+    --panel2: #1c2b34;
+    --ink: #dce8ee;
+    --ink-2: #9fb4bd;
+    --ink-3: #6c828c;
+    --line: #27394262;
+    --accent: #46c2d7;
+    --accent-ink: #06232a;
+    --accent-soft: #0e3a44;
+    --ok: #69c97c;
+    --ok-soft: #143521;
+    --warn: #f2a256;
+    --warn-soft: #3a2a12;
+    --crit: #ef7070;
+    --crit-soft: #401a1a;
+    --code-bg: #0b1216;
+    --code-ink: #b8d4df;
+    --shadow: 0 1px 3px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f2f5f6; --panel: #ffffff; --panel2: #e9eef0; --ink: #17252c; --ink-2: #4a5d66;
+  --ink-3: #7d8f97; --line: #d5dee1; --accent: #0b7285; --accent-ink: #ffffff;
+  --accent-soft: #e0f1f4; --ok: #2b8a3e; --ok-soft: #e3f3e6; --warn: #b35c00;
+  --warn-soft: #fdf0e0; --crit: #c92a2a; --crit-soft: #fbe7e7;
+  --code-bg: #1b2b33; --code-ink: #cde3ec;
+  --shadow: 0 1px 3px rgba(23,37,44,.08), 0 4px 16px rgba(23,37,44,.06);
+}
+:root[data-theme="dark"] {
+  --bg: #0f171c; --panel: #16222a; --panel2: #1c2b34; --ink: #dce8ee; --ink-2: #9fb4bd;
+  --ink-3: #6c828c; --line: #27394262; --accent: #46c2d7; --accent-ink: #06232a;
+  --accent-soft: #0e3a44; --ok: #69c97c; --ok-soft: #143521; --warn: #f2a256;
+  --warn-soft: #3a2a12; --crit: #ef7070; --crit-soft: #401a1a;
+  --code-bg: #0b1216; --code-ink: #b8d4df;
+  --shadow: 0 1px 3px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15.5px; line-height: 1.75;
+}
+.app { display: flex; min-height: 100vh; }
+
+/* ── sidebar ── */
+nav.side {
+  width: 252px; flex-shrink: 0; position: sticky; top: 0; height: 100vh;
+  overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line);
+  padding: 18px 12px 32px;
+}
+.brand { padding: 6px 10px 14px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.brand .sys { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--accent); text-transform: uppercase; }
+.brand h1 { font-size: 17px; margin: 2px 0 0; font-weight: 700; letter-spacing: .02em; }
+.brand .sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.navgroup { font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; color: var(--ink-3); text-transform: uppercase; padding: 14px 10px 4px; }
+nav.side button.navitem {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: none; border: none; color: var(--ink-2); font-family: var(--sans);
+  font-size: 13.5px; padding: 7px 10px; border-radius: 7px; cursor: pointer; line-height: 1.4;
+}
+nav.side button.navitem:hover { background: var(--panel2); color: var(--ink); }
+nav.side button.navitem.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav.side button.navitem:focus-visible, .opt:focus-visible, .btn:focus-visible, .tabbtn:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.navnum { font-family: var(--mono); font-size: 11px; color: var(--ink-3); width: 20px; flex-shrink: 0; }
+.navitem.active .navnum { color: var(--accent); }
+.readmark { margin-left: auto; font-size: 11px; color: var(--ok); }
+
+/* ── main ── */
+main { flex: 1; min-width: 0; padding: 34px 44px 80px; }
+.page { max-width: 860px; margin: 0 auto; }
+section.chapter { display: none; }
+section.chapter.visible { display: block; }
+.eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .2em; color: var(--accent); text-transform: uppercase; }
+h2 { font-size: 27px; margin: 6px 0 4px; line-height: 1.3; text-wrap: balance; font-weight: 750; }
+.lede { color: var(--ink-2); font-size: 16px; margin: 0 0 26px; max-width: 42em; }
+h3 { font-size: 19px; margin: 34px 0 10px; font-weight: 700; }
+h4 { font-size: 15.5px; margin: 22px 0 6px; font-weight: 700; }
+p { margin: 10px 0; max-width: 46em; }
+ul, ol { padding-left: 1.4em; max-width: 44em; }
+li { margin: 5px 0; }
+strong { font-weight: 700; }
+a { color: var(--accent); }
+
+code {
+  font-family: var(--mono); font-size: .86em;
+  background: var(--panel2); padding: 1px 6px; border-radius: 5px; white-space: nowrap;
+}
+pre {
+  background: var(--code-bg); color: var(--code-ink); border-radius: 10px;
+  padding: 16px 18px; overflow-x: auto; font-family: var(--mono);
+  font-size: 12.8px; line-height: 1.65; box-shadow: var(--shadow);
+}
+pre code { background: none; padding: 0; white-space: pre; color: inherit; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 22px; margin: 16px 0; box-shadow: var(--shadow);
+}
+.callout { border-left: 4px solid var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 12px 18px; margin: 16px 0; }
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.callout.crit { border-color: var(--crit); background: var(--crit-soft); }
+.callout.ok { border-color: var(--ok); background: var(--ok-soft); }
+.callout .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+.callout .tag { color: var(--accent); }
+.callout.warn .tag { color: var(--warn); }
+.callout.crit .tag { color: var(--crit); }
+.callout.ok .tag { color: var(--ok); }
+.callout p { margin: 4px 0; }
+
+.tablewrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--panel); }
+th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--ink-2); font-family: var(--mono); letter-spacing: .06em; background: var(--panel2); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td code { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: .92em; }
+
+/* architecture diagram */
+.diagram { overflow-x: auto; padding: 8px 0; }
+.diag-col { display: flex; flex-direction: column; gap: 10px; align-items: stretch; min-width: 560px; }
+.node {
+  border: 1.5px solid var(--line); background: var(--panel); border-radius: 10px;
+  padding: 10px 16px; box-shadow: var(--shadow);
+}
+.node .nm { font-weight: 700; font-size: 14.5px; }
+.node .nm .env { font-family: var(--mono); font-weight: 400; font-size: 11px; color: var(--ink-3); margin-left: 8px; }
+.node .role { font-size: 12.5px; color: var(--ink-2); }
+.node.hi { border-color: var(--accent); }
+.link-lbl {
+  align-self: center; font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  background: var(--panel2); border-radius: 999px; padding: 2px 14px;
+}
+.duo { display: flex; gap: 10px; }
+.duo > .node { flex: 1; }
+.duo-lbl { display: flex; gap: 10px; }
+.duo-lbl > .link-lbl { flex: 1; text-align: center; align-self: auto; }
+
+.pill { display: inline-block; font-family: var(--mono); font-size: 11px; border-radius: 999px; padding: 1px 10px; letter-spacing: .04em; vertical-align: 1px; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.crit { background: var(--crit-soft); color: var(--crit); }
+.pill.info { background: var(--accent-soft); color: var(--accent); }
+
+.chapnav { display: flex; justify-content: space-between; gap: 12px; margin-top: 44px; border-top: 1px solid var(--line); padding-top: 18px; }
+.btn {
+  font-family: var(--sans); font-size: 14px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 9px 18px;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); color: var(--accent-ink); }
+.btn.ghost { border: none; background: none; color: var(--ink-2); }
+.btn:disabled { opacity: .45; cursor: default; }
+
+/* quiz */
+.quiz-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 18px 0; }
+.tabbtn {
+  font-family: var(--sans); font-size: 13px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); padding: 5px 15px;
+}
+.tabbtn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.qcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; margin: 14px 0; box-shadow: var(--shadow); }
+.qmeta { display: flex; gap: 8px; align-items: center; font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-bottom: 8px; }
+.qtext { font-weight: 650; font-size: 15.5px; margin-bottom: 12px; line-height: 1.65; }
+.opt {
+  display: block; width: 100%; text-align: left; font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  background: var(--panel2); color: var(--ink); border: 1.5px solid transparent;
+  border-radius: 9px; padding: 9px 14px; margin: 7px 0; cursor: pointer;
+}
+.opt:hover:not(:disabled) { border-color: var(--accent); }
+.opt:disabled { cursor: default; }
+.opt.correct { background: var(--ok-soft); border-color: var(--ok); color: var(--ink); font-weight: 600; }
+.opt.wrong { background: var(--crit-soft); border-color: var(--crit); }
+.explain { display: none; border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 12px; font-size: 13.8px; color: var(--ink-2); }
+.explain.show { display: block; }
+.explain .src { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); display: block; margin-top: 6px; }
+.scorebar {
+  position: sticky; top: 0; z-index: 5; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 18px; display: flex; gap: 18px; align-items: center;
+  box-shadow: var(--shadow); margin-bottom: 6px; flex-wrap: wrap;
+}
+.scorebar .s { font-family: var(--mono); font-size: 13px; }
+.scorebar .s b { font-size: 16px; }
+.meter { flex: 1; min-width: 120px; height: 8px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
+.grade { font-weight: 700; }
+
+.checkitem { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.checkitem:last-child { border-bottom: none; }
+.checkitem input { accent-color: var(--accent); }
+
+@media (max-width: 900px) {
+  .app { flex-direction: column; }
+  nav.side { position: static; width: 100%; height: auto; display: flex; flex-wrap: wrap; gap: 2px; padding: 10px; }
+  .brand { width: 100%; border: none; margin: 0; }
+  .navgroup { display: none; }
+  nav.side button.navitem { width: auto; }
+  .readmark { display: none; }
+  main { padding: 20px 18px 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+
+<div class="app">
+<nav class="side" id="sidenav">
+  <div class="brand">
+    <span class="sys">CF-AOI TRAINING</span>
+    <h1>系統訓練教材</h1>
+    <div class="sub">Grab × IP × Control 交接教學 + 認證考題</div>
+  </div>
+  <div class="navgroup">教材</div>
+  <!-- nav items injected by JS -->
+  <div class="navgroup" id="grpAssess">驗收</div>
+  <button class="navitem" data-target="quiz"><span class="navnum">Q</span>認證考題</button>
+  <button class="navitem" data-target="checklist"><span class="navnum">✓</span>上手檢核表</button>
+</nav>
+
+<main><div class="page" id="content">
+
+<!-- ═══════════ CH0 ═══════════ -->
+<section class="chapter" id="ch0" data-title="這套系統在做什麼">
+<span class="eyebrow">Chapter 00 — Overview</span>
+<h2>這套系統在做什麼</h2>
+<p class="lede">CF-AOI 是彩色濾光片（Color Filter）面板的自動光學檢測系統：線掃相機掃過面板 → GPU 演算法找出亮/暗點缺陷 → 回報座標與大小給工廠上位機。這一章先建立全景，之後每章拆一塊。</p>
+
+<h3>一句話版本</h3>
+<div class="callout"><span class="tag">Core Loop</span>
+<p><strong>相機拍 → Grab 收 → RDMA 傳 → IP 用 GPU 找缺陷 → 結果存檔並回報 → Control 指揮全場、上位機驗收。</strong></p></div>
+
+<h3>三個程式、各管一件事</h3>
+<div class="tablewrap"><table>
+<tr><th>程式</th><th>語言 / 平台</th><th>職責</th><th>不做什麼</th></tr>
+<tr><td><strong>Grab</strong></td><td>C++（Linux x86，截取中心 damac）</td><td>開相機（Basler pylon）、組 FrameHeader、經 RDMA 把影像推給 IP</td><td>不做任何影像處理、沒有 UI</td></tr>
+<tr><td><strong>IP</strong></td><td>C++ / CUDA（開發 RTX 2080S、生產 DGX Spark GB10）</td><td>收影像、GPU 缺陷檢測、存缺陷小圖與結果、對位</td><td>不直接面對上位機（只對 Control）</td></tr>
+<tr><td><strong>Control</strong></td><td>C# Avalonia（Mac / Windows / Linux）</td><td>操作 UI、配方編輯、把上位機命令翻譯成對 Grab/IP 的 JSON 命令</td><td>不碰影像演算法、不假設能看到 IP 的硬碟</td></tr>
+</table></div>
+
+<h3>整體拓樸</h3>
+<div class="diagram"><div class="diag-col">
+  <div class="node"><div class="nm">上位機 Master Controller <span class="env">另一台 PC，不是 PLC</span></div><div class="role">工廠端指揮：載配方、開始取像、要結果</div></div>
+  <div class="link-lbl">TCP 8787 · CF_ 前綴文字命令 · | 分隔 · 9 參數回應</div>
+  <div class="node hi"><div class="nm">CONTROL <span class="env">C# Avalonia · Mac/Win/Linux</span></div><div class="role">控制平面 + 操作 UI（配方、調參、缺陷分類）</div></div>
+  <div class="duo-lbl"><div class="link-lbl">TCP 8100 · JSON</div><div class="link-lbl">TCP 8200 · JSON</div></div>
+  <div class="duo">
+    <div class="node"><div class="nm">GRAB <span class="env">Linux x86 · damac</span></div><div class="role">相機擷取（37 CCD 陣列規劃中，現 1 台）</div></div>
+    <div class="node"><div class="nm">IP <span class="env">CUDA · RTX2080 開發 / DGX Spark 生產</span></div><div class="role">GPU 缺陷檢測 + 結果輸出</div></div>
+  </div>
+  <div class="link-lbl">Grab → IP：RDMA（RoCE v2 · 100G）libibverbs · FrameHeader 256B</div>
+</div></div>
+
+<h3>「IP」這個詞有三個意思——先分清楚</h3>
+<p>這是本專案最容易混淆的地方，文件裡固定用三層詞彙：</p>
+<div class="tablewrap"><table>
+<tr><th>層</th><th>正確稱呼</th><th>意思</th></tr>
+<tr><td>1</td><td><strong>運算單元</strong>（Compute Unit）</td><td>跑 IP 程式的實體機器（DGX Spark / RTX）。現在 1 台就能算完全部 37 顆 CCD。</td></tr>
+<tr><td>2</td><td><strong>CCD / 相機</strong></td><td>37 個實體插槽 CCD00–CCD36，每槽一台線掃相機，用 MAC 識別。</td></tr>
+<tr><td>3</td><td><strong>per-CCD 配方分區</strong></td><td><code>{recipe}/{分區}/RecipeInfo.xml</code>——每顆 CCD 一份自己的 ROI + 參數 + 對位 Mark。<strong>儲存鍵目前仍叫 IP0、IP1…</strong>（歷史包袱，UI 上顯示 CCD 名，改名是待辦的 migration）。</td></tr>
+</table></div>
+<div class="callout warn"><span class="tag">常見誤解</span>
+<p>「37 台 CCD 需要 37 台運算機」——錯。實測單張 7.4ms（DIV 演算法基準），一台 Spark 投影可吃下全陣列。「宣告了 37 槽 = 37 台相機在線」——錯。<code>array_topology.json</code> 只是<strong>宣告</strong>結構，真實相機列舉（LIST_CAMERAS）與槽位綁定是另一回事（Gap #21，未做）。</p></div>
+
+<h3>四台開發機器與同步紀律</h3>
+<div class="tablewrap"><table>
+<tr><th>機器</th><th>角色</th><th>鐵則</th></tr>
+<tr><td>MacBook Air</td><td>唯一作者：編輯、commit、push</td><td rowspan="4">GitHub 是唯一真相（hub-and-spoke）。<br>remote 機器編譯前先 <code>git sync</code>；<br>在 remote 改了 code 立刻 commit+push；<br><strong>絕不用 scp/cp 在機器間搬原始碼</strong>。</td></tr>
+<tr><td>Spark（DGX GB10）</td><td>IP 生產 / GPU 驗證</td></tr>
+<tr><td>damac（Ryzen + ConnectX-5）</td><td>Grab 取像 / 相機 / RDMA 發送端</td></tr>
+<tr><td>RTX2080（家中 x86）</td><td>IP 離線演算法驗證（無相機/RDMA）</td></tr>
+</table></div>
+
+<h3>如何使用這套教材</h3>
+<ol>
+<li>照章節順序讀（00 → 09），每章末尾可跳到「認證考題」做該章小測。</li>
+<li>讀到 <code>file:line</code> 引用時，打開 repo 對照原始碼——教材給地圖，源碼才是真相。</li>
+<li>全部讀完後做「總測驗」（隨機 20 題），80 分以上再看「上手檢核表」逐項打勾。</li>
+<li>本教材對應 repo 文件：<code>docs/CLAUDE.md</code>（總綱）、各模組 <code>CLAUDE.md</code>、<code>docs/STATUS.md</code>（真實完成度）。教材若與源碼衝突，<strong>以源碼為準並回報更新教材</strong>。</li>
+</ol>
+</section>
+
+<!-- ═══════════ CH1 ═══════════ -->
+<section class="chapter" id="ch1" data-title="一塊面板的一生：資料流">
+<span class="eyebrow">Chapter 01 — Data Flow</span>
+<h2>一塊面板的一生：資料流</h2>
+<p class="lede">把「一塊面板從進站到判定 OK/NG」走一遍，你就掌握了整個系統的骨架。以下是生產模式（Step 5）的完整旅程。</p>
+
+<h3>① 上位機下令</h3>
+<pre><code>CF_LOAD_RECIPE|T550QVN10|00201B0A|2026-07-11-08-30-00|||||||1\r\n
+CF_GRAB_START|40000\r\n</code></pre>
+<p>上位機用<strong>純文字協議</strong>（port 8787）對 Control 下令：載入配方、開始取像（timeout 40 秒）。回應固定 9 參數：<code>OK|p1|…|p8|errMsg</code> 或 <code>ERR|…</code>。</p>
+
+<h3>② Control 分派</h3>
+<p>Control 把命令翻成 <strong>JSON</strong>：對 IP（port 8200）送 <code>LOAD_RECIPE</code>——注意配方是把 <strong>XML 內容整包傳過去</strong>（<code>recipe_xml</code> 欄位），不是傳路徑，因為 Control（Mac）和 IP（Linux）不共用檔案系統。這叫 <strong>network-clean 原則</strong>。對 Grab（port 8100）送取像命令。</p>
+
+<h3>③ 相機 → Grab → RDMA</h3>
+<p>線掃相機（Basler raL8192，8192 寬）隨面板移動連續掃出多張 slice。Grab 對每張：</p>
+<ol>
+<li>組 <strong>FrameHeader</strong>（256 bytes：magic <code>0xA01CF00D</code>、frameSeq、camId、sliceIndex、寬高、payload CRC32）。</li>
+<li>經 <strong>RDMA WRITE_WITH_IMM</strong> 直接寫進 IP 預先註冊好的記憶體 slot（<code>slot = frameSeq % N</code>），100G 網路、單趟延遲 ~1.4µs。</li>
+</ol>
+
+<h3>④ IP：GPU 檢測</h3>
+<ol>
+<li>收圖入口驗證 magic / version / 尺寸 / CRC32——任一失敗記 incident 並拒收。</li>
+<li>幀進 <strong>FrameQueue</strong>（固定上限，滿了就背壓，絕不動態擴記憶體）。</li>
+<li>GPU pipeline：前處理（依配方：Remap 對比拉伸、高斯平滑）→ 缺陷偵測 kernel（SUB 投票 / DIV 比例，見 Ch4）→ CCL 連通元件 → Blob 統計與過濾 → canonical 排序。</li>
+<li>依配方 ROI 與對位位移（<code>eff_*</code>）算出每顆缺陷的全域座標。</li>
+</ol>
+
+<h3>⑤ 結果落地與回報</h3>
+<pre><code>&lt;output&gt;/20260711/00201B0A_T550QVN10/
+   Defect_IP04_Slice12_Roi0_Run00_X5894_Y135725_DrDark.png   ← 缺陷小圖
+   00201B0A_T550QVN10_ResultInfo.json                        ← Control 讀
+   00201B0A_T550QVN10_ResultInfo.xml                         ← 上位機鏈相容
+   00201B0A_T550QVN10_result.png                             ← overlay 大圖
+&lt;output&gt;/_diag/20260711.jsonl                               ← 行車紀錄（出事才有）</code></pre>
+<p>結果<strong>雙寫</strong>：JSON 給 Control 反序列化、XML 走 legacy <code>JudgeResult</code> 格式讓上位機的 <code>CF_GET_RESULT</code> 鏈相容。判定規則極簡：<code>DefectCnt == 0</code> 即 PASS。</p>
+
+<h3>⑥ 上位機收尾</h3>
+<pre><code>CF_GET_RESULT|...  →  OK|IP04_00201B0A_T550QVN10,…|1,…|…</code></pre>
+<p>回的是「各 IP 的 ResultInfo.xml <strong>路徑 + 缺陷數</strong>」（逗號分隔的文字），<strong>不是 JSON</strong>——這是考古自 legacy 的既定格式，不能改。</p>
+
+<div class="callout"><span class="tag">閉環設計</span>
+<p><strong>Step 4 存的圖 = Step 1 調參的圖。</strong>image-capture 模式存下的 TIFF 拿回離線模式調配方，保證「離線調出來的參數，上線行為一致」（offline = inline）。這是整個 5 步驟驗證流程的核心保證。</p></div>
+
+<h3>五步驟驗證流程</h3>
+<div class="tablewrap"><table>
+<tr><th>步驟</th><th>IP 模式</th><th>目的</th><th>需要什麼</th></tr>
+<tr><td class="num">1</td><td><code>offline-tcp</code> / <code>offline-file</code></td><td>演算法驗證（存好的影像）</td><td>單機即可</td></tr>
+<tr><td class="num">2</td><td><code>rdma-validate</code></td><td>單 CCD 傳輸正確性（CRC）</td><td>damac ↔ Spark 雙機</td></tr>
+<tr><td class="num">3</td><td><code>rdma-validate</code></td><td>全陣列 + Switch</td><td>37 相機 + SN2201（未到貨）</td></tr>
+<tr><td class="num">4</td><td><code>image-capture</code></td><td>存原圖、調 Recipe</td><td>真面板</td></tr>
+<tr><td class="num">5</td><td><code>online</code></td><td>完整生產</td><td>全部就緒</td></tr>
+</table></div>
+<p>目前狀態：Step 1–2 已實機驗證，Step 3 等硬體，<code>image-capture</code>/<code>online</code> 模式（Step 4–5）尚未實作（L0）。</p>
+</section>
+
+<!-- ═══════════ CH2 ═══════════ -->
+<section class="chapter" id="ch2" data-title="通訊協議三層">
+<span class="eyebrow">Chapter 02 — Protocols</span>
+<h2>通訊協議三層</h2>
+<p class="lede">系統有三種完全不同的通訊協議，各有歷史原因。搞混任何一層，兩端就對不上話。</p>
+
+<h3>第一層：上位機 ↔ Control（CF_ 文字協議，port 8787）</h3>
+<div class="card">
+<p><strong>格式</strong>：<code>CF_命令|參數1|參數2|…\r\n</code>，回應固定 <strong>9 參數</strong>：<code>OK|p1|…|p8|errMsg</code> 或 <code>ERR|…</code></p>
+<div class="tablewrap"><table>
+<tr><th>命令</th><th>範例 / 說明</th></tr>
+<tr><td><code>CF_LOAD_RECIPE</code></td><td><code>CF_LOAD_RECIPE|{recipe}|{panelId}|{時間戳}|||||||{detectMode}</code></td></tr>
+<tr><td><code>CF_GRAB_START</code></td><td><code>CF_GRAB_START|40000</code>（timeout ms）</td></tr>
+<tr><td><code>CF_CHECK_ALIGN</code> / <code>CF_SET_ALIGN</code></td><td>對位檢查 / 套用位移 <code>|{result}|{shiftX}|{shiftY}</code></td></tr>
+<tr><td><code>CF_GET_RESULT</code></td><td>回「ResultInfo.xml 路徑 + 缺陷數」逗號串，<strong>非 JSON</strong></td></tr>
+<tr><td><code>CF_STOP</code></td><td>中斷取像</td></tr>
+</table></div>
+<p>實作在 <code>control/src/Controllers/UpstreamServer.cs</code>；這些命令名、前綴、9 參數格式是<strong>不變式</strong>——舊上位機程式已經寫死，改了就接不上。</p></div>
+<div class="callout ok"><span class="tag">設計決策 A：誠實失敗</span>
+<p>離線環境沒接相機時，<code>CF_GRAB_START</code>/<code>CF_CHECK_ALIGN</code>/<code>CF_SET_ALIGN</code> 回 <strong>ERR</strong>，不回假 OK。寧可上位機看到錯誤，也不能讓它以為「已對位」。這個「不假 OK」原則全系統通用。</p></div>
+
+<h3>第二層：Control ↔ Grab / IP（newline JSON，port 8100 / 8200）</h3>
+<pre><code>{"cmd":"LOAD_RECIPE","seq":1,"params":{"recipe":"DEFAULT","panel_id":"T001",
+  "recipe_xml":"&lt;Recipe&gt;…&lt;/Recipe&gt;", "recipe_saving":{…}, "share_flags":{…}}}
+{"cmd":"CHECK_HEALTH","seq":3,"params":{}}   ← 心跳，連線燈綠/紅靠它</code></pre>
+<p>一行一個 JSON。重要命令族：</p>
+<ul>
+<li><strong>檢測</strong>：<code>LOAD_RECIPE</code>（帶 XML 內容）、<code>SEND_IMAGE_FOR_REVIEW</code>（上傳影像+檢測）、<code>REVIEW_LOCAL_IMAGE</code>（IP 讀自己磁碟的圖檢測，結果與上傳同圖 bit-exact）。</li>
+<li><strong>DefectSort 遠端歸檔</strong>：<code>LIST_DEFECT_FOLDERS</code> / <code>SORT_DEFECTS</code> / <code>LIST_DEFECT_PATCHES</code> / <code>GET_DEFECT_PATCHES_BATCH</code>（小圖 base64 批次回傳）/ <code>SAVE_DEFECT_CLASSIFICATION</code>（人工標 TrueDefect/Particle）。</li>
+<li><strong>相機</strong>（Grab 8100）：<code>LIST_CAMERAS</code>（MAC 列舉）、<code>SET/GET_CAM_PARAMS</code>（曝光/增益）、<code>GET_CAM_NODES</code>、<code>TUNE_MEAN</code>。</li>
+</ul>
+<div class="callout warn"><span class="tag">陷阱：UTF-8 逐 byte 解碼</span>
+<p>C# 端收 TCP 必須<strong>累積整行 bytes 再解 UTF-8</strong>（<code>IpClient</code>）。逐 byte 轉 char 會把中文切爛——這是修過的真實 bug（缺陷分類中文亂碼）。</p></div>
+
+<h3>第三層：Grab ↔ IP（RDMA wire，FrameHeader 256B）</h3>
+<pre><code>struct FrameHeader {            // 固定 64B 欄位 + 192B reserved = 256B
+    uint32_t magic;             // 0xA01CF00D（舊 0xCFA0A001 作廢！）
+    uint16_t version;           // 2
+    uint16_t headerBytes;       // 256
+    uint64_t frameSeq;          // 也塞進 RDMA imm
+    uint32_t panelId;  uint16_t camId, sliceIndex, totalSlice, scanStep;
+    uint32_t width, height;     // 8192 × 5000
+    uint16_t bitDepth, pixelFormat;
+    uint64_t ptpTimestampNs;
+    int32_t  machineCoordX, machineCoordY;
+    uint32_t payloadBytes, crc32;   // payload CRC32 (IEEE 0xEDB88320)
+    uint8_t  reserved[192];
+};  static_assert(sizeof(FrameHeader)==256);</code></pre>
+<p>兩端共用 <code>shared/FrameHeader.h</code>，<strong>版本必須一致、sizeof 必須是 256</strong>。這份格式是 2026-06-11 實機 RDMA 全幀 CRC 驗證過的版本。</p>
+
+<h3>network-clean：為什麼一切都走 TCP 傳內容</h3>
+<p>Control（Mac）↔ IP（Linux）跨機、無共用磁碟。所以：配方傳 <strong>XML 內容</strong>、結果傳 <strong>JSON</strong>、缺陷小圖傳 <strong>PNG bytes（base64）</strong>、對位 golden 傳 <strong>base64 PNG</strong>。任何「IP 去讀 Control 的檔案」或反過來的設計都是錯的。唯一例外是 <code>REVIEW_LOCAL_IMAGE</code>——那是 IP 讀<strong>自己</strong>磁碟上的圖（大圖搬不動，只回縮圖預覽）。</p>
+</section>
+
+<!-- ═══════════ CH3 ═══════════ -->
+<section class="chapter" id="ch3" data-title="CUDA 入門：看懂 IP 的 GPU 世界">
+<span class="eyebrow">Chapter 03 — CUDA Primer</span>
+<h2>CUDA 入門：看懂 IP 的 GPU 世界</h2>
+<p class="lede">你不需要會寫 kernel 才能維護這套系統——但需要看得懂它在做什麼、為什麼有那些「禁改」規定。這章用本專案的實際程式碼當教材。</p>
+
+<h3>GPU 平行計算的三層結構</h3>
+<div class="card">
+<p>CPU 一次跑幾十個執行緒；GPU 一次跑<strong>幾萬個</strong>。CUDA 把它們組織成三層：</p>
+<ul>
+<li><strong>Thread（執行緒）</strong>：最小單位。在本專案裡，<strong>一個 thread 負責一個像素</strong>。</li>
+<li><strong>Block（區塊）</strong>：一組 threads，共享快速記憶體（shared memory）。本專案固定 <code>16×16 = 256</code> threads/block（不變式：<code>block_dim</code> 寫死 16×16，INI 裡的 32×32 是從未生效的死設定）。</li>
+<li><strong>Grid（網格）</strong>：整張影像需要的所有 blocks。8192×5000 的影像 ≈ 512×313 個 blocks 同時排隊上 GPU。</li>
+</ul>
+<pre><code>// 一個 kernel（GPU 函式）長這樣：__global__ 表示「在 GPU 上跑」
+__global__ void kernelDetect(const uint8_t* img, int w, int h, ...) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;   // 我是哪個像素？
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= w || y >= h) return;                    // 邊界防呆
+    // …對 img[y*w+x] 這一個像素做判定…
+}</code></pre></div>
+
+<h3>本專案的 GPU 檢測流水線</h3>
+<ol>
+<li><strong>上傳</strong>：影像從 host（CPU）記憶體進 GPU。生產機 GB10 是 SoC 統一記憶體，用 <code>cudaHostAlloc(Portable|Mapped)</code> 讓 GPU 直接讀 host 記憶體（NVLink-C2C ~900GB/s），<strong>不能用 nvidia_peermem</strong>（GB10 的 GPU 不在標準 PCIe 空間，實機驗證會 EINVAL）。</li>
+<li><strong>前處理</strong>（依配方）：Remap 對比拉伸（min/max 線性拉滿動態範圍）、3×3 高斯平滑。</li>
+<li><strong>缺陷偵測 kernel</strong>：每像素跟「週期性鄰居」比較（見下節）。輸出一張 defect mask。</li>
+<li><strong>CCL</strong>（Connected Component Labeling，連通元件標記）：把相鄰的缺陷像素合併成「一顆缺陷」。</li>
+<li><strong>Blob 統計 + 過濾</strong>：算每顆缺陷的面積/寬高/位置，按 size 過濾、鄰近合併。</li>
+<li><strong>下載 + canonical 排序</strong>：結果回 CPU，依 <code>label → center_y → center_x → size</code> 排序。</li>
+</ol>
+
+<h3>為什麼跟「週期性鄰居」比？</h3>
+<p>CF 面板是規則的 RGB 網格，週期 = <code>PitchX / PitchY</code>。正常像素和「一個 pitch 之外的同色像素」幾乎一樣亮；缺陷則不一樣。所以演算法不是「找黑點」，而是「找跟自己的週期鄰居不一致的點」。</p>
+<div class="callout crit"><span class="tag">爆量陷阱（血淚不變式 14）</span>
+<p><strong>Pitch 設錯 1–4 px，整片正常網格都會被判成缺陷</strong>：實測 PitchX 26→30，缺陷數 561→10000（觸頂 MAX_DEFECTS）。新面板一定先用 FFT 估算 Pitch（<code>scripts/estimate_pitch.py</code> 或 Step1 的 FFT 鈕），不可沿用舊值或用猜的。<strong>缺陷數接近 10000 時，第一個懷疑對象就是 Pitch。</strong></p></div>
+
+<h3>兩套偵測演算法：DIV 與 SUB</h3>
+<div class="tablewrap"><table>
+<tr><th></th><th>DIV（比例式，Demo 移植）</th><th>SUB 投票式（legacy 移植，生產配方用）</th></tr>
+<tr><td>比較方式</td><td>中心 ÷ 8 鄰平均，比值 vs BTH/DTH</td><td>中心 − 每個週期鄰居，<strong>逐路灰階差</strong></td></tr>
+<tr><td>閾值語意</td><td>比例（如 1.30 / 0.75）</td><td>灰階差（如 +17 / −16）</td></tr>
+<tr><td>判定</td><td>單次比較</td><td><strong>投票</strong>：PitchTimes×8 路（如 16 路）中 ≥ ChooseAmount（如 13）路超標才算缺陷</td></tr>
+<tr><td>容錯</td><td>—</td><td>每路先做 3×3 SAD 局部搜尋，容忍面板 skew</td></tr>
+</table></div>
+<div class="callout warn"><span class="tag">重要歷史轉折</span>
+<p>系統原本是 <strong>DIV-only、SUB 拒載</strong>。2026-06 底發現<strong>真實生產配方（T550QVN10 全 24 顆 CCD）全是 SUB</strong>，且守門曾被配方裡殘留的過期 <code>&lt;AlgorithmCompare&gt;DIV&lt;/AlgorithmCompare&gt;</code> 字串騙過、靜默假 PASS。於是決策移植 legacy SUB 投票管線（<code>docs/SUB_pipeline_port_plan.md</code>），守門改讀 <code>M_AlgorithmWayCompare</code>。教訓：<strong>用字串比對做的守門，必須驗證讀的是「真正決定行為的欄位」。</strong></p></div>
+
+<h3>決定性（bit-exact）：為什麼是鐵律</h3>
+<p><strong>不變式：同一張圖跑兩次，結果每個 byte 都相同。</strong>否則調參就沒有意義（你不知道差異來自參數還是隨機性）。GPU 天生會破壞這件事，本專案修了兩處：</p>
+<ul>
+<li><strong>CCL 收斂迴圈</strong>：原版 lock-free union-find 只跑一次、受 thread race 影響（缺陷數會 2761/2762/2763 飄）。修法是 host 端迴圈呼叫 merge kernel <strong>直到 <code>d_changed==0</code></strong>——收斂後的不動點唯一。⚠️ 若有人從 Reference 重新複製 kernel 檔，這個迴圈會被蓋掉，決定性立刻壞。</li>
+<li><strong>Canonical 排序</strong>：blob 結果用 <code>atomicAdd</code> append，順序隨 race 變動（集合相同、順序不定），下載後必須排序成固定順序。</li>
+</ul>
+<div class="callout"><span class="tag">禁改規定的由來</span>
+<p><code>cuda_kernels.cu</code> / <code>ai_kernels.cu</code> 的 <code>__global__</code> kernel 本體<strong>禁止修改</strong>——它們是從已驗證的 Reference/Demo 直接複製的。可以改的是 host 端的「編排」（launch wrapper、收斂迴圈、排序）。新演算法（如 SUB 投票）只能<strong>新增 kernel</strong>，不動舊的。</p></div>
+
+<h3>x86 開發 ↔ ARM 生產：跨架構一致性</h3>
+<p>家裡 RTX 2080（x86, sm_75）調的參數，拿到 Spark（ARM GB10, sm_121）有效嗎?——實機驗過：26 張真實面板 25/26 缺陷數完全一致；<strong>整數/幾何欄位完全一致</strong>，唯浮點閾值邊界像素可能單像素 ULP 翻面，方向偏保守（寧抓勿漏），該缺陷會進 DefectSort 人工複核。結論：<strong>off-line 調參對 on-line 有效</strong>。</p>
+</section>
+
+<!-- ═══════════ CH4 ═══════════ -->
+<section class="chapter" id="ch4" data-title="配方 Recipe：系統的靈魂">
+<span class="eyebrow">Chapter 04 — Recipe</span>
+<h2>配方 Recipe：系統的靈魂</h2>
+<p class="lede">配方（RecipeInfo.xml）決定「檢什麼、怎麼檢、多嚴格」。它是 legacy 相容格式——欄位名一個都不能改，因為舊系統和舊配方檔都在用。</p>
+
+<h3>結構：Recipe → AlignRoi + DetectRoiList + DetectIoiList</h3>
+<pre><code>{recipe名}/{分區}/RecipeInfo.xml       ← 每顆 CCD 一份（分區鍵現為 IP0、IP1…）
+└── Recipe
+    ├── M_AlignRoi          對位 Mark：AlignEnable / ReferX/Y / SearchW/H / PatternPath
+    ├── DetectRoiList       檢測區清單，每個 DetectRoi ~32 欄位
+    │   └── DetectRoi
+    │       ├── StartX/StartY/EndX/EndY    ROI（-1 = 全幅）
+    │       ├── BrightThreshold / DarkThreshold   ← 閾值（不是 ThB/ThD！）
+    │       ├── PitchX/PitchY/SearchX/SearchY/PitchTimes/ChooseAmount
+    │       ├── AlgorithmWay + M_AlgorithmWayCompare（SUB/DIV 判定讀這個）
+    │       └── Blob*（BlobMinSize/BlobMaxSize/MergeDistance…）
+    └── DetectIoiList       興趣區（IOI）：固定存圖區域</code></pre>
+<div class="callout warn"><span class="tag">命名考古</span>
+<p>舊文件說閾值叫 <code>ThB/ThD</code>——錯，那是 GPU 端 <code>CUDAZone</code> 結構的內部欄位名。XML 裡永遠是 <code>BrightThreshold</code>/<code>DarkThreshold</code>，由 <code>ThB=(float)BrightThreshold</code> 直接賦值。同理「ZoneSetting」也是誤傳，實體是 <code>DetectRoi</code>。寫程式前先考古，別信二手文件。</p></div>
+
+<h3>IP 端怎麼消化配方</h3>
+<p><code>ip/src/config/zone_config_adapter.cpp::from_recipe_xml()</code> 把每個 <code>&lt;DetectRoi&gt;</code> 轉成一個 <code>ZoneConfig</code>（= 一個檢測 zone）。多 ROI 時 IP 對每個 zone 各裁子影像跑一次再合併。對應關係：</p>
+<div class="tablewrap"><table>
+<tr><th>DetectRoi（XML）</th><th>ZoneConfig（IP 內部）</th><th>備註</th></tr>
+<tr><td><code>BrightThreshold</code>/<code>DarkThreshold</code></td><td><code>BTH</code>/<code>DTH</code></td><td>DIV=比例、SUB=灰階差，語意隨演算法不同</td></tr>
+<tr><td><code>PitchX/Y</code></td><td><code>pitch_x/y</code></td><td>爆量陷阱所在</td></tr>
+<tr><td><code>SearchX/Y</code></td><td><code>search_range_x/y</code></td><td><code>fast_search_range = clamp(SearchY,0,2)</code></td></tr>
+<tr><td><code>PitchTimes</code>/<code>ChooseAmount</code></td><td><code>pitch_times</code>/<code>choose_amount</code></td><td>SUB 投票管線新增</td></tr>
+<tr><td><code>StartX/Y, EndX/Y</code></td><td>zone 範圍</td><td>-1 = 全幅</td></tr>
+</table></div>
+
+<h3>結果格式：ResultInfo（也是 legacy 相容）</h3>
+<p>缺陷欄位一律用 legacy 名稱：<code>GC_X/GC_Y</code>（全域座標）、<code>Size</code>、<code>Width/Height</code>、<code>X_Min/X_Max/Y_Min/Y_Max</code>、<code>Type</code>（PointBright/PointDark）、<code>GL_Mean</code>、<code>GlobalPosX/GlobalPosY</code>（另有 <code>_um</code> 微米版，單位契約待上位機確認）。GPU 沒有的欄位（<code>CV_*</code>、<code>*_Sigma</code>）填 0。結構：<code>JudgeResult → RoiInfoList → RoiInfo → DefectInfoList → DefectInfo</code>。</p>
+
+<h3>對位（Alignment）：面板放歪了怎麼辦</h3>
+<ol>
+<li>每片面板取像後，Control 下 <code>CHECK_ALIGN</code>：IP 用 OpenCV pattern match（TM_CCOEFF_NORMED + 拋物線 sub-pixel）在搜尋窗裡找對位 Mark，回 <code>ShiftX/ShiftY</code>（實測精度 &lt;0.1px）。</li>
+<li><code>SET_ALIGN</code> 把位移套回所有 zone：<code>aligned_* = roi_* + round(shift)</code>；偵測統一走 <code>eff_*()</code>（有對位值用對位值，否則用原 ROI）。</li>
+<li>分數低於門檻 → 回 <strong>ERR</strong>（不回錯誤位移），由上位機決策停線/放行——又是「誠實失敗」原則。</li>
+</ol>
+<div class="callout crit"><span class="tag">已修的真實 bug（F1）</span>
+<p>全幅 zone（<code>StartX=-1</code>）套對位位移後 <code>-1+7=6</code>，不再被認出是全幅 → zone 縮成 1px、檢測範圍塌掉。修法：全幅 zone 跳過位移套用。教訓：<strong>魔術值（-1）跟算術運算混用時，每個運算點都要先判魔術值。</strong></p></div>
+
+<h3>配方管理紀律</h3>
+<ul>
+<li><strong>單一資料來源</strong>：Control 端三處 UI（Step1 快速調參、ZoneParamEditor、單 CCD 工作台）共用同一個 <code>RecipeStore</code> 實例——改一處、處處同步，存檔才寫回 XML。</li>
+<li><strong>per-CCD 隔離</strong>：切換 CCD（IP0→IP1）會重載該分區的 XML；IP0 改的參數不會滲到 IP1。</li>
+<li><strong>用真配方，勿手寫假設值</strong>：SUB 移植時曾因手寫測試配方誤用別顆 CCD 的 ROI，追了很久的「漏檢」其實是 ROI 排除了缺陷。</li>
+</ul>
+</section>
+
+<!-- ═══════════ CH5 ═══════════ -->
+<section class="chapter" id="ch5" data-title="RDMA 與背壓：影像怎麼跑 100G">
+<span class="eyebrow">Chapter 05 — RDMA & Backpressure</span>
+<h2>RDMA 與背壓：影像怎麼跑 100G</h2>
+<p class="lede">一張 8192×5000 的 Mono8 影像約 39MB；37 顆 CCD 一塊面板約 1110 張。普通 TCP 搬不動，所以 Grab→IP 走 RDMA——網卡直接寫對方記憶體，不經 CPU。</p>
+
+<h3>RDMA 基本觀念（給沒碰過的人）</h3>
+<ul>
+<li><strong>RDMA</strong> = Remote Direct Memory Access：送端網卡把資料直接 DMA 進收端<strong>預先註冊好的記憶體區（MR）</strong>，收端 CPU 全程不參與搬運。延遲實測 ~1.4µs。</li>
+<li><strong>RoCE v2</strong> = RDMA over Converged Ethernet：在一般乙太網上跑 RDMA（本系統用 100G DAC 直連，link_layer 必須是 Ethernet）。</li>
+<li><strong>WRITE_WITH_IMM</strong>：寫入之外附帶一個 32-bit 立即值（本系統塞 frameSeq），收端收到完成事件才知道「有一幀到了」。</li>
+<li><strong>QP / CQ</strong>：Queue Pair（收發佇列）與 Completion Queue（完成通知）。QP 進 error state = 連線壞掉。</li>
+</ul>
+
+<h3>N-slot ring：收端記憶體怎麼配</h3>
+<pre><code>IP 端啟動時：cudaHostAlloc N 個 slot（預設 4 × 40MB pinned host memory）
+握手：IP 把 MrInfoEx{addr, rkey, n_slots, slot_size} 傳給 Grab
+Grab 送第 seq 幀：寫進 slot = seq % n_slots
+IP recv_thread 收到完成事件：
+   [1] memcpy slot → 自己的 buffer
+   [2] push_blocking(FrameQueue)      ← 隊滿就在這裡等
+   [3] post_recv                       ← 補一張「收據」(credit)</code></pre>
+<div class="callout"><span class="tag">背壓鏈（不變式 23）</span>
+<p>1-2-3 的順序<strong>不可調換</strong>。post_recv 一定在 push_blocking 之後——保證 Grab 在 IP 讀完 slot 前拿不到新 credit、不可能覆寫。整條鏈：<code>GPU 慢 → FrameQueue 滿 → push_blocking 卡住 → 不補 credit → Grab 端 RNR → poll_one 阻塞</code>。Grab 自然降速而不斷線（實測 IP 端 200ms 延遲 → Grab 從 1375fps 降到 9.6fps，QP 不進 error state）。</p></div>
+
+<h3>三個實機踩過的坑</h3>
+<div class="card"><h4>坑 1：33fps 牆（min_rnr_timer）</h4>
+<p>credit 短暫耗盡時，送端收到 RNR NAK 後會等 <code>min_rnr_timer</code> 再重試——<strong>rdma_cm 預設值是 655.36ms</strong>！吞吐直接崩到 2.6fps。更陰險的是：舊版每幀多花 16ms 算 app-CRC，「意外」把送端降速到跟收端一致、剛好避開 RNR；一關 CRC 送端變快反而觸發崩潰。修法：收端 accept 後 <code>ibv_modify_qp(min_rnr_timer=12)</code>（0.64ms）。結果 33 → 73.8fps。<strong>教訓：效能問題的「原因」可能是別處的「減速帶」被移走。</strong></p></div>
+<div class="card"><h4>坑 2：RoCE 斷線偵測不可靠</h4>
+<p>RoCE v2 上 Grab 斷線後 <code>WR_FLUSH_ERR</code> <strong>不保證出現</strong> → recv_thread 永不退出 → FrameQueue 永不 close → 主迴圈永久卡死。修法：no-event 分支輪詢 CM event channel（<code>check_cm_disconnect()</code>）。<strong>教訓：分散式系統裡「對方死了」的訊號永遠要有第二來源。</strong></p></div>
+<div class="card"><h4>坑 3：GB10 不能用 nvidia_peermem</h4>
+<p>DGX Spark 是 NVLink-C2C SoC，GPU Bus ID 不在標準 PCIe 空間，<code>modprobe nvidia_peermem</code> 直接 EINVAL。正解：<code>cudaHostAlloc(Portable|Mapped)</code> pinned host memory 註冊 MR，GPU 經 <code>cudaHostGetDevicePointer</code> 走 NVLink-C2C（~900GB/s）讀。<strong>教訓：換硬體平台時，「業界標準做法」要重新驗證。</strong></p></div>
+
+<h3>記憶體紀律：固定上限，絕不動態擴</h3>
+<p>legacy 系統曾因「每幀 new 一個 buffer 塞進 List」在生產環境 OOM。新系統的鐵律（不變式 18/19）：</p>
+<ul>
+<li><strong>FrameQueue</strong>：啟動時算一次上限（50% 可用 host RAM ÷ 幀大小，至多 8 幀），滿了回 ERR「系統繁忙」+ 記 incident，<strong>絕不配更多記憶體</strong>。</li>
+<li><strong>SourceImageWriter</strong>（存原圖）：固定 N 個 ring slot + 獨立寫檔執行緒，ring 滿就 drop + 記 incident，絕不阻塞主路徑、絕不囤 List。</li>
+<li>host RAM 用 <code>sysinfo().freeram</code>、GPU RAM 用 <code>cudaMemGetInfo</code>——兩者<strong>絕不混用</strong>。</li>
+</ul>
+</section>
+
+<!-- ═══════════ CH6 ═══════════ -->
+<section class="chapter" id="ch6" data-title="行車紀錄器與除錯 Runbook">
+<span class="eyebrow">Chapter 06 — Flight Recorder & Runbook</span>
+<h2>行車紀錄器與除錯 Runbook</h2>
+<p class="lede">生產環境不能連 debugger。IP 內建「行車紀錄器」（flight recorder）：平時零成本記錄現場，出事自動落地完整快照。這章教你出事時怎麼最快找到問題。</p>
+
+<h3>機制：環形緩衝 + 出事才落地</h3>
+<ul>
+<li>平時：最近 <strong>64 張</strong>幀的現場（panel、zone 參數、佇列水位、GPU 狀態…）存在<strong>記憶體</strong>環形緩衝，<strong>零磁碟 I/O</strong>。</li>
+<li>出事：自動寫兩個檔——<code>_diag/&lt;yyyyMMdd&gt;.jsonl</code>（每事件一行索引）+ <code>incident_&lt;ts&gt;.json</code>（完整現場 pretty-print）。</li>
+<li>每筆 incident 帶 <code>src</code> 欄位 = 觸發點的 <code>檔名:行號</code>（repo 相對），配 <code>docs/html/incident-viewer.html</code> 可直接跳 VS Code。</li>
+<li><strong>純觀測不變式</strong>：記錄在計時區外、bench 模式全 no-op、不破 bit-exact——所以永遠可以放心開著。</li>
+</ul>
+
+<h3>incident 種類</h3>
+<div class="tablewrap"><table>
+<tr><th>kind</th><th>觸發時機</th><th>典型原因</th></tr>
+<tr><td><code>cuda_fatal</code></td><td>CUDA API 錯誤（經 atexit handler dump 最後現場）</td><td>OOM、驅動問題、非法記憶體存取</td></tr>
+<tr><td><code>frame_validation</code></td><td>收圖入口驗證失敗（magic/version/尺寸/CRC）</td><td>傳輸損壞、兩端 header 版本不一致</td></tr>
+<tr><td><code>recipe_load</code></td><td>配方解析/守門失敗</td><td>XML 格式錯、演算法模式不支援</td></tr>
+<tr><td><code>bad_json</code></td><td>8200 收到解不開的命令</td><td>Control/IP 版本不一致、半包</td></tr>
+<tr><td><code>uncaught_exception</code></td><td>未捕捉例外（set_terminate）</td><td>程式 bug</td></tr>
+<tr><td><code>queue_high_watermark</code> / <code>queue_overflow</code></td><td>FrameQueue 水位/溢出</td><td>GPU 跟不上、存圖太慢（背壓生效的證據）</td></tr>
+<tr><td><code>source_ring_full</code></td><td>原圖寫檔 ring 滿而 drop</td><td>磁碟太慢</td></tr>
+</table></div>
+
+<h3>值班 Runbook：出事了先做什麼</h3>
+<div class="card">
+<h4>Step 1 — 確認哪一端出事</h4>
+<pre><code>Control UI 三顆連線燈：上位機 / Grab / IP（CHECK_HEALTH 心跳）
+IP 燈紅   → ssh 進 IP 機器，看 process 活著嗎？
+IP 燈綠但結果怪 → 走 Step 2</code></pre>
+<h4>Step 2 — 看行車紀錄</h4>
+<pre><code>ls &lt;output&gt;/_diag/                        # 有今天的 jsonl 嗎？
+tail &lt;output&gt;/_diag/20260711.jsonl        # 每行一個事件：kind + src + 摘要
+cat &lt;output&gt;/_diag/incident_*.json        # 完整現場（最近 64 幀的 scene）
+# 或把 jsonl 拖進 docs/html/incident-viewer.html 點擊跳源碼</code></pre>
+<h4>Step 3 — 沒有 incident？對照症狀表（見下）</h4>
+<h4>Step 4 — 可復現就抓回離線</h4>
+<pre><code># 拿當時的原圖（若 SaveSourceImage 有開：source/*.bin）
+# 在家用 RTX2080 offline-file 重跑同配方 → bit-exact 不變式保證能重現</code></pre></div>
+
+<h3>症狀 → 第一懷疑對象 速查表</h3>
+<div class="tablewrap"><table>
+<tr><th>症狀</th><th>第一懷疑</th><th>去哪確認</th></tr>
+<tr><td>缺陷數暴增、接近 10000</td><td><strong>Pitch 設錯</strong>（爆量陷阱）</td><td>FFT 重估 pitch；比對配方 PitchX/Y</td></tr>
+<tr><td>缺陷數剛好是正常的 2 倍</td><td>舊檔殘留疊加（換 IpName/參數後舊 Defect_* 沒清——新版已無條件清，若復發查 result_saver）</td><td>panel 夾裡 Defect_* 檔名前綴是否混雜</td></tr>
+<tr><td>吞吐突然崩（如 33→2.6fps）</td><td>RNR / min_rnr_timer（credit 耗盡）</td><td>IP log 收幀速率；queue_high_watermark incident</td></tr>
+<tr><td>IP 收不到圖、Grab 看似正常</td><td>RDMA 鏈路（重開機後 MTU/RoCE 設定沒還原）</td><td><code>ping</code> RDMA 網段、<code>ibv_devinfo</code> port state、兩端 MTU</td></tr>
+<tr><td>LOAD_RECIPE 回 ERR</td><td>守門拒載（演算法模式/欄位缺）</td><td><code>recipe_load</code> incident 的 reason</td></tr>
+<tr><td>同圖兩次結果不同</td><td>決定性壞了（CCL 迴圈被覆蓋？排序被刪？）</td><td><code>--verify-deterministic</code>；git log 查 kernel 檔改動</td></tr>
+<tr><td>x86 與 ARM 差 1 顆缺陷</td><td>浮點 ULP 邊界翻面（已知、可接受、偏保守）</td><td>差的那顆是否恰在閾值邊界（如 DTH 0.60 vs 0.58）</td></tr>
+<tr><td>中文變亂碼</td><td>TCP 逐 byte 解碼（該用整行 UTF-8）</td><td>IpClient 收包路徑</td></tr>
+<tr><td>「系統繁忙」ERR</td><td>背壓正常行為（FrameQueue 滿）——不是 bug，是保護</td><td>看是否伴隨 GPU 慢/存圖慢的根因</td></tr>
+</table></div>
+
+<div class="callout warn"><span class="tag">現況誠實邊界</span>
+<p>行車紀錄器<strong>只在 IP 端</strong>。Grab 端（相機掉線、曝光異常）和 Control 端（命令沒送出）目前靠一般 log；跨機問題（上位機→Control→IP 一路串起來）沒有統一關聯 ID。這是已知缺口——除錯跨機問題時要自己比對各端時間戳。</p></div>
+</section>
+
+<!-- ═══════════ CH7 ═══════════ -->
+<section class="chapter" id="ch7" data-title="工程紀律：L0–L4 與不變式文化">
+<span class="eyebrow">Chapter 07 — Engineering Discipline</span>
+<h2>工程紀律：L0–L4 與不變式文化</h2>
+<p class="lede">這個 repo 有兩個特別的文化制度：誠實分級（L0–L4）和不變式清單。理解它們，你就知道「哪些話能信、哪些線不能踩」。</p>
+
+<h3>L0–L4 誠實分級：「寫好」不等於「驗證過」</h3>
+<div class="tablewrap"><table>
+<tr><th>級別</th><th>意義</th><th>判定標準</th></tr>
+<tr><td><span class="pill crit">L0</span></td><td>未實作</td><td>沒有程式碼，或僅佔位</td></tr>
+<tr><td><span class="pill warn">L1</span></td><td>已寫程式碼</td><td>邏輯寫完，<strong>未執行驗證</strong>——不得進生產路徑</td></tr>
+<tr><td><span class="pill info">L2</span></td><td>已單元自測</td><td>selftest / unit test 通過</td></tr>
+<tr><td><span class="pill ok">L3</span></td><td>已端到端驗證</td><td>本系統內跑通完整流程並<strong>貼出數據</strong></td></tr>
+<tr><td><span class="pill ok">L4</span></td><td>已與真實外部系統驗證</td><td>真上位機 / 真相機 / 真硬體</td></tr>
+</table></div>
+<ul>
+<li>規則：<strong>標低不標高</strong>；沒貼數據就不算完成；L3→L4 之間藏最多意外。</li>
+<li><code>docs/STATUS.md</code> 是全系統的誠實帳本——接手第一件事就是讀它，分清「真的能用」和「只是寫了」。</li>
+<li>範例：AI 分類器「模型有載入」= L1（預設停用、不推論，缺陷全標「待人工複核」交 DefectSort 人工分類）。</li>
+</ul>
+
+<h3>驗證三階段（每階段貼數據再往下）</h3>
+<ol>
+<li><strong>Stage 1 合成影像</strong>：已知答案的人造圖驗演算法正確性（不需相機）。</li>
+<li><strong>Stage 2 端到端</strong>：offline-tcp / rdma-validate 跑通，貼缺陷數、幀數、CRC、誤差。</li>
+<li><strong>Stage 3 失敗路徑</strong>：餵錯誤輸入 → 必須正確回 ERR，不 crash、不 silent fail。</li>
+</ol>
+
+<h3>必背不變式精選（完整清單在各 CLAUDE.md）</h3>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>不變式</th><th>背後的血淚</th></tr>
+<tr><td class="num">1</td><td>kernel 本體禁改；從 Reference 重複製會蓋掉 CCL 收斂迴圈</td><td>決定性飄動 2761/2762/2763</td></tr>
+<tr><td class="num">2</td><td>FrameHeader 兩端同版、sizeof==256、magic 0xA01CF00D</td><td>舊 magic 0xCFA0A001 從未過 RDMA、作廢</td></tr>
+<tr><td class="num">3</td><td>影像載入 IMREAD_UNCHANGED、禁後處理</td><td>offline=inline 閉環的前提</td></tr>
+<tr><td class="num">4</td><td>network-clean：跨機只傳內容不傳路徑</td><td>Mac↔Linux 無共用磁碟</td></tr>
+<tr><td class="num">5</td><td>重測前清 panel 夾舊 Defect_*</td><td>561 顆變 1122 顆（殘留疊加）</td></tr>
+<tr><td class="num">6</td><td>同圖兩跑 bit-exact</td><td>調參的意義所在</td></tr>
+<tr><td class="num">7</td><td>固定記憶體上限、滿了背壓/drop、絕不動態擴</td><td>legacy List 囤積 OOM</td></tr>
+<tr><td class="num">8</td><td>Pitch 必先 FFT 估算</td><td>561→10000 爆量</td></tr>
+<tr><td class="num">9</td><td>誠實失敗：離線不假 OK、對位失敗回 ERR</td><td>上位機誤判「已對位」的風險</td></tr>
+<tr><td class="num">10</td><td>GB10 用 cudaHostAlloc，不用 nvidia_peermem</td><td>EINVAL 實機踩坑</td></tr>
+</table></div>
+
+<h3>設定檔的版控邊界</h3>
+<div class="tablewrap"><table>
+<tr><th>檔案</th><th>版控？</th><th>原因</th></tr>
+<tr><td><code>grab/cam_config.json</code>（曝光/增益）</td><td>❌ 本機檔</td><td>每機相機不同；版控的是 <code>.example</code> 模板</td></tr>
+<tr><td><code>control/config/array_topology.json</code></td><td>❌ 本機檔</td><td>機台層宣告；同上有 <code>.example</code></td></tr>
+<tr><td><code>control/src/appsettings.json</code></td><td>✅ 版控</td><td>⚠️ 但常被本地改 Host 指向不同 IP 節點——commit 前檢查 diff，別把「指向家裡機器」的設定推上去</td></tr>
+</table></div>
+</section>
+
+<!-- ═══════════ CH8 ═══════════ -->
+<section class="chapter" id="ch8" data-title="現況地圖：做到哪、缺什麼">
+<span class="eyebrow">Chapter 08 — Current State</span>
+<h2>現況地圖：做到哪、缺什麼</h2>
+<p class="lede">接手一個進行中的系統，最重要的是知道「哪些已經可信、哪些還是工地」。本章是 2026-07 時點的快照——之後以 <code>docs/STATUS.md</code> 與 git log 為準。</p>
+
+<h3>已可信（實機驗證 L3/L4）</h3>
+<ul>
+<li><span class="pill ok">L4</span> GPU 檢測引擎（DIV 基準）：GB10 實機 26 張面板 vs ground truth 25/26 一致；決定性 bit-exact。</li>
+<li><span class="pill ok">L4</span> 單相機取像→RDMA→Spark 全鏈（500 幀零掉幀、CRC 20/20）。</li>
+<li><span class="pill ok">L3</span> N-slot ring + credit 背壓（120 幀 CRC 全對；背壓不斷線）。</li>
+<li><span class="pill ok">L3</span> 對位 pipeline（sub-pixel &lt;0.1px；空白 ROI 誠實 ERR）。</li>
+<li><span class="pill ok">L3</span> 行車紀錄器（五種 incident kind + src 欄位）。</li>
+<li><span class="pill ok">L3</span> DefectSort 遠端歸檔 + 小圖人工分類；配方 round-trip；上位機 CF_ 鏈（模擬器端到端）。</li>
+<li><span class="pill ok">L3</span> SUB 投票管線核心（A/B/C/D/F 步：kernel+守門+拼接+前處理；IP04 真配方全鏈 46 缺陷合理、目標缺陷檢出）。</li>
+</ul>
+
+<h3>工地中（L0–L2 / 進行中）</h3>
+<ul>
+<li><span class="pill crit">L0</span> <code>image-capture</code> / <code>online</code> 模式（Step 4/5 主迴圈）——上線前必經。</li>
+<li><span class="pill crit">L0</span> 多相機全陣列（cam_manager、eBUS 路徑、Switch 到貨後）。</li>
+<li><span class="pill crit">L0</span> 相機↔CCD 槽位 live 綁定（#21）；多 CCD 拼接座標/對位（#1/#5 預留）。</li>
+<li><span class="pill warn">L1</span> 大量 Control UI「待 Mac 目視」項；上位機真機認帳（L4 做不了，缺真上位機）。</li>
+<li><span class="pill warn">進行中</span> SUB 管線：Blob 過濾精修（Step E）、Mode2 融合參數、legacy golden 逐缺陷比對（理想驗證，需舊機台輸出）。</li>
+<li><span class="pill warn">缺口</span> legacy 功能未遷移：非 8-way 幾何模式（#9）、Sobel 邊緣（#19）、MaskGen（#22）、部分前處理（#29）等——都記在 STATUS.md gap 表，屬「需要 spec 才做」。</li>
+</ul>
+
+<h3>2026-07 全系統審計重點（完整版見 docs/architecture_audit_20260712.md）</h3>
+<p>60 個代理的多維度審計＋對抗式驗證，確認 40 個問題點。上線前必修的 P0 級：</p>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>問題</th><th>一句話</th></tr>
+<tr><td class="num">P0-1</td><td>sliceIndex→Y 映射缺失</td><td>SUB 全 panel 配方只有 offline --stitch 能跑；生產逐 slice 路徑把 ROI 靜默 clamp 成 1px → 假 PASS。<strong>上線前唯一「不做必出事」的新碼</strong></td></tr>
+<tr><td class="num">P0-2</td><td>產能結論失效</td><td>「1 台 Spark 餘裕 73%」是 DIV 7.4ms 的舊帳；SUB 實測 24 CCD GPU 合計 40.3s 已超 30s 節拍</td></tr>
+<tr><td class="num">P0-3</td><td>CF_GET_RESULT 永遠回 OK</td><td>IP 斷線/例外全部變成「0 缺陷」假 PASS 回上位機</td></tr>
+<tr><td class="num">P0-4</td><td>配方名打錯→自動生成預設配方</td><td>靜默寫盤、送 IP、回 OK；黃色警告是死接線</td></tr>
+<tr><td class="num">P0-5~6</td><td>守門殘洞</td><td>mode2 缺 DTH 域值防呆（SUB 閾值填入=精確 0 缺陷）；is_fused/is_sub 子字串比對誤路由 legacy enum</td></tr>
+<tr><td class="num">P0-7~8</td><td>Grab 送端靜默丟幀</td><td>RDMA 失敗後永久丟幀、健康檢查照綠、panel 完整性零核帳</td></tr>
+<tr><td class="num">P0-9</td><td>Blob 預設值衝突</td><td>Control 新建配方帶 BlobMinSize=80 → IP 靜默丟 size&lt;80 缺陷（生產 legacy 配方是 3）</td></tr>
+</table></div>
+<div class="callout crit"><span class="tag">系統性主題</span>
+<p>審計最大的發現是「<strong>靜默假 OK</strong>」家族集中在跨機邊界：單機內的誠實失敗文化（決策 A）沒有貫穿到 Control↔IP↔Grab↔上位機的組合層。接手後改任何跨機路徑，先問一句：<strong>「這條路失敗時，對方看到的是 ERR 還是假 OK？」</strong></p></div>
+
+<h3>接手者的閱讀順序</h3>
+<ol>
+<li><code>docs/CLAUDE.md</code>（總綱）→ 目標模組 <code>CLAUDE.md</code> → <code>docs/STATUS.md</code>。</li>
+<li>要改某模組：先讀 <code>docs/&lt;模組&gt;_程式完整說明.md</code>（逐檔地圖），省得亂 grep。</li>
+<li>碰 legacy 相容行為：去 <code>Reference/</code> 考古（唯讀），以舊源碼為準、不信二手描述。</li>
+<li>質疑某個「已驗證」結論：找 <code>docs/verification/</code> 對應報告看原始數據。</li>
+</ol>
+<div class="callout"><span class="tag">文化提醒</span>
+<p>這個 repo 的歷史教訓一再是：<strong>文件會過期、字串會殘留、二手描述會錯——只有源碼和貼出來的實測數據可信。</strong>寫東西時也請維持同樣標準：改了行為就更新 CLAUDE.md/STATUS.md，驗證了就貼數據，沒驗證就標 L1。</p></div>
+</section>
+
+<!-- ═══════════ QUIZ ═══════════ -->
+<section class="chapter" id="quiz" data-title="認證考題">
+<span class="eyebrow">Assessment</span>
+<h2>認證考題</h2>
+<p class="lede">每題單選。答錯會顯示解析與出處——錯了不用怕，解析才是重點。建議：逐章練習 → 全部讀完後挑戰「總測驗」（隨機 20 題，80 分及格）。</p>
+<div class="quiz-toolbar" id="quizTabs"></div>
+<div class="scorebar">
+  <span class="s">已答 <b id="scAnswered">0</b>/<b id="scTotal">0</b></span>
+  <span class="s">答對 <b id="scCorrect">0</b></span>
+  <div class="meter"><i id="scMeter"></i></div>
+  <span class="grade" id="scGrade"></span>
+  <button class="btn ghost" id="btnReset">重做本組</button>
+</div>
+<div id="quizList"></div>
+</section>
+
+<!-- ═══════════ CHECKLIST ═══════════ -->
+<section class="chapter" id="checklist" data-title="上手檢核表">
+<span class="eyebrow">Sign-off</span>
+<h2>上手檢核表</h2>
+<p class="lede">考題驗「知道」，這張表驗「做得到」。逐項實際操作，全部打勾＝可以獨立值班。勾選狀態存在瀏覽器本機。</p>
+<div class="card" id="checklistItems">
+<div class="checkitem"><input type="checkbox" id="ck0"><label for="ck0">能畫出四方塊架構圖（上位機/Control/Grab/IP）並標出 8787/8100/8200/RDMA 四條線</label></div>
+<div class="checkitem"><input type="checkbox" id="ck1"><label for="ck1">在開發機把 IP 跑起來（offline-tcp），用 Control Step1 載一張測試圖按 Test 看到缺陷</label></div>
+<div class="checkitem"><input type="checkbox" id="ck2"><label for="ck2">改一個配方參數（如 DarkThreshold）→ 重跑 → 解釋缺陷數為什麼變</label></div>
+<div class="checkitem"><input type="checkbox" id="ck3"><label for="ck3">用 scripts/estimate_pitch.py 或 Step1 FFT 鈕對新影像估 Pitch</label></div>
+<div class="checkitem"><input type="checkbox" id="ck4"><label for="ck4">跑一次 --verify-deterministic 並解釋它在驗什麼</label></div>
+<div class="checkitem"><input type="checkbox" id="ck5"><label for="ck5">故意餵一個壞配方（改壞 XML）→ 找到 _diag 下的 recipe_load incident 並用 src 欄位跳到源碼</label></div>
+<div class="checkitem"><input type="checkbox" id="ck6"><label for="ck6">用 scripts/upstream_simulator.py 對 Control 走一輪 CF_LOAD_RECIPE → CF_GET_RESULT</label></div>
+<div class="checkitem"><input type="checkbox" id="ck7"><label for="ck7">看懂 output 資料夾：指出結果 JSON/XML、overlay、缺陷小圖檔名各段意義</label></div>
+<div class="checkitem"><input type="checkbox" id="ck8"><label for="ck8">在 DefectSort 完成一輪小圖人工分類（T/P 快捷鍵）並確認 classification.json 落地</label></div>
+<div class="checkitem"><input type="checkbox" id="ck9"><label for="ck9">說出三條「絕不能做」：重複製 kernel 檔、跨機 scp 源碼、把 L1 當 L3 宣稱</label></div>
+<div class="checkitem"><input type="checkbox" id="ck10"><label for="ck10">讀完 docs/STATUS.md 最新版，說出目前哪三塊還是 L0 工地</label></div>
+<div class="checkitem"><input type="checkbox" id="ck11"><label for="ck11">（雙機可用時）跑 rdma_nslot_test 或 image_replay_sender 完成一次 RDMA 回放驗證</label></div>
+</div>
+</section>
+
+</div></main>
+</div>
+
+<script>
+/* ─────────── chapters nav ─────────── */
+const chapters = Array.from(document.querySelectorAll('section.chapter'));
+const teachIds = chapters.map(s => s.id).filter(id => id.startsWith('ch'));
+const nav = document.getElementById('sidenav');
+const grpAssess = document.getElementById('grpAssess');
+teachIds.forEach((id, i) => {
+  const s = document.getElementById(id);
+  const b = document.createElement('button');
+  b.className = 'navitem'; b.dataset.target = id;
+  b.innerHTML = '<span class="navnum">' + String(i).padStart(2,'0') + '</span>' + s.dataset.title + '<span class="readmark" data-read="'+id+'"></span>';
+  nav.insertBefore(b, grpAssess);
+});
+
+const LS = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem('cfaoi.'+k)) ?? d; } catch(e) { return d; } },
+  set(k, v) { try { localStorage.setItem('cfaoi.'+k, JSON.stringify(v)); } catch(e) {} }
+};
+let readSet = new Set(LS.get('read', []));
+
+function show(id) {
+  chapters.forEach(s => s.classList.toggle('visible', s.id === id));
+  nav.querySelectorAll('.navitem').forEach(b => b.classList.toggle('active', b.dataset.target === id));
+  if (id.startsWith('ch')) { readSet.add(id); LS.set('read', [...readSet]); refreshReadMarks(); }
+  window.scrollTo({top:0});
+  LS.set('lastPage', id);
+}
+function refreshReadMarks() {
+  nav.querySelectorAll('[data-read]').forEach(m => m.textContent = readSet.has(m.dataset.read) ? '✓' : '');
+}
+nav.addEventListener('click', e => {
+  const b = e.target.closest('.navitem'); if (b) show(b.dataset.target);
+});
+
+/* chapter prev/next */
+const allIds = [...teachIds, 'quiz', 'checklist'];
+chapters.forEach(s => {
+  if (!s.id.startsWith('ch')) return;
+  const i = allIds.indexOf(s.id);
+  const navDiv = document.createElement('div');
+  navDiv.className = 'chapnav';
+  navDiv.innerHTML =
+    (i>0 ? '<button class="btn" data-go="'+allIds[i-1]+'">← 上一章</button>' : '<span></span>') +
+    '<span style="display:flex;gap:8px"><button class="btn" data-go="quiz" data-quiztag="'+s.id+'">本章小測</button>' +
+    (i<allIds.length-1 ? '<button class="btn primary" data-go="'+allIds[i+1]+'">下一章 →</button>' : '') + '</span>';
+  s.appendChild(navDiv);
+});
+document.getElementById('content').addEventListener('click', e => {
+  const b = e.target.closest('[data-go]'); if (!b) return;
+  if (b.dataset.quiztag) selectQuizTab(b.dataset.quiztag);
+  show(b.dataset.go);
+});
+
+/* ─────────── checklist persistence ─────────── */
+const ckState = LS.get('checklist', {});
+document.querySelectorAll('#checklistItems input').forEach(cb => {
+  cb.checked = !!ckState[cb.id];
+  cb.addEventListener('change', () => { ckState[cb.id] = cb.checked; LS.set('checklist', ckState); });
+});
+
+/* ─────────── quiz engine (QUESTIONS injected below) ─────────── */
+let QUESTIONS = [];  // populated by second script block
+let currentTab = 'final';
+let answers = {};    // qid -> {picked, correct}
+
+const TABS = [
+  ['final', '總測驗 (隨機20)'], ['ch0','00 總覽'], ['ch1','01 資料流'], ['ch2','02 協議'],
+  ['ch3','03 CUDA'], ['ch4','04 配方'], ['ch5','05 RDMA'], ['ch6','06 除錯'], ['ch7','07 紀律'], ['ch8','08 現況'], ['all','全部題目']
+];
+function buildTabs() {
+  const bar = document.getElementById('quizTabs');
+  bar.innerHTML = '';
+  TABS.forEach(([key, label]) => {
+    const b = document.createElement('button');
+    b.className = 'tabbtn' + (key === currentTab ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => selectQuizTab(key));
+    bar.appendChild(b);
+  });
+}
+function seededShuffle(arr, seed) {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    const j = s % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+let finalSeed = LS.get('finalSeed', 20260711);
+function questionsForTab(tab) {
+  if (tab === 'all') return QUESTIONS;
+  if (tab === 'final') return seededShuffle(QUESTIONS, finalSeed).slice(0, 20);
+  return QUESTIONS.filter(q => q.ch === tab);
+}
+function selectQuizTab(tab) {
+  currentTab = tab;
+  answers = {};
+  buildTabs(); renderQuiz();
+}
+function renderQuiz() {
+  const list = document.getElementById('quizList');
+  const qs = questionsForTab(currentTab);
+  list.innerHTML = '';
+  qs.forEach((q, qi) => {
+    const card = document.createElement('div');
+    card.className = 'qcard';
+    const lvlName = {b:'基礎', a:'進階', s:'情境'}[q.lvl] || '';
+    card.innerHTML = '<div class="qmeta"><span>Q' + (qi+1) + '</span><span class="pill info">' + lvlName + '</span><span>' + (TABS.find(t=>t[0]===q.ch)?.[1] || '') + '</span></div>' +
+      '<div class="qtext">' + q.q + '</div>';
+    const optWrap = document.createElement('div');
+    q.opts.forEach((opt, oi) => {
+      const b = document.createElement('button');
+      b.className = 'opt'; b.innerHTML = '<b>' + 'ABCD'[oi] + '.</b> ' + opt;
+      b.addEventListener('click', () => answer(q, oi, card));
+      optWrap.appendChild(b);
+    });
+    card.appendChild(optWrap);
+    const ex = document.createElement('div');
+    ex.className = 'explain';
+    ex.innerHTML = q.ex + (q.src ? '<span class="src">出處：' + q.src + '</span>' : '');
+    card.appendChild(ex);
+    list.appendChild(card);
+  });
+  updateScore();
+}
+function answer(q, oi, card) {
+  if (answers[q.id] !== undefined) return;
+  answers[q.id] = { picked: oi, correct: oi === q.a };
+  const opts = card.querySelectorAll('.opt');
+  opts.forEach((b, i) => {
+    b.disabled = true;
+    if (i === q.a) b.classList.add('correct');
+    else if (i === oi) b.classList.add('wrong');
+  });
+  card.querySelector('.explain').classList.add('show');
+  updateScore();
+}
+function updateScore() {
+  const qs = questionsForTab(currentTab);
+  const ans = qs.filter(q => answers[q.id] !== undefined);
+  const cor = ans.filter(q => answers[q.id].correct);
+  document.getElementById('scAnswered').textContent = ans.length;
+  document.getElementById('scTotal').textContent = qs.length;
+  document.getElementById('scCorrect').textContent = cor.length;
+  const pct = qs.length ? Math.round(100 * cor.length / Math.max(ans.length,1)) : 0;
+  document.getElementById('scMeter').style.width = (100*ans.length/Math.max(qs.length,1)) + '%';
+  const g = document.getElementById('scGrade');
+  if (ans.length === qs.length && qs.length > 0) {
+    const fin = Math.round(100 * cor.length / qs.length);
+    g.textContent = fin + ' 分 ' + (fin >= 80 ? '✓ 及格' : '✗ 未達 80，重讀後再試');
+    g.style.color = fin >= 80 ? 'var(--ok)' : 'var(--crit)';
+    if (currentTab === 'final') {
+      const best = LS.get('bestFinal', 0);
+      if (fin > best) LS.set('bestFinal', fin);
+    }
+  } else g.textContent = '';
+}
+document.getElementById('btnReset').addEventListener('click', () => {
+  if (currentTab === 'final') { finalSeed = (finalSeed * 16807) % 2147483647; LS.set('finalSeed', finalSeed); }
+  answers = {}; renderQuiz();
+});
+
+function initQuiz() { buildTabs(); renderQuiz(); refreshReadMarks(); show(LS.get('lastPage','ch0')); }
+</script>
+<script id="qbank">
+QUESTIONS = [
+/* ── ch0 總覽 ── */
+{id:1,ch:'ch0',lvl:'b',q:'三個程式的職責分工，哪個描述正確？',opts:['Grab 負責影像處理，IP 負責取像','Control 跑 GPU 演算法，IP 只做轉發','Grab 取像並經 RDMA 送出、IP 用 GPU 檢測、Control 是 UI 與指揮','三個程式都可以直接對上位機'],a:2,ex:'Grab 完全不碰演算法也沒有 UI；IP 不直接面對上位機（只對 Control 走 8200）；Control 不碰影像演算法。',src:'docs/CLAUDE.md §2'},
+{id:2,ch:'ch0',lvl:'b',q:'per-CCD 配方分區目前在磁碟上的儲存鍵是？',opts:['CCD00、CCD01…','IP0、IP1…','相機 MAC 位址','slot 編號'],a:1,ex:'UI 顯示 CCD 名，但儲存鍵仍是歷史遺留的 IpName（IP0…）。「IP0→CCD 改名」是尚未做的 migration，兩套名並存解耦。',src:'docs/CLAUDE.md §2 約束①'},
+{id:3,ch:'ch0',lvl:'a',q:'array_topology.json 宣告了 37 個 CCD 槽。UI 上該怎麼呈現這 37 槽？',opts:['與 LIST_CAMERAS 列舉到的相機自動配對後標「線上」','宣告狀態(config)與偵測狀態(runtime)分開呈現，未綁定前不得標線上','只顯示列舉到的相機，宣告忽略','全部預設標綠燈'],a:1,ex:'拓樸宣告 ≠ live 綁定（約束②）。真實的「相機↔槽位」綁定是 Gap #21、尚未實作，假 merge 會誤導操作員。',src:'docs/CLAUDE.md §2 約束②'},
+{id:4,ch:'ch0',lvl:'b',q:'四台開發機器之間同步程式碼的正確方式是？',opts:['scp 把改好的檔案複製過去','各機各自維護，定期人工比對','全部走 git，GitHub 是唯一真相；remote 改了 code 立刻 commit+push','用網路共享資料夾'],a:2,ex:'hub-and-spoke 紀律：絕不 scp/cp 搬源碼（歷史上散檔就是手動複製造成的）。護欄：pull.ff only + git sync 三道防線。',src:'docs/CLAUDE.md §10'},
+{id:5,ch:'ch0',lvl:'a',q:'「一台 Spark 能算完 37 顆 CCD」這個結論的證據等級是？',opts:['37 顆已實機跑滿驗證','7.4ms/張為實測，8.2s/面板與 73% 餘裕是據此的投影，未實機跑滿 37 CCD','純理論推估，無任何實測','官方規格書數字'],a:1,ex:'誠實分級文化的典型案例：單張耗時是實測，全陣列容量是投影。引用時必須分清，不可把投影說成實測。',src:'docs/CLAUDE.md §2；STATUS.md 塊2'},
+{id:6,ch:'ch0',lvl:'b',q:'「上位機」是什麼？',opts:['一台 PLC','機台上的 HMI 觸控屏','另一台 PC（Master Controller），走 port 8787 文字協議對 Control 下令','雲端 MES 系統'],a:2,ex:'上位機是另一台 PC 不是 PLC；它只認 CF_ 前綴的文字命令與 9 參數回應。',src:'docs/CLAUDE.md §2/§5'},
+/* ── ch1 資料流 ── */
+{id:7,ch:'ch1',lvl:'b',q:'三個 TCP 埠的對應，哪組正確？',opts:['8787=Control↔IP、8100=上位機、8200=Grab','8787=上位機↔Control、8100=Control↔Grab、8200=Control↔IP','8787=Grab、8100=IP、8200=上位機','三個埠可互換，設定檔決定'],a:1,ex:'8787 文字協議（上位機）、8100/8200 JSON（Grab/IP）。RDMA 另走 18515。',src:'docs/CLAUDE.md §2/§5'},
+{id:8,ch:'ch1',lvl:'b',q:'CF_GET_RESULT 回給上位機的內容是？',opts:['完整結果 JSON','每顆缺陷的座標串','各 IP 的 ResultInfo.xml 路徑 + 缺陷數（逗號分隔文字）','overlay 圖片的 base64'],a:2,ex:'考古自 legacy 的既定格式：路徑+數量的文字串、不是 JSON。上位機自己去讀 XML。',src:'docs/CLAUDE.md §5'},
+{id:9,ch:'ch1',lvl:'b',q:'面板 OK/NG 的判定規則是？',opts:['缺陷平均 Size < 門檻','DefectCnt == 0 即 PASS','由 AI 分類器判定','上位機用 overlay 圖人工判'],a:1,ex:'JudgeResult 的判定極簡：有缺陷就 NG（另有 MaxDefectCountPass 截斷上限機制）。',src:'docs/CLAUDE.md §5'},
+{id:10,ch:'ch1',lvl:'a',q:'Step 4（image-capture 存圖）→ Step 1（離線調參）閉環的目的是？',opts:['節省磁碟空間','讓存下的 TIFF 可拿回離線調 Recipe，保證 offline 調的參數 = inline 行為','備份原圖以防資料遺失','給 AI 訓練收集資料'],a:1,ex:'閉環 + IMREAD_UNCHANGED 禁後處理 + bit-exact 決定性，三者合起來才敢說「離線調完上線就有效」。',src:'docs/CLAUDE.md §3'},
+{id:11,ch:'ch1',lvl:'a',q:'檢測結果為什麼要同時寫 JSON 和 XML 兩份？',opts:['XML 是備份','JSON 給 Control 反序列化、XML 走 legacy JudgeResult 格式讓上位機 CF_GET_RESULT 鏈相容','兩份內容不同：JSON 簡版、XML 完整版','歷史遺留，可以刪掉一份'],a:1,ex:'欄位一致的雙寫。上位機端既有程式讀 XML，動不得；Control 是新碼用 JSON 方便。',src:'docs/CLAUDE.md §5'},
+{id:12,ch:'ch1',lvl:'a',q:'output 的日期資料夾格式是？',opts:['2026-07-11','20260711（yyyyMMdd 無分隔線）','11-07-2026','Jul11_2026'],a:1,ex:'與 legacy 一致的 yyyyMMdd；遠端命令（LIST_DEFECT_FOLDERS 等）的 date 參數也是同格式，寫成 yyyy-MM-dd 會查無資料。',src:'docs/CLAUDE.md §5'},
+/* ── ch2 協議 ── */
+{id:13,ch:'ch2',lvl:'b',q:'CF_ 協議的回應格式是？',opts:['單行 OK 或 ERR','JSON 物件','固定 9 參數：OK|p1|…|p8|errMsg 或 ERR|…','XML 片段'],a:2,ex:'9 參數是舊上位機寫死的格式，參數不足也要補滿分隔符。命令名 CF_ 前綴同樣不可改。',src:'docs/CLAUDE.md §5 不變式 4'},
+{id:14,ch:'ch2',lvl:'b',q:'network-clean 原則下，LOAD_RECIPE 怎麼把配方交給 IP？',opts:['傳配方檔的絕對路徑','傳 recipe 名稱，IP 去共用磁碟找','把 RecipeInfo.xml 的內容整包放在 recipe_xml 欄位傳過去','先 scp 檔案再通知'],a:2,ex:'Control(Mac)↔IP(Linux) 無共用檔案系統。配方傳內容、結果傳 JSON、小圖傳 base64 PNG——一切走 TCP。',src:'docs/CLAUDE.md §7 不變式 8'},
+{id:15,ch:'ch2',lvl:'b',q:'FrameHeader 的 magic 與大小是？',opts:['0xCFA0A001 / 128B','0xA01CF00D / 256B','0xDEADBEEF / 64B','0xA01CF00D / 512B'],a:1,ex:'256 bytes（static_assert 保證）、magic 0xA01CF00D 是實機 RDMA CRC 驗證過的版本；舊 0xCFA0A001 從未過 RDMA、已作廢。',src:'shared/FrameHeader.h；不變式 2/3'},
+{id:16,ch:'ch2',lvl:'a',q:'DefectSort 顯示的中文曾變亂碼，根因是？',opts:['字型檔缺失','Linux 端沒裝中文 locale','C# 收 TCP 時逐 byte 轉 char，把多 byte 的 UTF-8 中文切爛——應累積整行 bytes 再解碼','資料庫編碼錯誤'],a:2,ex:'UTF-8 中文一字多 byte，逐 byte 轉 char 必爛。IpClient 已改為整行累積後一次 UTF-8 解碼。',src:'control 不變式；STATUS.md'},
+{id:17,ch:'ch2',lvl:'a',q:'離線環境（沒接相機）收到 CF_CHECK_ALIGN，Control 應該回？',opts:['OK|0|0（位移為零）','忽略不回','ERR（誠實失敗）','OK 並排隊等相機'],a:2,ex:'決策 A：回假 OK|0|0 會讓上位機以為「已對位」。誠實失敗原則：做不到就 ERR，讓上位機決策。',src:'docs/CLAUDE.md §5；STATUS.md UpstreamServer'},
+{id:18,ch:'ch2',lvl:'a',q:'Control 要顯示 IP 機器上的缺陷小圖，正確機制是？',opts:['掛載 IP 的磁碟','IP 起 HTTP 檔案伺服器','GET_DEFECT_PATCHES_BATCH 一次批次回傳 ~50 張 PNG bytes（base64）','Control ssh 過去 scp 圖檔'],a:2,ex:'network-clean + 批次化（避免逐張往返）。Avalonia 端用 Bitmap(PNG bytes) 顯示。',src:'docs/CLAUDE.md §5 DefectSort'},
+/* ── ch3 CUDA ── */
+{id:19,ch:'ch3',lvl:'b',q:'本專案的偵測 kernel 中，一個 GPU thread 負責？',opts:['一整張影像','一列像素','一個像素','一顆缺陷'],a:2,ex:'每 thread 算一個像素的判定；blockIdx/threadIdx 換算出自己的 (x,y)。8192×5000 就是四千萬個 threads 排隊上 GPU。',src:'ip/src/gpu/cuda_kernels.cu'},
+{id:20,ch:'ch3',lvl:'b',q:'GPU block 維度實際生效的值是？',opts:['INI 設定的 32×32','16×16——程式寫死，INI 的 block_dim 是從未生效的死設定','8×8','隨影像大小自動調整'],a:1,ex:'zone_config_adapter::from_ini 硬寫 16×16。曾有「16 vs 32 效能無差」的勘誤——其實是同一設定重跑。改 INI 不會有任何效果。',src:'ip 不變式 15'},
+{id:21,ch:'ch3',lvl:'a',q:'DIV 與 SUB 兩套演算法的閾值語意差在哪？',opts:['沒有差，可直接互換','DIV 是比例（如 1.30/0.75）、SUB 是灰階差（如 +17/−16），同一組數字在兩邊意義完全不同','SUB 是比例、DIV 是灰階差','DIV 用整數、SUB 用浮點'],a:1,ex:'這正是「SUB 無法不依賴背景灰階精確轉成比例」的原因——早期才會 DIV-only 拒收 SUB。兩套語意混用會產生無意義的檢測。',src:'docs/SUB_pipeline_port_plan.md'},
+{id:22,ch:'ch3',lvl:'a',q:'SUB 投票制中 PitchTimes=2、ChooseAmount=13 表示？',opts:['13 個像素中 2 個超標','2×8=16 路逐路差值中，至少 13 路超過閾值才判為缺陷','搜尋 13×13 的窗','重複投票 13 次'],a:1,ex:'每像素對 8 方向 × PitchTimes 個距離的週期鄰居逐路做灰階差，投票 ≥ ChooseAmount 才算——高票數門檻讓單路噪聲投不過。',src:'SUB_pipeline_port_plan.md §1'},
+{id:23,ch:'ch3',lvl:'s',q:'情境：換新面板後缺陷數從幾百顆暴增到 10000（觸頂）。第一個懷疑對象？',opts:['GPU 過熱','Pitch 沒重估——1~4px 偏差就會把整片正常網格判成缺陷','相機髒了','閾值太嚴'],a:1,ex:'爆量陷阱：實測 PitchX 26→30 就 561→10000。新面板必先 FFT 估 Pitch。觸頂 10000 時結果也不再 bit-exact（截斷 race-dependent）。',src:'ip 不變式 14'},
+{id:24,ch:'ch3',lvl:'a',q:'CCL host wrapper 裡「迴圈跑 merge kernel 直到 d_changed==0」的目的是？',opts:['加速','消除 thread-race 造成的缺陷數飄動（2761/2762/2763），收斂到唯一不動點 → bit-exact','省記憶體','支援更大影像'],a:1,ex:'原版 lock-free union-find 只跑一次不收斂，結果隨 race 變。收斂迴圈 + canonical 排序 = 決定性的兩根柱子。',src:'ip 不變式 7'},
+{id:25,ch:'ch3',lvl:'a',q:'blob 結果下載回 CPU 後為什麼必須 canonical 排序？',opts:['方便人閱讀','atomicAdd append 的順序隨 race 變動（集合相同、順序不定），不排序輸出就非決定性','XML 格式要求','加快後續處理'],a:1,ex:'排序鍵 label→center_y→center_x→size。少了這步，同圖兩跑的輸出檔 byte 級就不同。',src:'ip 不變式 8'},
+{id:26,ch:'ch3',lvl:'a',q:'x86 開發機調的參數上了 ARM 生產機，同一張圖差了 1 顆缺陷。這是？',opts:['嚴重 bug，立即停線','已知的浮點 ULP 邊界翻面：單像素級、方向偏保守（寧抓勿漏），該缺陷進 DefectSort 人工複核，可接受','記憶體損壞','配方沒同步'],a:1,ex:'26 張實測 25/26 完全一致；差異案例（028）在 DTH 0.60 邊界、0.58 即消失。整數/幾何欄位跨架構完全一致。',src:'docs/CLAUDE.md §7 不變式 12'},
+{id:27,ch:'ch3',lvl:'b',q:'cuda_kernels.cu 的「禁改」範圍是？',opts:['整個檔案一個字都不能動','__global__ kernel 本體禁改；host 端 launch wrapper 的編排（收斂迴圈、排序）可改','只有註解不能改','新人不能改，資深可以'],a:1,ex:'kernel 本體是已驗證的 Reference 移植。新演算法（如 SUB 投票）只能新增 kernel，不動舊的。',src:'ip 不變式 1/7'},
+{id:28,ch:'ch3',lvl:'s',q:'情境：有人覺得 kernel 檔太舊，從 Reference/Demo 重新複製了一份蓋過去。會發生什麼？',opts:['沒事，本來就是從那複製的','CCL 收斂迴圈被覆蓋回「只跑一次」版本——決定性立刻壞掉，缺陷數開始飄','編譯失敗','效能變好'],a:1,ex:'收斂迴圈是移植後加在 host wrapper 的，Reference 原版沒有。這是不變式 7 特別警告的操作。',src:'ip 不變式 7'},
+/* ── ch4 配方 ── */
+{id:29,ch:'ch4',lvl:'b',q:'RecipeInfo.xml 裡的閾值欄位名是？',opts:['ThB / ThD','BrightThreshold / DarkThreshold','BTH / DTH','ThresholdHigh / ThresholdLow'],a:1,ex:'ThB/ThD 只是 GPU 端 CUDAZone 的內部欄位名（ThB=(float)BrightThreshold 賦值）。舊文件寫 ThB/ThD 是考古前的錯誤。',src:'docs/CLAUDE.md §5'},
+{id:30,ch:'ch4',lvl:'b',q:'Recipe 的頂層結構是？',opts:['ZoneSettingList + 全域參數','M_AlignRoi（對位 Mark）+ DetectRoiList（檢測區）+ DetectIoiList（興趣區）','DefectList + RoiList','Header + Body + Footer'],a:1,ex:'每顆 CCD 一份。DetectRoi 約 32 欄位；「ZoneSetting」是誤傳的名字，實體是 DetectRoi。',src:'docs/CLAUDE.md §5'},
+{id:31,ch:'ch4',lvl:'s',q:'情境：SUB 配方曾被 IP 判為 DIV 而「假 PASS」載入。根因與教訓是？',opts:['XML 解析器 bug','守門讀了配方裡殘留的過期 <AlgorithmCompare>DIV 字串；教訓：守門必須讀真正決定行為的欄位（M_AlgorithmWayCompare）','上位機送錯配方','編碼問題'],a:1,ex:'stale 字串騙過守門 → 靜默用錯誤演算法。字串比對式的安全檢查，必須先驗證「這欄位真的是權威來源嗎」。',src:'memory/real-recipes-are-sub-not-div；SUB port plan Step A'},
+{id:32,ch:'ch4',lvl:'a',q:'SET_ALIGN 之後，偵測路徑用哪個 ROI 值？',opts:['永遠用原始 roi_*','eff_*()：aligned_* ≥ 0 就用對位後的值，否則 fallback 原始 roi_*','使用者手動選','兩者平均'],a:1,ex:'統一走 eff_* 讓「有無對位」對偵測路徑透明；AlignEnable=false 時行為完全不變。',src:'ip 不變式 24'},
+{id:33,ch:'ch4',lvl:'s',q:'F1 bug：全幅 zone（StartX=-1）套上 shift=7 後檢測範圍塌成 1px。根因是？',opts:['GPU 記憶體不足','-1+7=6 ≥ 0，讓 is_full_frame() 誤判不再是全幅 → zone_rect 用錯誤值計算；教訓：魔術值(-1)參與算術前必須先判','shift 超出範圍','XML 溢位'],a:1,ex:'修法：全幅 zone 直接跳過位移套用（is_full_frame() 先 continue）。魔術值與算術混用是經典陷阱。',src:'STATUS.md F1（已修 L3）'},
+{id:34,ch:'ch4',lvl:'a',q:'一份配方有多個 DetectRoi 時，IP 怎麼處理？',opts:['只跑第一個','把所有 ROI 聯集成一個大區跑','對每個 DetectRoi 各裁子影像跑一次再合併（一個 zone = 一個 RoiInfo）','平行開多個 GPU context'],a:2,ex:'kernel 一次只吃單一參數組（無 zone 邊界概念），所以逐 zone 裁切執行。這也是多 ROI 生產配方的效能考量點。',src:'docs/CLAUDE.md §5'},
+{id:35,ch:'ch4',lvl:'a',q:'Step1 調參頁、ZoneParamEditor、單 CCD 工作台三處同時看到同一參數，改一處另兩處立即同步。機制是？',opts:['定時輪詢比對','三處綁定同一個 RecipeStore/ZoneSettingModel 實例（單一資料來源）','存檔後互相通知重載','剪貼簿同步'],a:1,ex:'single source of truth：所有 UI 綁同一實例，存檔才寫 XML。--selftest store 驗證此行為。',src:'control/CLAUDE.md；STATUS.md RecipeStore'},
+/* ── ch5 RDMA ── */
+{id:36,ch:'ch5',lvl:'b',q:'N-slot ring 中，第 frameSeq 幀寫進哪個 slot？',opts:['隨機空 slot','frameSeq % n_slots','固定 slot 0','由 IP 每幀指定'],a:1,ex:'簡單取模定址；credit 機制保證 in-flight ≤ N，slot 不可能被覆寫。',src:'grab 不變式 7'},
+{id:37,ch:'ch5',lvl:'a',q:'IP recv_thread 收完一幀後的三步順序，正確且不可調換的是？',opts:['post_recv → memcpy → push','memcpy slot → push_blocking(隊滿就等) → post_recv(補 credit)','push → post_recv → memcpy','順序無所謂'],a:1,ex:'post_recv 必須在 push_blocking 之後：Grab 拿不到新 credit 就不能重用 slot。這一序就是整條背壓鏈的安全保證。',src:'ip 不變式 23'},
+{id:38,ch:'ch5',lvl:'s',q:'情境：關掉 app-CRC 讓送端變快後，吞吐反而從 33fps 崩到 2.6fps。真因是？',opts:['CRC 其實有加速作用','送端變快 → credit 短暫耗盡 → RNR NAK → rdma_cm 預設 min_rnr_timer=655.36ms，每次重試等 655ms；原本 CRC 的 16ms/幀「意外」把送端降速到剛好避開 RNR','網卡故障','收端 CPU 滿載'],a:1,ex:'修法：收端 accept 後 ibv_modify_qp(min_rnr_timer=12)（0.64ms）→ 73.8fps。教訓：移走別處的減速帶可能揭露隱藏的時序 bug。',src:'ip 不變式 23（2026-06-23 補）'},
+{id:39,ch:'ch5',lvl:'a',q:'RoCE v2 上，Grab 斷線後 IP 端為何需要輪詢 CM event channel？',opts:['取得統計數據','WR_FLUSH_ERR 不保證出現 → 不輪詢的話 recv_thread 永不退出、FrameQueue 永不 close、主迴圈永久卡死','RoCE 規範要求','為了重連'],a:1,ex:'「對方死了」的訊號要有第二來源。commit de047a3 加了 check_cm_disconnect()。',src:'ip 不變式 23'},
+{id:40,ch:'ch5',lvl:'b',q:'FrameQueue 滿的時候，IP 的行為是？',opts:['自動加大佇列','丟掉最舊的幀','回 ERR「系統繁忙」+ 記 incident，絕不動態配更多記憶體','靜默丟棄新幀'],a:2,ex:'固定上限是根治 legacy OOM 炸彈（per-frame new 進 List 囤積）的鐵律。滿了就背壓，讓上游慢下來。',src:'ip 不變式 18'},
+{id:41,ch:'ch5',lvl:'b',q:'生產機 DGX Spark（GB10）的 RDMA 收圖記憶體策略是？',opts:['nvidia_peermem 直達 GPU 記憶體','cudaHostAlloc(Portable|Mapped) pinned host memory 註冊 MR，GPU 經 cudaHostGetDevicePointer 走 NVLink-C2C 讀','一般 malloc','GPU Direct Storage'],a:1,ex:'GB10 是 NVLink-C2C SoC，GPU 不在標準 PCIe 空間，modprobe nvidia_peermem 直接 EINVAL（實機踩坑）。',src:'不變式 11；grab 不變式 6'},
+/* ── ch6 除錯 ── */
+{id:42,ch:'ch6',lvl:'b',q:'行車紀錄器平時的磁碟 I/O 是多少？',opts:['每幀寫一行 log','每分鐘 flush 一次','零——最近 64 張現場在記憶體環形緩衝，出事才落地 _diag/','持續寫入但壓縮'],a:2,ex:'純觀測不變式：計時區外、bench 模式 no-op、不破 bit-exact。所以生產環境永遠放心開著。',src:'ip 不變式 16'},
+{id:43,ch:'ch6',lvl:'b',q:'incident JSON 裡的 src 欄位是？',opts:['原始影像路徑','觸發 incident 的源碼位置（repo 相對 檔名:行號，FR_RECORD_INCIDENT 編譯期嵌入）','來源機器 IP','錯誤堆疊'],a:1,ex:'配 incident-viewer.html 可點擊直接跳 VS Code 對應行。半夜排障時這是最快的入口。',src:'STATUS.md 行車紀錄 src 欄位（L3）'},
+{id:44,ch:'ch6',lvl:'s',q:'情境：某 panel 的缺陷數剛好是平常的 2 倍，且座標成對重複。第一懷疑？',opts:['面板真的壞兩倍','舊 Defect_* 檔殘留疊加（歷史上換 IpName 後發生過 561→1122）——新版 result_saver 已無條件清舊檔，若復發查清檔邏輯','GPU 跑了兩次','相機重曝'],a:1,ex:'檔名含 IpName/參數，換了之後舊檔不同名不會被覆蓋 → 疊加。這也是「重測前清 panel 夾」不變式的由來。',src:'ip 不變式 10'},
+{id:45,ch:'ch6',lvl:'s',q:'情境：Control 收到 IP 回「FrameQueue 滿：系統繁忙」。這代表？',opts:['IP 程式 bug，需重啟','背壓保護的正常行為——真正該查的是根因：GPU 為什麼慢/存圖為什麼慢（看 queue_high_watermark incident）','網路斷線','配方錯誤'],a:1,ex:'ERR 是設計好的保護不是故障。把它當 bug 重啟 IP 只會掩蓋根因。',src:'ip 不變式 18；STATUS.md FrameQueue L3'},
+{id:46,ch:'ch6',lvl:'a',q:'行車紀錄器目前的覆蓋範圍誠實地說是？',opts:['全系統三端都有','只有 IP 端；Grab（相機異常）與 Control（命令未送）靠一般 log，跨機問題無統一關聯 ID','只記 CUDA 錯誤','Control 端也有完整 incident 系統'],a:1,ex:'已知缺口：跨機排障要自己比對各端時間戳。評估上線風險時要把這個盲區算進去。',src:'本教材 Ch6；ip/CLAUDE.md 不變式 16'},
+{id:47,ch:'ch6',lvl:'s',q:'情境：半夜上位機報異常，Control 上 IP 連線燈紅。你的前兩步是？',opts:['直接重啟 IP 程式','先 ssh 進 IP 機器確認 process 狀態，再看 <output>/_diag/ 今天的 jsonl 與 incident_*.json','重開整台機器','先改配方再說'],a:1,ex:'Runbook：先定位哪端出事 → 看行車紀錄（incident kind + src 直接指向源碼）。盲目重啟會毀掉現場。',src:'本教材 Ch6 Runbook'},
+/* ── ch7 紀律 ── */
+{id:48,ch:'ch7',lvl:'b',q:'L1 級別的定義與規則是？',opts:['已端到端驗證','程式碼寫完但未執行驗證——不得合入生產路徑','已單元自測','已與真實硬體驗證'],a:1,ex:'L0 未實作/L1 寫完未驗/L2 selftest/L3 端到端+貼數據/L4 真實外部系統。「寫好 ≠ 驗證過」。',src:'docs/STATUS.md 分級定義'},
+{id:49,ch:'ch7',lvl:'b',q:'這個 repo 對「完成」的定義是？',opts:['程式碼 merge 進 main','編譯通過','驗證過且貼出數據（缺陷數/幀數/CRC/誤差等進 STATUS.md 或 commit message）','PM 說完成'],a:2,ex:'工作流程紀律：每次說「做完了」之前必須貼數據。L3→L4 之間藏最多意外，標註尤其保守。',src:'docs/CLAUDE.md §8'},
+{id:50,ch:'ch7',lvl:'a',q:'grab/cam_config.json（曝光/增益）要不要進版控？',opts:['要，所有設定都進版控','不要——每機相機不同，是本機檔（.gitignore）；版控的是 cam_config.example.json 模板','只在 release 時進','壓縮後進'],a:1,ex:'新機器：cp example 後依該機相機調整；git sync 不會覆蓋它。array_topology.json 同理。',src:'docs/CLAUDE.md §10'},
+{id:51,ch:'ch7',lvl:'a',q:'驗證三階段中 Stage 3「失敗路徑」驗的是？',opts:['效能極限','錯誤輸入 → 必須正確回 ERR，不 crash、不 silent fail','長時間穩定性','UI 操作流暢度'],a:1,ex:'例：壞 XML → recipe_load incident + ERR；壞 CRC → 拒收；空白對位 ROI → ERR 不回錯誤位移。silent fail 是最危險的失敗模式。',src:'docs/CLAUDE.md §8'},
+/* ── ch8 現況 ── */
+{id:52,ch:'ch8',lvl:'b',q:'截至 2026-07，下列哪個是還沒實作（L0）的？',opts:['offline-tcp 模式','rdma-validate 模式','image-capture 與 online 模式（Step 4/5 主迴圈）','對位 pipeline'],a:2,ex:'main.cpp 尚無這兩個模式分支；它們是上線前必經的最大工地，與多相機全陣列（等 Switch）並列。',src:'docs/STATUS.md'},
+{id:53,ch:'ch8',lvl:'a',q:'AI 分類器目前的狀態是？',opts:['全自動過濾缺陷','已訓練完成待部署','模型有載入但預設停用（訓練資料不足）；缺陷標「待人工複核」，DefectSort 人工標的 TrueDefect/Particle 就是未來的訓練資料','已移除'],a:2,ex:'--use-ai 可重開。人工分類結果（classification.json + 子夾）即標註資料——現在的人工作業是在餵未來的自動化。',src:'ip 不變式 13'},
+{id:54,ch:'ch8',lvl:'a',q:'SUB 管線移植要達到最高等級驗證（逐缺陷 bit-exact vs legacy），還缺什麼？',opts:['更快的 GPU','legacy golden——舊 Windows 機台對同批影像跑出的 ResultInfo.xml；沒有它只能做合成圖手算 + 真圖 sanity','更多測試影像','新的演算法'],a:1,ex:'誠實記帳：無 golden 時標 L2/L3-partial、不宣稱 bit-exact-vs-legacy。舊機台有來源圖資料夾，值得去要 golden。',src:'docs/SUB_pipeline_port_plan.md 驗證硬限制'},
+{id:55,ch:'ch8',lvl:'s',q:'情境（2026-07 審計）：「1 台 Spark 吃下 37 CCD、餘裕 73%」這個結論現在還能引用嗎？',opts:['能，是實測結論','不能——它基於舊 DIV 演算法 7.4ms/張；SUB 真配方實測 24 CCD GPU 合計約 40.3s 已超 30s 節拍，容量必須用新管線重測重算','不能，因為 Spark 停產','能，只要加第二台 Spark'],a:1,ex:'換了演算法=前提失效。引用任何效能/容量數字前，先確認它是用「現在的管線」量的。',src:'docs/architecture_audit_20260712.md P0-2'},
+{id:56,ch:'ch8',lvl:'s',q:'情境（2026-07 審計）：SUB 全 panel 配方（ROI Y 到 146k）直接上生產 RDMA 路徑會發生什麼？',opts:['正常檢測','IP 拒絕載入','ROI 被靜默 clamp 成 1px 條帶——Y>5000 的缺陷全漏、回 PASS、無警告；因為 sliceIndex→Y-offset band 映射尚未實作，只有 offline --stitch 能正確跑','自動切換成拼接模式'],a:2,ex:'審計判定為上線前唯一「不做必出事」的新碼（原 Step B 規格）。用回放鏈就能修+驗，不需等相機。',src:'docs/architecture_audit_20260712.md P0-1'},
+{id:57,ch:'ch8',lvl:'s',q:'情境（2026-07 審計）：IP 程式掛掉後，上位機發 CF_GET_RESULT 會收到什麼？',opts:['ERR','逾時無回應','OK 加上空路徑與 0 缺陷——三條故障路徑都匯流成與「真 0 缺陷」相同的回應（假 PASS，已列 P0 待修）','上次的快取結果'],a:2,ex:'「靜默假 OK」家族的代表案例：單機的誠實失敗文化沒貫穿到跨機組合層。改跨機路徑時永遠先問「失敗時對方看到 ERR 還是假 OK？」',src:'docs/architecture_audit_20260712.md P0-3'},
+{id:58,ch:'ch8',lvl:'s',q:'情境（2026-07 審計）：用 Control 新建一份配方直接投產，會有什麼隱患？',opts:['沒有隱患，預設值都安全','配方會缺少必填欄位無法載入','Control 預設 BlobMinSize=80（生產 legacy 配方是 3）——IP 的 blob 過濾會靜默丟掉 size<80 的缺陷；另 chooseAmount=-1 會被 IP clamp 成最鬆的 1','IP 會拒絕非 legacy 產生的配方'],a:2,ex:'兩端預設值沒有對齊的契約 drift。新建配方後必須逐欄比對 legacy 生產配方的實際值。',src:'docs/architecture_audit_20260712.md P0-9'},
+];
+initQuiz();
+</script>
+
+</body>
+</html>

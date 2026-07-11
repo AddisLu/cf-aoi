@@ -10,9 +10,11 @@
 #include <ctime>
 #include <exception>
 #include <filesystem>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <thread>
 
 #include <cuda_runtime.h>
 
@@ -96,10 +98,17 @@ json scene_full_json(const FrameScene& s) {
     json zs = json::array();
     for (const auto& z : s.zones) {
         zs.push_back({{"zone_index", z.zone_index},
+                      {"algo_mode", z.algo_mode},
                       {"BTH", z.BTH}, {"DTH", z.DTH},
                       {"pitch_x", z.pitch_x}, {"pitch_y", z.pitch_y},
                       {"search_x", z.search_x}, {"search_y", z.search_y},
                       {"roi", {z.roi_x1, z.roi_y1, z.roi_x2, z.roi_y2}},
+                      {"pitch_times", z.pitch_times}, {"choose_amount", z.choose_amount},
+                      {"mean_low", z.mean_low_threshold},
+                      {"multiscale", z.enable_multiscale},
+                      {"blob", {z.blob_min, z.blob_max, z.blob_merge}},
+                      {"smooth3x3", z.smooth_times2},
+                      {"remap", z.preproc_remap}, {"lsc", z.lsc},
                       {"defects", z.defects}});
     }
     j["zones"] = std::move(zs);
@@ -184,14 +193,47 @@ void FlightRecorder::record_incident(const std::string& kind, const std::string&
                                      const std::string& stack, const std::string& src) {
     if (!enabled()) return;
 
+    std::string src_rel = repo_relative(src);   // repo 相對 "檔名:行號"（log → VS Code 跳轉用）
+
+    // ── 節流：同 kind 在 kThrottleWindow 內只寫一次完整 incident 檔 ──────────
+    // 防「持續性錯誤（如 CFAOI_RDMA_NOCRC 單邊設定）→ 每幀一個 incident 檔」把 _diag
+    // 磁碟/inode 灌爆。被抑制期間仍每滿 100 筆補一行 compact jsonl 摘要（有痕跡、不洪水）。
+    uint64_t suppressed_since_last = 0;
+    {
+        std::lock_guard<std::mutex> tlk(throttle_mtx_);
+        auto& t = throttle_[kind];
+        auto now = std::chrono::steady_clock::now();
+        bool first = (t.last_full == std::chrono::steady_clock::time_point{});
+        if (!first && now - t.last_full < kThrottleWindow) {
+            ++t.suppressed;
+            if (t.suppressed % 100 == 1) {
+                try {
+                    fs::path diag_dir = fs::path(session_.output_dir) / "_diag";
+                    json idx{{"type", "incident_suppressed"}, {"ts", time_str(0)},
+                             {"kind", kind}, {"suppressed", t.suppressed},
+                             {"detail", detail}};
+                    if (!src_rel.empty()) idx["src"] = src_rel;
+                    std::ofstream jf(diag_dir / (time_str(1) + ".jsonl"), std::ios::app);
+                    if (jf) jf << idx.dump() << "\n";
+                } catch (...) {}
+                std::cerr << "[Incident] kind=" << kind << " 節流中（30s 窗已抑制 "
+                          << t.suppressed << " 筆）: " << detail << "\n";
+            }
+            return;
+        }
+        suppressed_since_last = t.suppressed;
+        t.suppressed = 0;
+        t.last_full = now;
+    }
+
     json inc;
     inc["type"] = "incident";
     inc["ts"] = time_str(0);
     inc["kind"] = kind;
     inc["detail"] = detail;
     if (!stack.empty()) inc["stack"] = stack;
-    std::string src_rel = repo_relative(src);   // repo 相對 "檔名:行號"（log → VS Code 跳轉用）
     if (!src_rel.empty()) inc["src"] = src_rel;
+    if (suppressed_since_last > 0) inc["suppressed_since_last"] = suppressed_since_last;
 
     inc["session"] = {{"mode", session_.mode}, {"ip_name", session_.ip_name},
                       {"ini", session_.ini},
@@ -199,23 +241,38 @@ void FlightRecorder::record_incident(const std::string& kind, const std::string&
                       {"zero_copy", session_.zero_copy}, {"ai_active", session_.ai_active},
                       {"gpu", gpu_info_json()}};
 
-    // 當下現場：latest_ 恆可得（atomic 跨執行緒）。
-    const FrameScene* cur = latest_.load(std::memory_order_acquire);
-    if (cur) inc["current_frame"] = scene_full_json(*cur);
-    else     inc["current_frame"] = nullptr;
-
-    // 最近 N 張：try_lock 取 ring 快照；取不到（fatal 與 writer 撞）就只給當下現場。
+    // 當下現場 + 最近 N 張：一律在 ring_mtx_ 保護下深拷（修 race：舊版在鎖外深拷
+    // *latest_ 的 string/vector，與 writer 覆寫同 slot 構成 data race → incident 內容
+    // 可能撕裂）。try_lock 失敗（fatal 與 writer 撞，極罕見）→ 只給 POD 摘要，
+    // 不碰 string/vector（避免 UB），並註記原因。
     json recent = json::array();
     {
         std::unique_lock<std::mutex> lk(ring_mtx_, std::try_to_lock);
+        if (!lk.owns_lock()) {                       // 短暫退讓再試一次（writer 臨界區極短）
+            std::this_thread::yield();
+            lk.try_lock();
+        }
         if (lk.owns_lock()) {
+            const FrameScene* cur = latest_.load(std::memory_order_acquire);
+            inc["current_frame"] = cur ? scene_full_json(*cur) : json(nullptr);
             // 由舊到新走訪 count_ 筆（head_ 為下一個要寫的位置）。
             for (size_t i = 0; i < count_; ++i) {
                 size_t idx = (head_ + kRingSize - count_ + i) % kRingSize;
                 recent.push_back(scene_compact_json(ring_[idx]));
             }
         } else {
-            inc["recent_frames_note"] = "ring 鎖被佔用（fatal 與 writer 撞），僅 current_frame";
+            const FrameScene* cur = latest_.load(std::memory_order_acquire);
+            if (cur) {   // 僅 POD 欄位（int/double 撕裂無 UB；string/vector 不碰）
+                inc["current_frame"] = {{"frame_seq", cur->frame_seq},
+                                        {"cam_id", cur->cam_id},
+                                        {"width", cur->width}, {"height", cur->height},
+                                        {"num_defects", cur->num_defects},
+                                        {"gpu_ms", cur->gpu_ms},
+                                        {"complete", cur->complete}};
+            } else {
+                inc["current_frame"] = nullptr;
+            }
+            inc["recent_frames_note"] = "ring 鎖被佔用（fatal 與 writer 撞），僅 POD 摘要";
         }
     }
     inc["recent_frames"] = std::move(recent);
@@ -248,6 +305,87 @@ void FlightRecorder::record_incident(const std::string& kind, const std::string&
               << " seq=" << (c ? c->frame_seq : 0)
               << " : " << detail
               << " → " << incident_path << "\n";
+}
+
+void FlightRecorder::record_recipe(const std::string& label,
+                                   const std::vector<ZoneSnap>& zones) {
+    if (!enabled()) return;
+    // LOAD_RECIPE 成功留痕：一行 compact jsonl（守門判定 + 關鍵參數）。
+    // 「載錯但合法」事故（守門誤分類/靜默預設/換錯配方）事後可從 _diag 還原
+    // 「何時載了什麼、每 zone 判成哪個 algo_mode」。
+    json r;
+    r["type"] = "recipe";
+    r["ts"] = time_str(0);
+    r["label"] = label;
+    json zs = json::array();
+    for (const auto& z : zones) {
+        zs.push_back({{"zone_index", z.zone_index}, {"algo_mode", z.algo_mode},
+                      {"BTH", z.BTH}, {"DTH", z.DTH},
+                      {"pitch", {z.pitch_x, z.pitch_y}},
+                      {"pitch_times", z.pitch_times}, {"choose_amount", z.choose_amount},
+                      {"multiscale", z.enable_multiscale},
+                      {"blob", {z.blob_min, z.blob_max, z.blob_merge}},
+                      {"smooth3x3", z.smooth_times2},
+                      {"remap", z.preproc_remap}, {"lsc", z.lsc},
+                      {"roi", {z.roi_x1, z.roi_y1, z.roi_x2, z.roi_y2}}});
+    }
+    r["zones"] = std::move(zs);
+    try {
+        fs::path diag_dir = fs::path(session_.output_dir) / "_diag";
+        fs::create_directories(diag_dir);
+        std::ofstream jf(diag_dir / (time_str(1) + ".jsonl"), std::ios::app);
+        if (jf) jf << r.dump() << "\n";
+    } catch (const std::exception& e) {
+        std::cerr << "[FlightRecorder] record_recipe 寫檔失敗: " << e.what() << "\n";
+    }
+}
+
+void FlightRecorder::tick_stats(double gpu_ms, int num_defects, int64_t queue_depth) {
+    if (!enabled()) return;
+    // single-writer（與 record_frame 同執行緒）；累積視窗，滿 kStatsPeriod 張落一行。
+    if (stats_frames_ == 0) {
+        stats_t0_ = std::chrono::steady_clock::now();
+        stats_gpu_ms_.clear();
+        stats_gpu_ms_.reserve(kStatsPeriod);
+        stats_defects_sum_ = 0;
+        stats_defects_max_ = 0;
+        stats_queue_peak_ = -1;
+    }
+    ++stats_frames_;
+    stats_gpu_ms_.push_back(gpu_ms);
+    stats_defects_sum_ += (uint64_t)std::max(0, num_defects);
+    stats_defects_max_ = std::max(stats_defects_max_, num_defects);
+    stats_queue_peak_ = std::max(stats_queue_peak_, queue_depth);
+    if (stats_frames_ < kStatsPeriod) return;
+
+    double elapsed_s = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - stats_t0_).count();
+    std::vector<double> v = stats_gpu_ms_;
+    std::sort(v.begin(), v.end());
+    auto pct = [&](double p) {
+        if (v.empty()) return 0.0;
+        size_t i = (size_t)(p * (double)(v.size() - 1));
+        return v[i];
+    };
+    json s;
+    s["type"] = "stats";
+    s["ts"] = time_str(0);
+    s["frames"] = stats_frames_;
+    s["fps"] = elapsed_s > 0 ? (double)stats_frames_ / elapsed_s : 0.0;
+    s["gpu_ms_p50"] = pct(0.50);
+    s["gpu_ms_p95"] = pct(0.95);
+    s["gpu_ms_max"] = v.empty() ? 0.0 : v.back();
+    s["defects_sum"] = stats_defects_sum_;
+    s["defects_max"] = stats_defects_max_;
+    if (stats_queue_peak_ >= 0) s["queue_peak"] = stats_queue_peak_;
+    try {
+        fs::path diag_dir = fs::path(session_.output_dir) / "_diag";
+        std::ofstream jf(diag_dir / (time_str(1) + ".jsonl"), std::ios::app);
+        if (jf) jf << s.dump() << "\n";
+    } catch (const std::exception& e) {
+        std::cerr << "[FlightRecorder] tick_stats 寫檔失敗: " << e.what() << "\n";
+    }
+    stats_frames_ = 0;   // 開新視窗
 }
 
 void FlightRecorder::dump_fatal_once(const std::string& kind, const std::string& detail,

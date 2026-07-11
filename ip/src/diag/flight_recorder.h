@@ -26,7 +26,9 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -41,6 +43,14 @@ struct ZoneSnap {
     int   search_x = 0, search_y = 0;
     int   roi_x1 = 0, roi_y1 = 0, roi_x2 = 0, roi_y2 = 0;
     int   defects = 0;
+    // SUB/融合時代欄位（2026-07-12 補）：出事時第一個要回答的是「這 zone 用哪個演算法、
+    // 哪些後處理在跑」——只有 DIV 時代 8 欄的現場答不出（守門誤分類事故將無痕跡）。
+    int   algo_mode = 0;           // 0=DIV 1=SUB 2=DIV-voting（守門判定結果）
+    int   enable_multiscale = 0;   // 0=off 1=2x 2=2x+4x（僅 mode2 消費）
+    int   pitch_times = 0, choose_amount = 0, mean_low_threshold = 0;
+    int   blob_min = 0, blob_max = 0, blob_merge = 0;   // Step E CPU 後處理
+    int   smooth_times2 = 0;
+    bool  preproc_remap = false, lsc = false;
 };
 
 // 一張影像（panel）的完整現場。
@@ -89,6 +99,17 @@ public:
     void record_incident(const std::string& kind, const std::string& detail,
                          const std::string& stack = "", const std::string& src = "");
 
+    // LOAD_RECIPE「成功」也留痕（補盲區：載錯但合法的配方無任何 _diag 紀錄）：
+    // 寫一行 type="recipe" 進當日 jsonl，含來源標籤 + 每 zone 守門判定後的關鍵參數
+    // （algo_mode/閾值/pitch/投票/blob/多尺度）。單行 append、在命令處理路徑（非計時區）。
+    void record_recipe(const std::string& label, const std::vector<ZoneSnap>& zones);
+
+    // 週期 stats：每 kStatsPeriod 張寫一行 type="stats"（fps / gpu_ms p50/p95/max /
+    // queue 峰值 / 缺陷 sum/max）進當日 jsonl。與 record_frame 同執行緒（single-writer）、
+    // timed region 外呼叫 → 不擾動 gpu_ms。用途：效能退化有基線可比；hang 時最後一行
+    // stats 的 ts = 「最後活著時間」上界。
+    void tick_stats(double gpu_ms, int num_defects, int64_t queue_depth);
+
     bool enabled() const { return enabled_.load(std::memory_order_acquire); }
 
 private:
@@ -115,6 +136,26 @@ private:
     std::atomic<const FrameScene*>   latest_{nullptr};
 
     std::atomic<bool> fatal_dumped_{false};           // 避免 atexit/terminate 重複 dump
+
+    // ── 週期 stats 視窗（single-writer：與 record_frame 同執行緒，不加鎖）──
+    static constexpr size_t kStatsPeriod = 200;       // 每 200 張落一行 stats
+    std::vector<double> stats_gpu_ms_;
+    uint64_t stats_frames_ = 0;
+    uint64_t stats_defects_sum_ = 0;
+    int      stats_defects_max_ = 0;
+    int64_t  stats_queue_peak_ = -1;
+    std::chrono::steady_clock::time_point stats_t0_{};
+
+    // ── incident 節流（防 _diag 洪水：持續性錯誤如 NOCRC 單邊 → 每幀一檔 → inode 爆）──
+    // 同 kind 30 秒內只寫一次「完整 incident 檔」；期間僅累計 suppressed 計數
+    //（每滿 100 筆補一行 compact jsonl 摘要），下次完整寫入時帶 suppressed_since_last。
+    struct KindThrottle {
+        std::chrono::steady_clock::time_point last_full{};
+        uint64_t suppressed = 0;
+    };
+    static constexpr std::chrono::seconds kThrottleWindow{30};
+    std::mutex throttle_mtx_;
+    std::map<std::string, KindThrottle> throttle_;
 };
 
 }  // namespace diag

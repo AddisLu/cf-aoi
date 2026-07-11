@@ -168,11 +168,20 @@ void RdmaImageSource::recv_thread_fn() {
             continue;
         }
 
-        // payload 大小防呆
+        // payload 大小防呆（含尺寸一致性：畸形 header 不得帶著錯誤 w×h 進 cv::Mat）
         size_t total = sizeof(FrameHeader) + h.payloadBytes;
-        if (total > slot_size_) {
-            fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u total=%zu > slot_size=%u\n",
-                    seq, slot_id, total, slot_size_);
+        const bool dim_ok = h.width >= 1 && h.width <= 16384 &&
+                            h.height >= 1 && h.height <= 16384 &&
+                            (uint64_t)h.payloadBytes == (uint64_t)h.width * h.height;
+        if (total > slot_size_ || !dim_ok) {
+            fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u total=%zu slot_size=%u"
+                    " w=%u h=%u payload=%u（尺寸/大小不合法）\n",
+                    seq, slot_id, total, slot_size_, h.width, h.height, h.payloadBytes);
+            FR_RECORD_INCIDENT("frame_validation",
+                "rdma payload/尺寸不合法 seq=" + std::to_string(seq) +
+                " slot=" + std::to_string(slot_id) +
+                " w=" + std::to_string(h.width) + " h=" + std::to_string(h.height) +
+                " payload=" + std::to_string(h.payloadBytes));
             ++recv_err_;
             conn_.post_recv(rx_mr_, rx_small_, 4);
             continue;

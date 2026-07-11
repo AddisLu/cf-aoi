@@ -283,6 +283,34 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
     return agg;
 }
 
+// 行車紀錄：ZoneConfig → ZoneSnap（含 SUB/融合欄位——出事時能回答「用哪個演算法跑的」）。
+// make_scene_params（每幀現場）與 record_recipe（LOAD_RECIPE 留痕）共用。
+std::vector<diag::ZoneSnap> zones_to_snaps(const std::vector<ZoneConfig>& zones) {
+    std::vector<diag::ZoneSnap> out;
+    out.reserve(zones.size());
+    for (const auto& z : zones) {
+        diag::ZoneSnap zs;
+        zs.zone_index = z.zone_index;
+        zs.BTH = z.BTH; zs.DTH = z.DTH;
+        zs.pitch_x = z.pitch_x; zs.pitch_y = z.pitch_y;
+        zs.search_x = z.search_range_x; zs.search_y = z.search_range_y;
+        zs.roi_x1 = z.roi_start_x; zs.roi_y1 = z.roi_start_y;
+        zs.roi_x2 = z.roi_end_x;   zs.roi_y2 = z.roi_end_y;
+        zs.algo_mode = z.algo_mode;
+        zs.enable_multiscale = z.enable_multiscale;
+        zs.pitch_times = z.pitch_times;
+        zs.choose_amount = z.choose_amount;
+        zs.mean_low_threshold = z.mean_low_threshold;
+        zs.blob_min = z.blob_min_size; zs.blob_max = z.blob_max_size;
+        zs.blob_merge = z.blob_merge_distance;
+        zs.smooth_times2 = z.smooth_times2;
+        zs.preproc_remap = z.preproc_remap;
+        zs.lsc = z.enable_lsc;
+        out.push_back(zs);
+    }
+    return out;
+}
+
 // 行車紀錄：從 zones + FrameHeader 組「僅參數」現場（process 前 set_scene 用，
 // 使 CUDA fatal 在運算中途也抓得到當下 panel/zone 參數）。
 diag::FrameScene make_scene_params(const std::vector<ZoneConfig>& zones,
@@ -293,17 +321,32 @@ diag::FrameScene make_scene_params(const std::vector<ZoneConfig>& zones,
     s.cam_id    = hdr.camId;
     s.width     = (int)hdr.width;
     s.height    = (int)hdr.height;
-    for (const auto& z : zones) {
-        diag::ZoneSnap zs;
-        zs.zone_index = z.zone_index;
-        zs.BTH = z.BTH; zs.DTH = z.DTH;
-        zs.pitch_x = z.pitch_x; zs.pitch_y = z.pitch_y;
-        zs.search_x = z.search_range_x; zs.search_y = z.search_range_y;
-        zs.roi_x1 = z.roi_start_x; zs.roi_y1 = z.roi_start_y;
-        zs.roi_x2 = z.roi_end_x;   zs.roi_y2 = z.roi_end_y;
-        s.zones.push_back(zs);
-    }
+    s.zones = zones_to_snaps(zones);
     return s;
+}
+
+// 行車紀錄：defect_flood 觸發器——「結果錯但不 crash」盲區的爆量半邊。
+// 任一 zone 觸頂 GPU cap（MAX_DEFECTS=10000，ip/CLAUDE.md 不變式 6；觸頂結果非
+// bit-exact、大概率為 Pitch 設錯/守門誤路由）→ 記 incident，自動把最近 64 張現場
+// （含正常張的缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
+void maybe_record_defect_flood(const InspectionResult& res) {
+    constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
+    int zone_capped = -1, zone_defects = 0, total = 0;
+    for (const auto& zr : res.zones) {
+        total += zr.result.num_defects;
+        if (zr.result.num_defects >= kDefectCap && zone_capped < 0) {
+            zone_capped = zr.zone_index;
+            zone_defects = zr.result.num_defects;
+        }
+    }
+    if (zone_capped < 0 && total < kDefectCap) return;
+    std::string detail = "缺陷爆量 panel=" + res.panel_id +
+        " total=" + std::to_string(total);
+    if (zone_capped >= 0)
+        detail += " zone" + std::to_string(zone_capped) + "=" +
+                  std::to_string(zone_defects) + "(觸頂cap，結果已非bit-exact)";
+    detail += "；第一懷疑：Pitch 設錯（不變式14）或演算法模式/閾值域錯配";
+    FR_RECORD_INCIDENT("defect_flood", detail);
 }
 
 // 把結果補進現場（process 後 record_frame 用）。
@@ -387,6 +430,9 @@ int main(int argc, char** argv) {
                   << " BTH=" << args.ov_bth << " DTH=" << args.ov_dth
                   << " dark_eps=" << args.ov_dark_eps << " → 套用至 " << zones.size() << " zones\n";
     }
+    // 行車紀錄：配方載入成功留痕（offline-file/stitch 的啟動配方；含 CLI 覆寫後的實效值）。
+    if (!args.recipe.empty())
+        diag::FlightRecorder::instance().record_recipe(args.recipe, zones_to_snaps(zones));
     // #23 興趣區（offline-file：從 recipe 檔解析一次；offline-tcp 由 LOAD_RECIPE 解析）
     std::vector<IoiRect> file_ioi = args.recipe.empty()
         ? std::vector<IoiRect>{}
@@ -436,6 +482,7 @@ int main(int argc, char** argv) {
                                              args.verify_deterministic, vf,
                                              cli_saving_cfg, machine_optical);
         res.ioi_list = file_ioi;
+        maybe_record_defect_flood(res);   // 爆量自動落地（拼接 panel 亦適用）
         ResultSaver::save(res, panel.data, panel.cols, panel.rows, args.output, args.ip_name, save_opt);
         std::cout << "[Done] 拼接 panel 偵測完成，缺陷 " << res.total_defects() << "\n";
 
@@ -456,6 +503,9 @@ int main(int argc, char** argv) {
             res.ioi_list = file_ioi;   // #23 興趣區
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
+            maybe_record_defect_flood(res);                        // 爆量自動落地（觸頂/總數異常）
+            diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
+                                                        scene.queue_depth);
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
             ++processed;
         }
@@ -520,6 +570,12 @@ int main(int argc, char** argv) {
                     std::cout << "[Recipe] LOAD_RECIPE "
                               << (recipe_xml.empty() ? ("'" + recipe + "'") : "(inline xml)")
                               << " panel=" << panel << " → " << zones.size() << " zones\n";
+                    // 行車紀錄：LOAD_RECIPE 成功留痕（守門判定後每 zone 的 algo_mode/參數）。
+                    // 「載錯但合法」（守門誤分類/靜默預設/換錯配方）事後可從 _diag 還原。
+                    diag::FlightRecorder::instance().record_recipe(
+                        (recipe_xml.empty() ? recipe : recipe + " (inline xml)") +
+                            " panel=" + panel,
+                        zones_to_snaps(zones));
                     return true;
                 } catch (const RecipeError& e) {
                     err = e.what();
@@ -571,6 +627,9 @@ int main(int argc, char** argv) {
             res.ioi_list = server.ioi_list();   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
+            maybe_record_defect_flood(res);                        // 爆量自動落地
+            diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
+                                                        scene.queue_depth);
             // TuningRecipe：GPU 跑、結果仍回 TCP，但完全不寫磁碟（量速/調參模式）。
             if (sflags.tuning_recipe) {
                 std::cout << "[TuningRecipe] 跳過存圖（結果仍回傳）panel=" << name << "\n";
@@ -671,7 +730,9 @@ int main(int argc, char** argv) {
         // 1. 連續流：Grab 連送 100+ 幀，IP N-slot 連續接，CRC 全對
         // 2. 背壓：--test-consumer-delay-ms → credit 耗盡 → Grab poll_one() 阻塞
         // 3. slot race：繞回（seq>N）時 CRC 仍正確
-        // 4. flight_recorder：credit 水位低時 incident
+        // 4. flight_recorder：CRC/magic 驗證失敗 → frame_validation incident
+        //    （credit 水位無低水位 incident——credit 隱含在 post_recv 深度，無法廉價觀測；
+        //      塞車徵兆改由 scene.queue_depth + stats line 的 queue_peak 提供）
         // ────────────────────────────────────────────────────────────────────────
 
         // max_payload = 一幀最大 payload（以 INI/recipe 的 width×height 估算）
@@ -804,6 +865,7 @@ int main(int argc, char** argv) {
             std::string name = nm;
 
             diag::FrameScene scene = make_scene_params(zones, name, hdr);
+            scene.queue_depth = (int64_t)depth;   // 水位快照（原漏填 → incident 時查不到塞車徵兆）
             diag::FlightRecorder::instance().set_scene(scene);
             auto t0 = std::chrono::steady_clock::now();
             InspectionResult res = process_image(pipe, zones, gray, name,
@@ -816,6 +878,9 @@ int main(int argc, char** argv) {
             if (proc_ms > max_proc_ms) max_proc_ms = proc_ms;
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);
+            maybe_record_defect_flood(res);                        // 爆量自動落地
+            diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
+                                                        scene.queue_depth);
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
                               args.output, args.ip_name, save_opt);
             ++processed;
