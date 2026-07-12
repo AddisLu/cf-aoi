@@ -34,7 +34,7 @@ BUNDLE = [
     ("control",               {".md"}),
     ("scripts",               {".py", ".sh"}),
     ("docs",                  {".md"}),              # 總綱/STATUS/說明/驗證報告/審計（遞迴含 verification/）
-    ("docs/html",             {".py", ".html"}),     # build_manual.py + incident-viewer.html
+    ("docs/html",             {".py"}),              # build_manual.py（.html 只收 incident-viewer，見下）
     ("tools",                 {".md", ".cpp", ".h"}),
     ("control/src",           {".json"}),            # appsettings + config/*.example.json（bin/obj 已剪枝）
     ("grab",                  {".json"}),            # cam_config.example.json
@@ -112,6 +112,10 @@ def demo_log():
 
 def main():
     files = collect()
+    # docs/html 只額外收 incident-viewer（其餘 .html 是獨立報告頁/舊版文件，不進 bundle）
+    ivp = os.path.join(ROOT, "docs", "html", "incident-viewer.html")
+    if os.path.isfile(ivp):
+        files["docs/html/incident-viewer.html"] = open(ivp, encoding="utf-8", errors="replace").read()
     fn_index = index_functions(files)
     demo = demo_log()
     try:
