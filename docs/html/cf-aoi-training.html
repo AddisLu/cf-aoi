@@ -750,6 +750,25 @@ dotnet run        # 再起一次 UI，看到主視窗＝Day 1 完成 🎉</code>
 </table></div>
 <div class="callout warn"><span class="tag">⚠ 同步鐵則</span><p>實機上<strong>只 pull 不編輯</strong>（<code>git sync</code> 別名有三道防線）；改碼一律在 Mac → commit → push → 實機 pull。絕不 scp 源碼。</p></div>
 
+<div class="topoanim" id="gitAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-gi="ok">▶ 正確同步（hub-and-spoke）</button>
+  <button class="btn" data-gi="scp">🙅 直接 scp 源碼</button>
+  <button class="btn" data-gi="dirty">😈 在 remote 偷改後 pull</button>
+</div>
+<svg viewBox="0 0 660 130" aria-label="git 同步紀律動畫">
+  <line class="tlink" x1="125" y1="65" x2="255" y2="65"/>
+  <line class="tlink" x1="405" y1="65" x2="545" y2="30"/><line class="tlink" x1="405" y1="65" x2="545" y2="65"/><line class="tlink" x1="405" y1="65" x2="545" y2="100"/>
+  <rect class="tnode" id="giMac" x="15" y="40" width="110" height="50" rx="10"/><text x="70" y="70" text-anchor="middle">Mac（作者）</text>
+  <rect class="tnode" id="giHub" x="255" y="40" width="150" height="50" rx="10"/><text x="330" y="63" text-anchor="middle">GitHub</text><text x="330" y="79" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">唯一真相</text>
+  <rect class="tnode" id="giSpark" x="545" y="15" width="100" height="30" rx="8"/><text x="595" y="35" text-anchor="middle" style="font-size:11px">Spark</text>
+  <rect class="tnode" id="giDamac" x="545" y="50" width="100" height="30" rx="8"/><text x="595" y="70" text-anchor="middle" style="font-size:11px">damac</text>
+  <rect class="tnode" id="giRtx" x="545" y="85" width="100" height="30" rx="8"/><text x="595" y="105" text-anchor="middle" style="font-size:11px">RTX2080</text>
+  <circle class="dot" id="giDot" cx="70" cy="65" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="giConsole">← 四機同步的三種劇本：一種對、兩種會被護欄擋下</div>
+</div>
+
 <h3>程式怎麼常駐（現況與建議）</h3>
 <p><strong>現況（誠實）</strong>：repo 目前沒有 systemd unit——驗證階段都是 tmux／nohup 手動跑，或用 <code>scripts/run.sh</code>／<code>scripts/launchers/</code>（它們會自動 cd 到正確目錄，順便避開下面的 CWD 陷阱）：</p>
 <pre><code># Spark（IP）——注意：一定從 ip/ 目錄啟動，或 --output 給絕對路徑
@@ -829,6 +848,32 @@ echo $CFAOI_RDMA_NOCRC                                      # 兩端要嘛都設
 <tr><td><code>#ifdef</code> 條件編譯</td><td>「這段碼只有定義了某開關才存在」——沒裝 RDMA 的機器連編譯都不編那些檔。</td><td><code>CFAOI_HAS_RDMA</code>：main.cpp 的 rdma 模式分支、CMakeLists 的條件原始檔</td></tr>
 <tr><td><code>try / catch</code>＋自訂例外</td><td>丟出（throw）錯誤物件、外層接住（catch）。本專案守門用 <code>RecipeError</code> 丟拒載原因。</td><td>zone_config_adapter.cpp 守門 throw；main.cpp:365-372 catch 後記 incident 回傳 2</td></tr>
 </table></div>
+
+<div class="topoanim" id="cvAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-cv="ok">▶ condition_variable 會合（送圖等結果）</button>
+  <button class="btn" data-cv="timeout">⏰ 等到 60s 逾時</button>
+</div>
+<svg viewBox="0 0 660 130" aria-label="會合機制動畫">
+  <rect class="tnode" id="cvA" x="15" y="15" width="180" height="42" rx="10"/>
+  <text x="105" y="36" text-anchor="middle" style="font-size:11px">ControlServer 執行緒</text>
+  <text x="105" y="50" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">SEND_IMAGE handler</text>
+  <rect class="tnode" x="260" y="15" width="150" height="42" rx="10"/>
+  <text x="335" y="36" text-anchor="middle" style="font-size:11px">result_cv_.wait_for</text>
+  <text x="335" y="50" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)" id="cvZzz">（等待區）</text>
+  <rect class="tnode" id="cvB" x="15" y="75" width="180" height="42" rx="10"/>
+  <text x="105" y="96" text-anchor="middle" style="font-size:11px">主迴圈執行緒</text>
+  <text x="105" y="110" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">process_image → GPU</text>
+  <rect class="tnode" id="cvD" x="260" y="75" width="150" height="42" rx="10"/>
+  <text x="335" y="99" text-anchor="middle" style="font-size:11px">deliver_result()</text>
+  <rect class="tnode" id="cvR" x="480" y="45" width="165" height="42" rx="10"/>
+  <text x="562" y="66" text-anchor="middle" style="font-size:11px">回應 TCP → Control</text>
+  <text x="562" y="80" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)" id="cvRes">…</text>
+  <circle class="dot" id="cvDot1" cx="105" cy="36" r="6" opacity="0"/>
+  <circle class="dot" id="cvDot2" cx="105" cy="96" r="6" opacity="0"/>
+</svg>
+<div class="topo-console" id="cvConsole">← 「你先睡，好了我叫你」——兩條執行緒怎麼交接一個結果（control_server.cpp:613 的真實機制）</div>
+</div>
 
 <h3>CUDA 篇（看懂 GPU 碼的最小集合）</h3>
 <div class="tablewrap"><table>
@@ -1331,6 +1376,27 @@ __global__ void kernelDetect(const uint8_t* img, int w, int h, ...) {
 <div class="callout crit"><span class="tag">已修的真實 bug（F1）</span>
 <p>全幅 zone（<code>StartX=-1</code>）套對位位移後 <code>-1+7=6</code>，不再被認出是全幅 → zone 縮成 1px、檢測範圍塌掉。修法：全幅 zone 跳過位移套用。教訓：<strong>魔術值（-1）跟算術運算混用時，每個運算點都要先判魔術值。</strong></p></div>
 
+<div class="topoanim" id="alnAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-al="ok">▶ CHECK_ALIGN → SET_ALIGN（含全幅跳過）</button>
+  <button class="btn" data-al="f1">🐛 重演 F1 bug（修復前）</button>
+</div>
+<svg viewBox="0 0 660 150" aria-label="對位動畫">
+  <rect x="15" y="15" width="420" height="120" rx="8" style="fill:var(--panel2);stroke:var(--line)"/>
+  <text x="25" y="32" style="font-size:10px;fill:var(--ink-3)">面板影像</text>
+  <rect id="alFull" x="17" y="17" width="416" height="116" rx="8" style="fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:6 5"/>
+  <text x="380" y="130" style="font-size:10px;fill:var(--accent)" id="alFullLbl">全幅 zone（-1）</text>
+  <rect id="alRoi" x="150" y="45" width="100" height="55" rx="5" style="fill:var(--accent-soft);stroke:var(--accent);stroke-width:2"/>
+  <text id="alRoiLbl" x="200" y="77" text-anchor="middle" style="font-size:10px">ROI zone</text>
+  <g id="alMark"><line x1="90" y1="55" x2="106" y2="71" style="stroke:var(--crit);stroke-width:2"/><line x1="106" y1="55" x2="90" y2="71" style="stroke:var(--crit);stroke-width:2"/></g>
+  <rect id="alSearch" x="70" y="35" width="56" height="56" rx="4" style="fill:none;stroke:var(--warn);stroke-width:2;opacity:0"/>
+  <text x="460" y="40" style="font-size:12px;font-weight:700" id="alShift">Shift = ?</text>
+  <text x="460" y="62" style="font-size:11px;fill:var(--ink-2)" id="alInfo1"> </text>
+  <text x="460" y="80" style="font-size:11px;fill:var(--ink-2)" id="alInfo2"> </text>
+</svg>
+<div class="topo-console" id="alConsole">← 面板放歪了 7px：看對位怎麼找到位移、套回 ROI——以及全幅 zone 為什麼必須跳過（F1 bug 現場）</div>
+</div>
+
 <h3>配方管理紀律</h3>
 <ul>
 <li><strong>單一資料來源</strong>：Control 端三處 UI（Step1 快速調參、ZoneParamEditor、單 CCD 工作台）共用同一個 <code>RecipeStore</code> 實例——改一處、處處同步，存檔才寫回 XML。</li>
@@ -1520,6 +1586,18 @@ cat &lt;output&gt;/_diag/incident_*.json        # 完整現場（最近 64 幀�
 <li>範例：AI 分類器「模型有載入」= L1（預設停用、不推論，缺陷全標「待人工複核」交 DefectSort 人工分類）。</li>
 </ul>
 
+<div class="topoanim" id="lvlAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-lv="ok">▶ 誠實升級之旅（L0→L4）</button>
+  <button class="btn" data-lv="cheat">🙊 「寫完了＝做完了」</button>
+</div>
+<svg viewBox="0 0 660 110" aria-label="L 分級動畫">
+  <g id="lvBoxes"></g>
+  <circle class="dot" id="lvDot" cx="70" cy="55" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="lvConsole">← 每一級之間都有一道「證據門」——看一個功能怎麼誠實地爬上 L4（以及想跳級會發生什麼）</div>
+</div>
+
 <h3>驗證三階段（每階段貼數據再往下）</h3>
 <ol>
 <li><strong>Stage 1 合成影像</strong>：已知答案的人造圖驗演算法正確性（不需相機）。</li>
@@ -1609,6 +1687,18 @@ cat &lt;output&gt;/_diag/incident_*.json        # 完整現場（最近 64 幀�
 <span class="eyebrow">Practice 01 — The Debugging Path</span>
 <h2>破案之路：從 bug 到修好上線</h2>
 <p class="lede">剛接手就遇到 bug？別慌，這很正常——而且這套系統早就替您鋪好了一條路。這一章是整套教材的心臟：我們把「行車記錄器 → 搞懂那段碼 → 小程式驗證 → 找佐證 → 離線驗證 → 上線」串成一條完整的破案流程，每一步都告訴您用什麼工具、去哪一章查、命令怎麼下。建議先通讀一遍，之後每次遇到問題就回來按表操課。</p>
+
+<div class="topoanim" id="p1Anim">
+<div class="topo-btns">
+  <button class="btn primary" data-p1="ok">▶ 標準破案路（0→7）</button>
+  <button class="btn" data-p1="rush">🔫 跳過理解直接改碼</button>
+</div>
+<svg viewBox="0 0 660 100" aria-label="破案七步動畫">
+  <g id="p1Boxes"></g>
+  <circle class="dot" id="p1Dot" cx="50" cy="45" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="p1Console">← 七步的節奏先看一遍動畫，下面每一步有完整命令。也看看抄捷徑會怎樣</div>
+</div>
 
 <h3>第 0 步：保護現場（先深呼吸，別急著重啟）</h3>
 <p>產線報異常時，最直覺的動作是「重啟看看」——請忍住。重啟會毀掉兩樣東西：行車記錄器記憶體裡最近 64 張的現場，以及還沒被您看過的 console 輸出。正確的第一動作：</p>
@@ -2140,6 +2230,19 @@ git reset --hard HEAD         # 核彈：丟棄全部未 commit 修改（想清�
 <div class="fstep"><span class="fnum">8</span><div class="fbody"><b>CPU 後處理鏈（per zone）</b><div class="fdetail">flood 取樣（過濾前）→ <code>apply_blob</code>（size/合併）→ <code>apply</code>（BypassEdge＋Rule）→ recount → MaxDefectCountPass 截斷（zone 層 break）｜main.cpp:250-290</div></div></div>
 </div>
 
+<div class="topoanim" id="r1Anim">
+<div class="topo-btns">
+  <button class="btn primary" data-r1="mode0">▶ mode0 DIV：一幀走完管線（計 gpu_ms）</button>
+  <button class="btn" data-r1="mode2">▶ mode2 融合：多尺度加進來</button>
+</div>
+<svg viewBox="0 0 660 110" aria-label="GPU 管線計時動畫">
+  <g id="r1Boxes"></g>
+  <text x="645" y="20" text-anchor="end" style="font-weight:800;font-size:14px" id="r1Ms">gpu_ms = 0.0</text>
+  <circle class="dot" id="r1Dot" cx="45" cy="60" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="r1Console">← 一幀在 process_frame 裡的旅程；累計出來的就是黃金數字 7.4ms（DIV/GB10）</div>
+</div>
+
 <h3>R1.5 關鍵常數</h3>
 <div class="tablewrap"><table>
 <tr><th>常數</th><th>值</th><th>位置／意義</th></tr>
@@ -2227,6 +2330,31 @@ git reset --hard HEAD         # 核彈：丟棄全部未 commit 修改（想清�
 <div class="fstep"><span class="fnum">2</span><div class="fbody"><b>AppServices.Build()（手動 DI）</b><div class="fdetail">ConfigLoader(appsettings)→LogService→IpClient/GrabClient→ConnectionManager→RecipeService→RecipeStore（Select "DEFAULT"）→OfflineReviewService→UpstreamServer(8787, Optional)</div></div></div>
 <div class="farrow">↓</div>
 <div class="fstep"><span class="fnum">3</span><div class="fbody"><b>MainWindowViewModel ctor</b><div class="fdetail">各 View 的 VM 建立→LogService.Logged 路由→ConnectionManager.Start()（IP/Grab 心跳 2.5s）→UpstreamWiring.Bind + Upstream.Start()→DispatcherTimer(1s) 刷連線燈</div></div></div>
+</div>
+
+<div class="topoanim" id="r3Anim">
+<div class="topo-btns">
+  <button class="btn primary" data-r3="ok">▶ 單一資料來源：改一處、三處同步</button>
+  <button class="btn" data-r3="detach">🙅 自己 new 一份（脫鉤示範）</button>
+</div>
+<svg viewBox="0 0 660 130" aria-label="單一資料來源動畫">
+  <rect class="tnode" id="r3Store" x="255" y="45" width="150" height="46" rx="10"/>
+  <text x="330" y="65" text-anchor="middle" style="font-size:11px">RecipeStore</text>
+  <text x="330" y="82" text-anchor="middle" style="font-family:var(--mono);font-size:11px" id="r3V0">PitchX=26</text>
+  <rect class="tnode" id="r3U1" x="15" y="10" width="150" height="40" rx="10"/>
+  <text x="90" y="27" text-anchor="middle" style="font-size:11px">Step1 快速調參</text>
+  <text x="90" y="42" text-anchor="middle" style="font-family:var(--mono);font-size:11px" id="r3V1">PitchX=26</text>
+  <rect class="tnode" id="r3U2" x="15" y="80" width="150" height="40" rx="10"/>
+  <text x="90" y="97" text-anchor="middle" style="font-size:11px">ZoneParamEditor</text>
+  <text x="90" y="112" text-anchor="middle" style="font-family:var(--mono);font-size:11px" id="r3V2">PitchX=26</text>
+  <rect class="tnode" id="r3U3" x="495" y="45" width="150" height="40" rx="10"/>
+  <text x="570" y="62" text-anchor="middle" style="font-size:11px">單 CCD 工作台</text>
+  <text x="570" y="77" text-anchor="middle" style="font-family:var(--mono);font-size:11px" id="r3V3">PitchX=26</text>
+  <line class="tlink" id="r3L1" x1="165" y1="30" x2="255" y2="60"/>
+  <line class="tlink" id="r3L2" x1="165" y1="100" x2="255" y2="76"/>
+  <line class="tlink" id="r3L3" x1="405" y1="68" x2="495" y2="65"/>
+</svg>
+<div class="topo-console" id="r3Console">← 三處 UI 為什麼永遠同步？因為它們綁的是「同一個」ZoneSettingModel 實例——也看看自己 new 一份會怎樣</div>
 </div>
 
 <h3>R3.2 類別地圖 × 進入點</h3>
@@ -4271,6 +4399,256 @@ function frInit() {
   document.querySelectorAll('[data-fr]').forEach(b => b.addEventListener('click', () => play(b.dataset.fr)));
 }
 frInit();
+
+/* G2：git hub-and-spoke */
+function gitInit() {
+  const dot = $('giDot'); if (!dot) return;
+  const K = animKit('giConsole');
+  function reset() { ['giMac','giHub','giSpark','giDamac','giRtx'].forEach(id => $(id).classList.remove('alert','pick')); dot.classList.remove('stuck'); dot.setAttribute('cx',70); dot.setAttribute('cy',65); dot.setAttribute('opacity','0'); }
+  async function play(kind) {
+    const t = K.token(); K.clear(); reset(); dot.setAttribute('opacity','1');
+    if (kind === 'ok') {
+      if (!await K.say(t, ['[Mac] 小步修改 → git commit → git push'])) return;
+      if (!await K.move(t, dot, 'cx', 70, 330, 550)) return;
+      $('giHub').classList.add('pick');
+      if (!await K.say(t, ['[GitHub] 唯一真相更新（fe5cc9b → 新 commit）'])) return;
+      for (const [id, y] of [['giSpark',30],['giDamac',65],['giRtx',100]]) {
+        dot.setAttribute('cx',330); dot.setAttribute('cy',65);
+        await K.move(t, dot, 'cy', 65, y, 150);
+        if (!await K.move(t, dot, 'cx', 330, 595, 350)) return;
+        $(id).classList.add('pick');
+      }
+      await K.say(t, ['[各機] git sync（= pull --ff-only，三道防線）→ 快轉', PP('→ 四機永遠等於 GitHub。改碼只在 Mac、部署只用 pull（§10 鐵則）')]);
+    } else if (kind === 'scp') {
+      if (!await K.say(t, ['[Mac] scp ip/src/main.cpp spark:…（跳過 git 直接丟檔案）'])) return;
+      if (!await K.move(t, dot, 'cx', 70, 400, 700)) return;
+      dot.classList.add('stuck'); $('giSpark').classList.add('alert');
+      await K.say(t, [PE('❌ 禁止！scp 出去的檔案不在版控裡——'), PW('   Spark 上從此有一份「沒人知道哪來的」源碼；下次 pull 直接衝突或被蓋掉。'), PW('   歷史教訓：grab/ 根目錄那批散檔就是這樣來的（§10）')]);
+    } else {
+      dot.setAttribute('cx',595); dot.setAttribute('cy',30); $('giSpark').classList.add('alert');
+      if (!await K.say(t, ['[Spark] 手癢直接改了 main.cpp（未 commit）→ 隔天 git sync：'])) return;
+      await K.say(t, [PE('cfsync 防線①：工作區髒 → 拒絕同步'), '正確處置：真要保留 → 立刻 commit+push；不要 → checkout 丟棄', PP('→ 出事救法（G2 下方）：先開備份分支快照，再回 main 快轉，絕不 reset --hard 亂砍')]);
+    }
+  }
+  document.querySelectorAll('[data-gi]').forEach(b => b.addEventListener('click', () => play(b.dataset.gi)));
+}
+gitInit();
+
+/* G3：condition_variable 會合 */
+function cvInit() {
+  const d1 = $('cvDot1'); if (!d1) return;
+  const d2 = $('cvDot2'), K = animKit('cvConsole');
+  function reset() { ['cvA','cvB','cvD','cvR'].forEach(id => $(id).classList.remove('alert','pick')); d1.classList.remove('wait'); [d1,d2].forEach(d => d.setAttribute('opacity','0')); d1.setAttribute('cx',105); d1.setAttribute('cy',36); d2.setAttribute('cx',105); d2.setAttribute('cy',96); $('cvZzz').textContent='（等待區）'; $('cvRes').textContent='…'; }
+  async function play(mode) {
+    const t = K.token(); K.clear(); reset();
+    d1.setAttribute('opacity','1');
+    if (!await K.say(t, ['[執行緒A] 收到 SEND_IMAGE_FOR_REVIEW → 影像入隊 → 換我等結果'])) return;
+    if (!await K.move(t, d1, 'cx', 105, 335, 450)) return;
+    d1.classList.add('wait'); $('cvZzz').textContent = '😴 zzz…（釋放 CPU）';
+    if (!await K.say(t, ['[執行緒A] result_cv_.wait_for(60s, 條件)——睡著，不佔 CPU'])) return;
+    d2.setAttribute('opacity','1');
+    if (!await K.say(t, ['[執行緒B] 主迴圈 next_frame 取出影像 → process_image（GPU 7.4ms）…'])) return;
+    if (mode === 'ok') {
+      if (!await K.move(t, d2, 'cx', 105, 335, 550)) return;
+      $('cvD').classList.add('pick');
+      if (!await K.say(t, ['[執行緒B] deliver_result(panel, json) → results_[panel]=… → ' + PP('notify 叫醒 A')])) return;
+      d1.classList.remove('wait'); $('cvZzz').textContent = '😃 醒了！';
+      if (!await K.move(t, d1, 'cx', 335, 562, 450)) return;
+      d1.setAttribute('cy', 66); $('cvR').classList.add('pick'); $('cvRes').textContent = '{"status":"OK","result":{…}}';
+      await K.say(t, [PP('[執行緒A] 醒來 → 從 results_ 取走結果 → 回 TCP'), PP('→ 這就是 G3 表裡的「你先睡，好了我叫你」——rendezvous 會合')]);
+    } else {
+      if (!await K.say(t, ['[執行緒B] GPU 這次跑了很久…（60 秒過去）'])) return;
+      d1.classList.remove('wait'); $('cvZzz').textContent = '⏰ 逾時醒來';
+      $('cvR').classList.add('alert'); $('cvRes').textContent = '{"status":"TIMEOUT"}';
+      await K.say(t, [PE('[執行緒A] wait_for 逾時 → 回 TIMEOUT'), PW('⚠ B 之後才算完的結果會孤兒地留在 results_（審計 P1-13）——'), PW('   同 panel 重送時入口會先 erase 舊結果，緩解但非根治')]);
+    }
+  }
+  document.querySelectorAll('[data-cv]').forEach(b => b.addEventListener('click', () => play(b.dataset.cv)));
+}
+cvInit();
+
+/* ch4：對位 SET_ALIGN（含 F1 bug 重演）*/
+function alnInit() {
+  const roi = $('alRoi'); if (!roi) return;
+  const K = animKit('alConsole');
+  function reset() {
+    roi.setAttribute('x',150); roi.setAttribute('y',45); roi.setAttribute('width',100); roi.setAttribute('height',55);
+    $('alFull').setAttribute('x',17); $('alFull').setAttribute('y',17); $('alFull').setAttribute('width',416); $('alFull').setAttribute('height',116);
+    $('alSearch').setAttribute('opacity','0'); $('alShift').textContent='Shift = ?';
+    $('alInfo1').textContent=' '; $('alInfo2').textContent=' '; $('alFullLbl').textContent='全幅 zone（-1）';
+  }
+  async function play(kind) {
+    const t = K.token(); K.clear(); reset();
+    if (!await K.say(t, ['本片面板實際放歪了 (+7, +3)px。CHECK_ALIGN：在搜尋窗內找 golden Mark…'])) return;
+    $('alSearch').setAttribute('opacity','1');
+    for (let i = 0; i < 3; i++) { $('alSearch').setAttribute('x', 66 + i * 5); await K.sleep(t, 180); }
+    if (!K.live(t)) return;
+    $('alShift').textContent = 'Shift = (+7.001, +3.000)';
+    if (!await K.say(t, ['matchTemplate 峰值 score=0.98 → 拋物線 sub-pixel → ShiftX=7.001（誤差 <0.001px 實測）', 'SET_ALIGN：套回所有 zone → aligned_* = roi_* + round(shift)'])) return;
+    if (kind === 'ok') {
+      await K.move(t, roi, 'x', 150, 157, 400);
+      roi.setAttribute('y', 48);
+      $('alInfo1').textContent = 'ROI zone：150→157（跟著面板移動）';
+      $('alInfo2').textContent = '全幅 zone：is_full_frame → 跳過 ✓';
+      await K.say(t, [PP('ROI zone 平移 +7,+3 → 檢測框對回真實位置'), PP('全幅 zone（-1 哨兵值）被跳過——保留「整張都檢」的語意（F1 修復後行為）')]);
+    } else {
+      await K.say(t, [PW('（重演修復前的程式碼）全幅 zone 也被套位移：-1 + 7 = 6 ≥ 0…')]) ;
+      if (!K.live(t)) return;
+      $('alFull').setAttribute('x',430); $('alFull').setAttribute('y',130); $('alFull').setAttribute('width',4); $('alFull').setAttribute('height',3);
+      $('alFullLbl').textContent = '←全幅 zone 塌成 1px！';
+      await K.say(t, [PE('is_full_frame() 翻成 false → zone_rect 用 6 當起點計算 → 塌成 ~1px 條'), PE('整張面板幾乎不檢測、照樣回 PASS——這就是 F1 bug'), PP('修復：apply_align_shift 先判 is_full_frame → continue（zone_config_adapter.h:116）'), PP('教訓：魔術值(-1)參與算術前，每個運算點都要先判（04 章）')]);
+    }
+  }
+  document.querySelectorAll('[data-al]').forEach(b => b.addEventListener('click', () => play(b.dataset.al)));
+}
+alnInit();
+
+/* ch7：L0→L4 誠實升級 */
+function lvlInit() {
+  const g = $('lvBoxes'); if (!g) return;
+  const K = animKit('lvConsole');
+  const L = [['L0','未實作'],['L1','已寫碼'],['L2','selftest'],['L3','端到端+數據'],['L4','真實硬體']];
+  const bx = i => 20 + i * 130;
+  g.innerHTML = L.map(([n, d], i) =>
+    '<rect class="tnode" id="lvB' + i + '" x="' + bx(i) + '" y="30" width="110" height="50" rx="10"/>' +
+    '<text x="' + (bx(i)+55) + '" y="52" text-anchor="middle" style="font-weight:700">' + n + '</text>' +
+    '<text x="' + (bx(i)+55) + '" y="68" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">' + d + '</text>').join('');
+  const dot = $('lvDot');
+  const GATES = [
+    '證據門①：程式碼寫完、編譯過 → L1（此時「不得進生產路徑」）',
+    '證據門②：selftest / 單元驗證 PASS → L2',
+    '證據門③：端到端跑通＋' + PP('貼出數據') + '（缺陷數/CRC/誤差）→ L3',
+    '證據門④：接真實相機/上位機/硬體驗證 → L4（最多意外藏在這一步）',
+  ];
+  function reset() { L.forEach((_, i) => $('lvB' + i).classList.remove('pick','alert')); dot.classList.remove('stuck'); dot.setAttribute('cx', bx(0)+55); dot.setAttribute('cy', 55); dot.setAttribute('opacity','0'); }
+  async function play(kind) {
+    const t = K.token(); K.clear(); reset(); dot.setAttribute('opacity','1'); $('lvB0').classList.add('pick');
+    if (kind === 'ok') {
+      if (!await K.say(t, ['一個新功能出生在 L0。要往上，每一級都要過「證據門」：'])) return;
+      for (let i = 0; i < 4; i++) {
+        if (!await K.say(t, [GATES[i]])) return;
+        if (!await K.move(t, dot, 'cx', bx(i)+55, bx(i+1)+55, 400)) return;
+        $('lvB' + (i+1)).classList.add('pick');
+      }
+      await K.say(t, [PP('→ 每一格都對應 STATUS.md 的一列。這就是「寫好 ≠ 驗證過」的制度化（§8）')]);
+    } else {
+      if (!await K.move(t, dot, 'cx', bx(0)+55, bx(1)+55, 350)) return;
+      $('lvB1').classList.add('pick');
+      if (!await K.say(t, ['[工程師] 「寫完了！」→ 想直接標 L3 進生產…'])) return;
+      if (!await K.move(t, dot, 'cx', bx(1)+55, bx(2)+30, 300)) return;
+      dot.classList.add('stuck'); $('lvB3').classList.add('alert');
+      if (!await K.move(t, dot, 'cx', bx(2)+30, bx(1)+55, 300)) return;
+      await K.say(t, [PE('❌ 被彈回 L1：沒有 selftest、沒有數據'), PW('本專案兩個真實案例：UpstreamServer 曾「寫好但沒接線」、AI 推論「載入但停用」——'), PW('全靠誠實分級才沒被當成「已完成」上線（07 章核實摘要）')]);
+    }
+  }
+  document.querySelectorAll('[data-lv]').forEach(b => b.addEventListener('click', () => play(b.dataset.lv)));
+}
+lvlInit();
+
+/* P1：破案七步 */
+function p1Init() {
+  const g = $('p1Boxes'); if (!g) return;
+  const K = animKit('p1Console');
+  const S = ['0 保護現場','1 行車記錄','2 搞懂那段碼','3 小程式驗證','4 GroundTruth','5 離線驗證','6 實作紀律','7 上線'];
+  const bw = 76, bx = i => 8 + i * (bw + 5);
+  g.innerHTML = S.map((n, i) =>
+    '<rect class="tnode" id="p1B' + i + '" x="' + bx(i) + '" y="25" width="' + bw + '" height="40" rx="8"/>' +
+    '<text x="' + (bx(i)+bw/2) + '" y="49" text-anchor="middle" style="font-size:9.5px">' + n + '</text>').join('');
+  const dot = $('p1Dot');
+  const HINT = ['cp -r _diag /tmp/case_…（黑盒子是證物）', 'tail jsonl → incident? stats 停在何時?', '讀碼三問＋R 手冊進入點（最重要、最省時間的一步）', '30 行 python 復現→隔離→對照', '黃金數字表比對＋附來源', 'offline-file → --verify-deterministic → verify_*.py', '不變式自查＋commit 貼數據', 'git sync 部署 → 盯第一片 panel 的 _diag'];
+  function reset() { S.forEach((_, i) => $('p1B' + i).classList.remove('pick','alert')); dot.classList.remove('stuck'); dot.setAttribute('cx', bx(0)+bw/2); dot.setAttribute('cy', 45); dot.setAttribute('opacity','0'); }
+  async function play(kind) {
+    const t = K.token(); K.clear(); reset(); dot.setAttribute('opacity','1');
+    if (kind === 'ok') {
+      for (let i = 0; i < 8; i++) {
+        $('p1B' + i).classList.add('pick');
+        if (!await K.say(t, ['第' + S[i].slice(0,1) + '步 ' + S[i].slice(2) + '：' + HINT[i]])) return;
+        if (i < 7 && !await K.move(t, dot, 'cx', bx(i)+bw/2, bx(i+1)+bw/2, 260)) return;
+      }
+      await K.say(t, [PP('→ 熟了以後常見問題 30 分鐘內走完。每一步的完整命令就在下面各節')]);
+    } else {
+      if (!await K.say(t, ['[新人] 看到錯誤訊息 → 「我猜是這裡」→ 直接跳到第 6 步改碼！'])) return;
+      if (!await K.move(t, dot, 'cx', bx(0)+bw/2, bx(6)+bw/2, 600)) return;
+      dot.classList.add('stuck'); $('p1B6').classList.add('alert');
+      if (!await K.say(t, [PE('❌ 改了三天、越改越怪——因為根因根本不在猜的地方'), '被打回第 1、2 步：'])) return;
+      dot.classList.remove('stuck');
+      if (!await K.move(t, dot, 'cx', bx(6)+bw/2, bx(1)+bw/2, 600)) return;
+      $('p1B1').classList.add('pick'); $('p1B2').classList.add('pick');
+      await K.say(t, [PW('寧可多花一小時搞懂，不要少花十分鐘亂改（本章結語）'), PP('行車記錄器＋讀碼三問會把你直接帶到真正的根因')]);
+    }
+  }
+  document.querySelectorAll('[data-p1]').forEach(b => b.addEventListener('click', () => play(b.dataset.p1)));
+}
+p1Init();
+
+/* R1：GPU 管線計時 */
+function r1Init() {
+  const g = $('r1Boxes'); if (!g) return;
+  const K = animKit('r1Console');
+  const ST = [['上傳',0.9],['LSC',0],['演算法',3.4],['多尺度',0],['CCL',1.6],['Blob',0.9],['AI',0],['排序',0.6]];
+  const bw = 72, bx = i => 8 + i * (bw + 8);
+  g.innerHTML = ST.map(([n], i) =>
+    '<rect class="tnode" id="r1B' + i + '" x="' + bx(i) + '" y="38" width="' + bw + '" height="44" rx="8"/>' +
+    '<text x="' + (bx(i)+bw/2) + '" y="58" text-anchor="middle" style="font-size:10.5px">' + n + '</text>' +
+    '<text x="' + (bx(i)+bw/2) + '" y="74" text-anchor="middle" style="font-size:9px;fill:var(--ink-3)" id="r1T' + i + '"> </text>').join('');
+  const dot = $('r1Dot');
+  function reset() { ST.forEach((_, i) => { $('r1B' + i).classList.remove('pick','alert'); $('r1T' + i).textContent = ' '; }); dot.setAttribute('cx', bx(0)+bw/2); dot.setAttribute('opacity','0'); $('r1Ms').textContent = 'gpu_ms = 0.0'; }
+  async function play(mode2) {
+    const t = K.token(); K.clear(); reset(); dot.setAttribute('opacity','1');
+    let ms = 0;
+    const skip = { 1: 'enable_lsc=false（預設，保 bit-exact）', 3: mode2 ? null : 'mode≠2 → 跳過', 6: 'ai_active=false（預設停用）' };
+    if (!await K.say(t, [mode2 ? 'mode2 融合：多尺度 2× OR-merge 加入戰局' : 'mode0 DIV、8192×5000、GB10（黃金數字場景）'])) return;
+    for (let i = 0; i < 8; i++) {
+      if (!await K.move(t, dot, 'cx', bx(Math.max(0,i-1))+bw/2, bx(i)+bw/2, 240)) return;
+      let cost = ST[i][1];
+      if (i === 3 && mode2) cost = 2.3;
+      if (cost === 0 && skip[i]) {
+        $('r1T' + i).textContent = 'skip';
+        if (!await K.say(t, [ST[i][0] + '：' + skip[i]])) return;
+      } else {
+        $('r1B' + i).classList.add('pick');
+        ms += cost; $('r1T' + i).textContent = '+' + cost.toFixed(1);
+        $('r1Ms').textContent = 'gpu_ms = ' + ms.toFixed(1);
+        if (!await K.say(t, [ST[i][0] + '：+' + cost.toFixed(1) + 'ms（累計 ' + ms.toFixed(1) + '）'])) return;
+      }
+    }
+    await K.say(t, mode2
+      ? [PW('mode2 合計 ~' + ms.toFixed(1) + 'ms（多尺度成本示意值——尚未正式 bench，審計 P0-2 殘餘待辦）')]
+      : [PP('合計 7.4ms ＝ 黃金數字（P5）。1110 張 × 7.4ms ≈ 8.2s/面板 → 容量投影的來源'), 'cudaEvent 打點在「上傳前～Blob 後」——所以 gpu_ms 含 H2D（FAQ 有講）']);
+  }
+  document.querySelectorAll('[data-r1]').forEach(b => b.addEventListener('click', () => play(b.dataset.r1 === 'mode2')));
+}
+r1Init();
+
+/* R3：單一資料來源 */
+function r3Init() {
+  const s = $('r3Store'); if (!s) return;
+  const K = animKit('r3Console');
+  const V = ['r3V0','r3V1','r3V2','r3V3'], B = ['r3Store','r3U1','r3U2','r3U3'];
+  function reset() { B.forEach(id => $(id).classList.remove('pick','alert')); V.forEach(id => $(id).textContent = 'PitchX=26'); ['r3L1','r3L2','r3L3'].forEach(id => $(id).style.stroke = ''); }
+  async function play(kind) {
+    const t = K.token(); K.clear(); reset();
+    if (kind === 'ok') {
+      if (!await K.say(t, ['[操作員] 在 ZoneParamEditor 把 PitchX 改成 30：'])) return;
+      $('r3U2').classList.add('pick'); $('r3V2').textContent = 'PitchX=30';
+      if (!await K.say(t, ['setter 寫進「共用的」ZoneSettingModel 實例（不是複本！）'])) return;
+      $('r3Store').classList.add('pick'); $('r3V0').textContent = 'PitchX=30';
+      ['r3L1','r3L2','r3L3'].forEach(id => $(id).style.stroke = 'var(--accent)');
+      if (!await K.say(t, ['[ObservableProperty] 變更通知 → 綁定刷新：'])) return;
+      $('r3U1').classList.add('pick'); $('r3V1').textContent = 'PitchX=30';
+      $('r3U3').classList.add('pick'); $('r3V3').textContent = 'PitchX=30';
+      await K.say(t, [PP('三處同時變 30——不是魔法、不是事件轟炸，是「同一顆物件」'), PP('存檔（Save）那一刻才寫回 XML（RecipeStore 單一資料來源）')]);
+    } else {
+      if (!await K.say(t, ['[新人] 在 Step1 自己 new 了一份 ZoneSettingModel「比較乾淨」…'])) return;
+      $('r3U1').classList.add('alert'); $('r3L1').style.stroke = 'var(--crit)';
+      if (!await K.say(t, ['[操作員] 在 ZoneParamEditor 改 PitchX=30：'])) return;
+      $('r3V2').textContent = 'PitchX=30'; $('r3V0').textContent = 'PitchX=30'; $('r3V3').textContent = 'PitchX=30';
+      await K.say(t, [PE('Step1 還停在 26——脫鉤了！操作員看的參數 ≠ 送出去檢測的參數'), PW('→ 這類 bug 極難察覺（畫面看起來都對）。鐵則：綁 Store 的實例，永遠不要自己 new（04 章）')]);
+    }
+  }
+  document.querySelectorAll('[data-r3]').forEach(b => b.addEventListener('click', () => play(b.dataset.r3)));
+}
+r3Init();
 
 /* ── ⌘K 命令面板：全域模糊搜尋（內建引擎，等效 Fuse.js 子集）── */
 const cmdkEntries = [];
