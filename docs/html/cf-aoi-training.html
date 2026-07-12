@@ -935,7 +935,7 @@ __global__ void kernelDetect(const uint8_t* img, int w, int h, ...) {
 <p><strong>Pitch 設錯 1–4 px，整片正常網格都會被判成缺陷</strong>：實測 PitchX 26→30，缺陷數 561→10000（觸頂 MAX_DEFECTS）。新面板一定先用 FFT 估算 Pitch（<code>scripts/estimate_pitch.py</code> 或 Step1 的 FFT 鈕），不可沿用舊值或用猜的。<strong>缺陷數接近 10000 時，第一個懷疑對象就是 Pitch。</strong></p></div>
 
 <h4>🎛 親手體驗爆量陷阱（參數沙盒——真的 DIV 演算法在你的瀏覽器裡跑）</h4>
-<p>下面的紋理以週期 <b>26px</b> 產生（含 4 顆真缺陷：2 亮 2 暗）。拉動 PitchX/Y 滑桿偏離 26，親眼看整片網格「變成缺陷」——這就是不變式 14 的物理直覺：</p>
+<p>下面的亮點陣紋理以週期 <b>26px</b> 產生（模擬 CF 子像素；另埋 4 顆真缺陷：2 亮 2 暗）。拉動 Pitch 滑桿偏離 26，親眼看整片點陣「變成缺陷」——這就是不變式 14 的物理直覺：</p>
 <div class="sandbox">
   <div><canvas id="sbCanvas" width="280" height="200" style="width:280px;height:200px"></canvas><div class="sb-note">紅=判亮缺陷｜藍=判暗缺陷（演算法與 kernelFast8WayComparison 同式）</div></div>
   <div class="sb-ctrl">
@@ -3281,14 +3281,17 @@ initTerms();
 function sbInit() {
   const cv = $('sbCanvas'); if (!cv) return;
   const W = 280, H = 200, PT = 26;
+  // 亮點陣紋理（dot 200 / bg 90，如 CF 子像素）：pitch 對＝dot 比 dot（比例1）；
+  // pitch 錯＝dot 比 bg（比例 2.2 >> BTH 1.4）→ 整片爆量。弱對比紋理示範不了這件事
+  //（+14 網格線撐不過 1.4——與 RTX 實測「合成弱紋理測不出」同一堂課）。
   const tex = new Uint8Array(W * H);
   let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let v = 128 + (rnd() * 6 - 3);
-    if (x % PT < 2 || y % PT < 2) v += 14;          // 週期 26 的網格紋理
+    let v = 90 + (rnd() * 6 - 3);
+    if (x % PT < 3 && y % PT < 3) v = 200 + (rnd() * 8 - 4);
     tex[y * W + x] = v;
   }
-  const defs = [[60, 50, 5, 210], [200, 140, 5, 210], [140, 80, 5, 55], [90, 160, 4, 55]];   // 2 亮 2 暗真缺陷
+  const defs = [[62, 52, 4, 235], [196, 142, 4, 235], [140, 80, 4, 40], [92, 158, 4, 40]];   // 2 亮 2 暗真缺陷
   for (const [dx, dy, sz, val] of defs)
     for (let y = dy; y < dy + sz; y++) for (let x = dx; x < dx + sz; x++) tex[y * W + x] = val;
   const ctx = cv.getContext('2d');
@@ -3310,8 +3313,8 @@ function sbInit() {
     }
     ctx.putImageData(img, 0, 0);
     const n = nB + nD, st = $('sbStat');
-    if (n > 2500) { st.className = 'sb-stat boom'; st.textContent = '🚨 爆量！檢出 ' + n + ' 像素——整片網格被當缺陷。這就是 561→10000 觸頂的現場（pitch ' + pitch + ' ≠ 紋理週期 26）'; }
-    else if (n === 0) { st.className = 'sb-stat'; st.textContent = '檢出 0——閾值太鬆（真缺陷也漏了）。試試 BTH 調回 1.40'; }
+    if (n > 300) { st.className = 'sb-stat boom'; st.textContent = '🚨 爆量！檢出 ' + n + ' 像素（正常 ~64）——整片點陣被當缺陷。這就是 561→10000 觸頂的現場（pitch ' + pitch + ' ≠ 紋理週期 26）'; }
+    else if (n === 0) { st.className = 'sb-stat'; st.textContent = '檢出 0——閾值太鬆連真缺陷都漏了。把 BTH/DTH 調回 1.40/0.60'; }
     else { st.className = 'sb-stat'; st.textContent = '✓ 檢出 ' + n + ' 像素 ≈ 4 顆真缺陷（紅 ' + nB + '／藍 ' + nD + '）——參數健康'; }
   }
   ['sbPitch', 'sbBth', 'sbDth'].forEach(id => $(id).addEventListener('input', () => requestAnimationFrame(detect)));
