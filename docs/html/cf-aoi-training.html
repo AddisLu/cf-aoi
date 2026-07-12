@@ -326,6 +326,26 @@ nav.side .navitem.dimmed:hover { opacity: .85; }
 .topo-console .te { color: #ff8a8a; } .topo-console .tw { color: #ffd479; } .topo-console .tp { color: #7ee2a8; }
 .topo-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 
+/* ── 各章微動畫共用元件 ── */
+.topoanim .cell { fill: var(--panel2); stroke: var(--line); }
+.topoanim .cell.center { fill: var(--accent); }
+.topoanim .cell.nb { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.topoanim .cell.hit { fill: var(--crit); }
+.topoanim .cell.defpx { fill: var(--crit-soft); stroke: var(--crit); }
+.topoanim .cell.chg { stroke: var(--warn); stroke-width: 2.5; }
+.topoanim .lbl { font-family: var(--mono); font-size: 9px; fill: var(--ink-2); pointer-events: none; }
+.topoanim .ray { stroke: var(--accent); stroke-width: 1.8; opacity: 0; }
+.topoanim .ray.show { opacity: .85; }
+.topoanim .slot { fill: var(--panel2); stroke: var(--line); stroke-width: 1.5; }
+.topoanim .slot.filled { fill: var(--accent-soft); stroke: var(--accent); }
+.topoanim .slot.reading { stroke: var(--warn); stroke-width: 2.5; }
+.topoanim .tnode.pick { stroke: var(--ok); fill: var(--ok-soft); }
+.topoanim .dot.wait { animation: blink 0.6s steps(1) infinite; }
+.topoanim .ringcell { fill: var(--panel2); stroke: var(--line); }
+.topoanim .ringcell.live { fill: var(--accent-soft); stroke: var(--accent); }
+.topoanim .ringcell.gone { opacity: .2; transition: opacity .8s; }
+.topoanim .ringcell.snap { fill: var(--warn-soft); stroke: var(--warn); }
+
 /* ── Cmd/Ctrl+K 命令面板（Spotlight 式）── */
 .cmdk-backdrop {
   position: fixed; inset: 0; z-index: 80; background: rgba(15, 28, 34, .45);
@@ -1099,6 +1119,27 @@ CF_GRAB_START|40000\r\n</code></pre>
 <div class="callout ok"><span class="tag">設計決策 A：誠實失敗</span>
 <p>離線環境沒接相機時，<code>CF_GRAB_START</code>/<code>CF_CHECK_ALIGN</code>/<code>CF_SET_ALIGN</code> 回 <strong>ERR</strong>，不回假 OK。寧可上位機看到錯誤，也不能讓它以為「已對位」。這個「不假 OK」原則全系統通用。</p></div>
 
+<div class="topoanim" id="protoAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-pa="load">▶ CF_LOAD_RECIPE 三層傳遞</button>
+  <button class="btn" data-pa="align">🚫 CF_CHECK_ALIGN：誠實失敗</button>
+</div>
+<svg viewBox="0 0 660 110" aria-label="協議三層動畫">
+  <line class="tlink" x1="110" y1="55" x2="250" y2="55"/>
+  <line class="tlink" x1="390" y1="55" x2="520" y2="55"/>
+  <rect class="tnode" id="paUp"  x="15"  y="30" width="95"  height="50" rx="10"/>
+  <rect class="tnode" id="paCtl" x="250" y="30" width="140" height="50" rx="10"/>
+  <rect class="tnode" id="paIp"  x="520" y="30" width="125" height="50" rx="10"/>
+  <text x="62"  y="60" text-anchor="middle">上位機</text>
+  <text x="320" y="53" text-anchor="middle">Control</text>
+  <text x="320" y="70" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">8787 文字 ↔ 8200 JSON</text>
+  <text x="582" y="53" text-anchor="middle">IP 守門</text>
+  <text x="582" y="70" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">zone_config_adapter</text>
+  <circle class="dot" id="paDot" cx="62" cy="55" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="paConsole">← 看一條命令怎麼「換三次語言」走完三層（協議原文照實印出）</div>
+</div>
+
 <h3>第二層：Control ↔ Grab / IP（newline JSON，port 8100 / 8200）</h3>
 <pre><code>{"cmd":"LOAD_RECIPE","seq":1,"params":{"recipe":"DEFAULT","panel_id":"T001",
   "recipe_xml":"&lt;Recipe&gt;…&lt;/Recipe&gt;", "recipe_saving":{…}, "share_flags":{…}}}
@@ -1166,6 +1207,15 @@ __global__ void kernelDetect(const uint8_t* img, int w, int h, ...) {
 
 <h3>為什麼跟「週期性鄰居」比？</h3>
 <p>CF 面板是規則的 RGB 網格，週期 = <code>PitchX / PitchY</code>。正常像素和「一個 pitch 之外的同色像素」幾乎一樣亮；缺陷則不一樣。所以演算法不是「找黑點」，而是「找跟自己的週期鄰居不一致的點」。</p>
+<div class="topoanim" id="gpuAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-ga="sample">▶ 一個 thread 的 8 方向取樣</button>
+  <button class="btn" data-ga="ccl">▶ CCL 收斂迴圈（決定性怎麼來）</button>
+</div>
+<svg viewBox="0 0 660 235" aria-label="GPU 檢測動畫"><g id="gaGrid"></g><g id="gaRays"></g><g id="gaLbl"></g></svg>
+<div class="topo-console" id="gaConsole">← 左：每格＝一個像素＝一個 GPU thread 的責任區。按鈕看兩個核心機制動起來</div>
+</div>
+
 <div class="callout crit"><span class="tag">爆量陷阱（血淚不變式 14）</span>
 <p><strong>Pitch 設錯 1–4 px，整片正常網格都會被判成缺陷</strong>：實測 PitchX 26→30，缺陷數 561→10000（觸頂 MAX_DEFECTS）。新面板一定先用 FFT 估算 Pitch（<code>scripts/estimate_pitch.py</code> 或 Step1 的 FFT 鈕），不可沿用舊值或用猜的。<strong>缺陷數接近 10000 時，第一個懷疑對象就是 Pitch。</strong></p></div>
 
@@ -1238,6 +1288,37 @@ __global__ void kernelDetect(const uint8_t* img, int w, int h, ...) {
 <tr><td><code>StartX/Y, EndX/Y</code></td><td>zone 範圍</td><td>-1 = 全幅</td></tr>
 </table></div>
 
+<div class="topoanim" id="gateAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-gt="sub">📥 SUB 生產配方</button>
+  <button class="btn" data-gt="fused">📥 融合配方</button>
+  <button class="btn" data-gt="stale">📥 stale DIV 字串配方</button>
+  <button class="btn" data-gt="bad">📥 壞配方（缺 DetectRoi）</button>
+</div>
+<svg viewBox="0 0 660 160" aria-label="守門判定動畫">
+  <line class="tlink" x1="140" y1="45" x2="180" y2="45"/><line class="tlink" x1="330" y1="45" x2="370" y2="45"/><line class="tlink" x1="530" y1="45" x2="560" y2="45"/>
+  <rect class="tnode" id="gq1" x="20"  y="20" width="120" height="50" rx="10"/>
+  <rect class="tnode" id="gq2" x="180" y="20" width="150" height="50" rx="10"/>
+  <rect class="tnode" id="gq3" x="370" y="20" width="160" height="50" rx="10"/>
+  <rect class="tnode" id="gRej" x="560" y="20" width="85" height="50" rx="10"/>
+  <text x="80"  y="42" text-anchor="middle" style="font-size:11px">M_AlgoWayCompare</text>
+  <text x="80"  y="58" text-anchor="middle" style="font-size:11px">含 "Sub"？</text>
+  <text x="255" y="42" text-anchor="middle" style="font-size:11px">含 "div" ＋</text>
+  <text x="255" y="58" text-anchor="middle" style="font-size:11px">"star/way"？</text>
+  <text x="450" y="42" text-anchor="middle" style="font-size:11px">fallback：舊欄位</text>
+  <text x="450" y="58" text-anchor="middle" style="font-size:11px">AlgorithmCompare=="DIV"？</text>
+  <text x="602" y="50" text-anchor="middle" style="font-size:11px">拒載 ❌</text>
+  <rect class="tnode" id="gm1" x="20"  y="100" width="120" height="42" rx="10"/>
+  <rect class="tnode" id="gm2" x="180" y="100" width="150" height="42" rx="10"/>
+  <rect class="tnode" id="gm0" x="370" y="100" width="160" height="42" rx="10"/>
+  <text x="80"  y="126" text-anchor="middle">mode1 SUB</text>
+  <text x="255" y="126" text-anchor="middle">mode2 DIV-voting</text>
+  <text x="450" y="126" text-anchor="middle">mode0 DIV</text>
+  <circle class="dot" id="gtDot" cx="80" cy="45" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="gtConsole">← 丟四種配方進守門，看判定怎麼走（對應 zone_config_adapter.cpp:114-211 的真實邏輯）</div>
+</div>
+
 <h3>結果格式：ResultInfo（也是 legacy 相容）</h3>
 <p>缺陷欄位一律用 legacy 名稱：<code>GC_X/GC_Y</code>（全域座標）、<code>Size</code>、<code>Width/Height</code>、<code>X_Min/X_Max/Y_Min/Y_Max</code>、<code>Type</code>（PointBright/PointDark）、<code>GL_Mean</code>、<code>GlobalPosX/GlobalPosY</code>（另有 <code>_um</code> 微米版，單位契約待上位機確認）。GPU 沒有的欄位（<code>CV_*</code>、<code>*_Sigma</code>）填 0。結構：<code>JudgeResult → RoiInfoList → RoiInfo → DefectInfoList → DefectInfo</code>。</p>
 
@@ -1283,6 +1364,25 @@ IP recv_thread 收到完成事件：
 <div class="callout"><span class="tag">背壓鏈（不變式 23）</span>
 <p>1-2-3 的順序<strong>不可調換</strong>。post_recv 一定在 push_blocking 之後——保證 Grab 在 IP 讀完 slot 前拿不到新 credit、不可能覆寫。整條鏈：<code>GPU 慢 → FrameQueue 滿 → push_blocking 卡住 → 不補 credit → Grab 端 RNR → poll_one 阻塞</code>。Grab 自然降速而不斷線（實測 IP 端 200ms 延遲 → Grab 從 1375fps 降到 9.6fps，QP 不進 error state）。</p></div>
 
+<div class="topoanim" id="ringAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-ra="normal">▶ 正常串流（credit 循環）</button>
+  <button class="btn" data-ra="slow">🐢 消費端變慢 → credit 耗盡 → RNR</button>
+</div>
+<svg viewBox="0 0 660 130" aria-label="N-slot ring 動畫">
+  <rect class="tnode" id="raGrab" x="15" y="40" width="110" height="55" rx="10"/>
+  <text x="70" y="63" text-anchor="middle">Grab 送端</text>
+  <text x="70" y="80" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)" id="raSeq">seq=0</text>
+  <g id="raSlots"></g>
+  <rect class="tnode" id="raCons" x="558" y="40" width="88" height="55" rx="10"/>
+  <text x="602" y="63" text-anchor="middle">FrameQueue</text>
+  <text x="602" y="80" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)">→ GPU 消費</text>
+  <text x="330" y="25" text-anchor="middle" id="raCredit" style="font-weight:700">credit 4/4</text>
+  <circle class="dot" id="raDot" cx="70" cy="67" r="7" opacity="0"/>
+</svg>
+<div class="topo-console" id="raConsole">← slot = seq % 4、credit 歸零送端就得等——「slot 不可能被覆寫」的機制親眼看一次</div>
+</div>
+
 <h3>三個實機踩過的坑</h3>
 <div class="card"><h4>坑 1：33fps 牆（min_rnr_timer）</h4>
 <p>credit 短暫耗盡時，送端收到 RNR NAK 後會等 <code>min_rnr_timer</code> 再重試——<strong>rdma_cm 預設值是 655.36ms</strong>！吞吐直接崩到 2.6fps。更陰險的是：舊版每幀多花 16ms 算 app-CRC，「意外」把送端降速到跟收端一致、剛好避開 RNR；一關 CRC 送端變快反而觸發崩潰。修法：收端 accept 後 <code>ibv_modify_qp(min_rnr_timer=12)</code>（0.64ms）。結果 33 → 73.8fps。<strong>教訓：效能問題的「原因」可能是別處的「減速帶」被移走。</strong></p></div>
@@ -1325,6 +1425,23 @@ IP recv_thread 收到完成事件：
 <tr><td><code>incident</code></td><td>出事</td><td>kind＋detail＋src＋current_frame（全參數）＋最近 64 張摘要＋GPU 剩餘記憶體</td></tr>
 <tr><td><code>incident_suppressed</code></td><td>節流期間每 100 筆</td><td>同 kind 30 秒窗內只寫一次完整檔，其餘計數——持續性錯誤不會灌爆磁碟</td></tr>
 </table></div>
+
+<div class="topoanim" id="frAnim">
+<div class="topo-btns">
+  <button class="btn primary" data-fr="normal">▶ 平時：只進記憶體環</button>
+  <button class="btn" data-fr="incident">💥 出事：落地快照</button>
+  <button class="btn" data-fr="flood">🌊 持續出事：節流</button>
+</div>
+<svg viewBox="0 0 660 115" aria-label="行車記錄器環形緩衝動畫">
+  <text x="15" y="18" style="font-size:11px;fill:var(--ink-3)">記憶體環形緩衝（示意 12 格；實際 64 張）</text>
+  <g id="frRing"></g>
+  <rect class="tnode" id="frDisk" x="540" y="25" width="105" height="72" rx="10"/>
+  <text x="592" y="45" text-anchor="middle">_diag/（磁碟）</text>
+  <text x="592" y="63" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)" id="frF1"> </text>
+  <text x="592" y="79" text-anchor="middle" style="font-size:10px;fill:var(--ink-3)" id="frF2"> </text>
+</svg>
+<div class="topo-console" id="frConsole">← 「平時零磁碟 I/O、出事整環落地、洪水自動節流」三種行為動起來看</div>
+</div>
 
 <h3>incident 種類</h3>
 <div class="tablewrap"><table>
@@ -3886,6 +4003,274 @@ function topoInit() {
   document.querySelectorAll('[data-topo]').forEach(b => b.addEventListener('click', () => play(b.dataset.topo)));
 }
 topoInit();
+
+/* ── 各章微動畫：共用小工具 ── */
+function animKit(conId) {
+  const con = $(conId);
+  let run = 0;
+  const kit = {
+    token() { return ++run; },
+    live(t) { return t === run; },
+    clear() { con.innerHTML = ''; },
+    async say(t, lines) {
+      for (const l of (Array.isArray(lines) ? lines : [lines])) {
+        if (!kit.live(t)) return false;
+        con.innerHTML += l + '\n'; con.scrollTop = con.scrollHeight;
+        await new Promise(r => setTimeout(r, 260));
+      }
+      return kit.live(t);
+    },
+    async move(t, el, attr, from, to, ms) {
+      el.setAttribute('opacity', '1');
+      const t0 = performance.now();
+      await new Promise(res => {
+        (function step(now) {
+          const k = Math.min((now - t0) / ms, 1);
+          el.setAttribute(attr, from + (to - from) * k);
+          (k < 1 && kit.live(t)) ? requestAnimationFrame(step) : res();
+        })(t0);
+      });
+      return kit.live(t);
+    },
+    sleep(t, ms) { return new Promise(r => setTimeout(() => r(kit.live(t)), ms)); },
+  };
+  return kit;
+}
+const PW = s => '<span class="tw">' + s + '</span>', PE = s => '<span class="te">' + s + '</span>', PP = s => '<span class="tp">' + s + '</span>';
+
+/* ch2：CF_ 命令三層傳遞／誠實失敗 */
+function protoInit() {
+  const dot = $('paDot'); if (!dot) return;
+  const K = animKit('paConsole'), X = { up: 62, ctl: 320, ip: 582 };
+  async function play(mode) {
+    const t = K.token(); K.clear();
+    ['paUp', 'paCtl', 'paIp'].forEach(id => $(id).classList.remove('alert', 'pick'));
+    dot.classList.remove('stuck'); dot.setAttribute('cy', 55); dot.setAttribute('cx', X.up); dot.setAttribute('opacity', '1');
+    if (mode === 'load') {
+      if (!await K.say(t, ['[8787] 上位機 → Control（legacy 文字協議）', '  CF_LOAD_RECIPE|T550QVN10|panel01|2026-07-12-08-00-00|||||||0\\r\\n'])) return;
+      if (!await K.move(t, dot, 'cx', X.up, X.ctl, 550)) return;
+      if (!await K.say(t, ['[Control] RecipeStore.Select → 讀 {RecipeDir}/T550QVN10/IP0/RecipeInfo.xml', '[Control] 配方序列化成 XML 字串（network-clean：傳內容、不傳路徑）'])) return;
+      if (!await K.move(t, dot, 'cx', X.ctl, X.ip, 550)) return;
+      if (!await K.say(t, ['[8200] Control → IP（newline JSON）', '  {"cmd":"LOAD_RECIPE","params":{recipe, recipe_xml, panel_id, recipe_saving…}}', '[IP 守門] M_AlgorithmWayCompare=Awc_8_Way_Star_Sub → ' + PP('algo_mode=1 ✓'), '[IP] zones 熱換（mutex 下）＋行車記錄 type=recipe 留痕'])) return;
+      $('paIp').classList.add('pick');
+      if (!await K.move(t, dot, 'cx', X.ip, X.up, 800)) return;
+      await K.say(t, [PP('[8787] Control → 上位機：OK|…（9 參數格式）'), PP('→ 同一件事、三種語言：文字協議 → JSON → C++ 結構。這就是 ch2「三層」的意義')]);
+    } else {
+      if (!await K.say(t, ['[8787] 上位機 → Control', '  CF_CHECK_ALIGN\\r\\n'])) return;
+      if (!await K.move(t, dot, 'cx', X.up, X.ctl, 550)) return;
+      dot.classList.add('stuck'); $('paCtl').classList.add('alert');
+      await K.say(t, ['[Control] offline 未綁對位回呼（決策 A：刻意不綁）', PE('[8787] 回 ERR|…|CHECK_ALIGN 未支援：offline 未執行對位'), PW('→ 寧回 ERR、不回假 OK|0|0——否則上位機以為「已對位」繼續跑，'), PW('   就是「靜默假 OK」家族事故（同族案例見審計 P0-3）')]);
+    }
+  }
+  document.querySelectorAll('[data-pa]').forEach(b => b.addEventListener('click', () => play(b.dataset.pa)));
+}
+protoInit();
+
+/* ch3：8 方向取樣＋CCL 收斂 */
+function gpuInit() {
+  const grid = $('gaGrid'); if (!grid) return;
+  const K = animKit('gaConsole');
+  const CW = 24, X0 = 20, Y0 = 12, COLS = 13, ROWS = 9;
+  let html = '';
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++)
+    html += '<rect class="cell" id="gc' + c + '_' + r + '" x="' + (X0 + c * CW) + '" y="' + (Y0 + r * CW) + '" width="' + (CW - 2) + '" height="' + (CW - 2) + '" rx="3"/>';
+  grid.innerHTML = html;
+  const cell = (c, r) => $('gc' + c + '_' + r);
+  function resetAll() {
+    grid.querySelectorAll('.cell').forEach(e => e.setAttribute('class', 'cell'));
+    $('gaRays').innerHTML = ''; $('gaLbl').innerHTML = '';
+  }
+  async function sample() {
+    const t = K.token(); K.clear(); resetAll();
+    const cx = 6, cy = 4, P = 2;
+    cell(cx, cy).classList.add('center');
+    if (!await K.say(t, ['thread(x=6, y=4)：center=200（可疑亮點）｜pitch=2 格（示意；實際 26px）', '逐一取 8 個「週期鄰居」（一個 pitch 之外的同類像素）：'])) return;
+    for (const [dx, dy] of [[-P,-P],[0,-P],[P,-P],[-P,0],[P,0],[-P,P],[0,P],[P,P]]) {
+      if (!K.live(t)) return;
+      const nc = cx + dx, nr = cy + dy;
+      cell(nc, nr).classList.add('nb');
+      const x1 = X0 + cx * CW + CW / 2, y1 = Y0 + cy * CW + CW / 2;
+      $('gaRays').innerHTML += '<line class="ray show" x1="' + x1 + '" y1="' + y1 + '" x2="' + (X0 + nc * CW + CW / 2) + '" y2="' + (Y0 + nr * CW + CW / 2) + '"/>';
+      await new Promise(r => setTimeout(r, 150));
+    }
+    if (!await K.say(t, ['8 個鄰居都是正常網格 → neighbor_sum = 8×128 = 1024（mean₈=128）', '判定（與 kernelFast8WayComparison 同式，整數化避免浮點除法）：', '  center×8×1000 = 1,600,000  >  sum×BTH×1000 = 1,433,600', '  → ' + PE('亮缺陷！d_binary = 255'), PP('→ 幾萬個 thread 同時各管一格做同樣的事——這就是 GPU 工廠')])) return;
+    cell(cx, cy).classList.add('hit');
+  }
+  async function ccl() {
+    const t = K.token(); K.clear(); resetAll();
+    const blob = [[3,2],[4,2],[4,3],[5,3],[5,4],[6,4]];
+    let lab = {}; blob.forEach(([c, r]) => lab[c + '_' + r] = r * COLS + c);
+    const draw = () => $('gaLbl').innerHTML = blob.map(([c, r]) =>
+      '<text class="lbl" x="' + (X0 + c * CW + CW / 2 - 1) + '" y="' + (Y0 + r * CW + CW / 2 + 3) + '" text-anchor="middle">' + lab[c + '_' + r] + '</text>').join('');
+    blob.forEach(([c, r]) => cell(c, r).classList.add('defpx'));
+    draw();
+    if (!await K.say(t, ['6 個相連缺陷像素，初始 label = 自己的像素索引（kernelFastCCLInitMerge）', 'host 迴圈：跑 merge → 讀 d_changed → 直到 0（launchFastCCLKernel 的收斂迴圈）'])) return;
+    for (let pass = 1; ; pass++) {
+      if (!K.live(t)) return;
+      let changed = 0; const nl = { ...lab };
+      for (const [c, r] of blob) {
+        let m = lab[c + '_' + r];
+        for (const [c2, r2] of blob) if (Math.abs(c - c2) <= 1 && Math.abs(r - r2) <= 1) m = Math.min(m, lab[c2 + '_' + r2]);
+        if (m !== lab[c + '_' + r]) { nl[c + '_' + r] = m; changed++; }
+      }
+      lab = nl; draw();
+      blob.forEach(([c, r]) => cell(c, r).classList.toggle('chg', changed > 0));
+      if (!await K.say(t, ['pass ' + pass + '：kernelFastCCLMerge（8 鄰 atomicMin）→ d_changed = ' + changed])) return;
+      if (!changed) {
+        blob.forEach(([c, r]) => cell(c, r).classList.remove('chg'));
+        await K.say(t, [PP('收斂！全員 label=' + lab['3_2'] + ' → 這 6 px = 一顆缺陷'), PP('不動點唯一 → 同圖必同答案（決定性第一根柱子）'), PW('⚠ Reference 原版只跑一趟不收斂 → 缺陷數 2761/2762/2763 亂飄（不變式 7 的由來）')]);
+        return;
+      }
+    }
+  }
+  document.querySelectorAll('[data-ga]').forEach(b => b.addEventListener('click', () => b.dataset.ga === 'sample' ? sample() : ccl()));
+}
+gpuInit();
+
+/* ch4：守門判定 */
+function gateInit() {
+  const dot = $('gtDot'); if (!dot) return;
+  const K = animKit('gtConsole');
+  const COL = { q1: 80, q2: 255, q3: 450, rej: 602 };
+  function reset() {
+    ['gq1','gq2','gq3','gRej','gm0','gm1','gm2'].forEach(id => $(id).classList.remove('alert','pick'));
+    dot.setAttribute('cx', COL.q1); dot.setAttribute('cy', 45); dot.setAttribute('opacity', '1');
+  }
+  async function drop(t, x, boxId) {
+    dot.setAttribute('cx', x);
+    if (!await K.move(t, dot, 'cy', 45, 121, 350)) return false;
+    $(boxId).classList.add('pick');
+    return true;
+  }
+  async function play(kind) {
+    const t = K.token(); K.clear(); reset();
+    if (kind === 'sub') {
+      if (!await K.say(t, ['配方欄位：M_AlgorithmWayCompare=Awc_8_Way_Star_Sub（權威）｜AlgorithmCompare=DIV（殘留）', '判① 含 "Sub"？ → 是'])) return;
+      if (!await drop(t, COL.q1, 'gm1')) return;
+      await K.say(t, [PP('→ mode1 SUB：閾值當灰階差（+17/−16）＋PitchTime/ChooseAmount 投票'), PP('生產 T550QVN10 全 24 顆走這條——殘留的 DIV 字串完全不看（假 PASS 修復）')]);
+    } else if (kind === 'fused') {
+      if (!await K.say(t, ['配方欄位：M_AlgorithmWayCompare=Awc_8_Way_Star_Div', '判① 含 "Sub"？ → 否'])) return;
+      if (!await K.move(t, dot, 'cx', COL.q1, COL.q2, 400)) return;
+      if (!await K.say(t, ['判② 含 "div" ＋ "star/way"？ → 是'])) return;
+      if (!await drop(t, COL.q2, 'gm2')) return;
+      await K.say(t, [PP('→ mode2 DIV-voting 融合：比值逐路投票＋暗區棄權＋多尺度'), PW('⚠ mode2 目前缺 DTH 域值防呆（審計 P0-5）——SUB 閾值帶進來會靜默 0 缺陷')]);
+    } else if (kind === 'stale') {
+      if (!await K.say(t, ['配方欄位：M_AlgorithmWayCompare=（缺）｜AlgorithmCompare=DIV', '判① 含 "Sub"？ → 否（欄位不存在）'])) return;
+      if (!await K.move(t, dot, 'cx', COL.q1, COL.q2, 400)) return;
+      if (!await K.say(t, ['判② 含 "div"＋"star/way"？ → 否'])) return;
+      if (!await K.move(t, dot, 'cx', COL.q2, COL.q3, 400)) return;
+      if (!await K.say(t, ['判③ fallback：AlgorithmCompare=="DIV"？ → 是（再過 DTH<0 防呆）'])) return;
+      if (!await drop(t, COL.q3, 'gm0')) return;
+      await K.say(t, [PP('→ mode0 DIV（舊比例式）'), PW('⚠ fallback 讀的是「可能過期」的欄位——當年假 PASS 的主因。'), PW('   現有 DTH<0 防呆兜底，但域值合法的錯配照樣放行（P0-6 潛伏洞）')]);
+    } else {
+      if (!await K.say(t, ['配方：XML 裡找不到任何 <DetectRoi>', '判①②③ 全部無法判定 →'])) return;
+      if (!await K.move(t, dot, 'cx', COL.q1, COL.rej, 900)) return;
+      $('gRej').classList.add('alert'); dot.classList.add('stuck');
+      await K.say(t, [PE('throw RecipeError("配方無 DetectRoi")'), '→ LOAD_RECIPE 回 ERR ＋ recipe_load incident 落地', PP('→ 重點：系統繼續用「上一份」配方——被拒收後測的結果不是新配方的（P2 卡）')]);
+      setTimeout(() => dot.classList.remove('stuck'), 100);
+    }
+  }
+  document.querySelectorAll('[data-gt]').forEach(b => b.addEventListener('click', () => play(b.dataset.gt)));
+}
+gateInit();
+
+/* ch5：N-slot ring + credit 背壓 */
+function ringInit() {
+  const g = $('raSlots'); if (!g) return;
+  const K = animKit('raConsole');
+  const SX = 200, SW = 70, GAP = 16;
+  g.innerHTML = [0,1,2,3].map(i =>
+    '<rect class="slot" id="ras' + i + '" x="' + (SX + i * (SW + GAP)) + '" y="40" width="' + SW + '" height="55" rx="8"/>' +
+    '<text class="lbl" x="' + (SX + i * (SW + GAP) + SW / 2) + '" y="72" text-anchor="middle" style="font-size:10px">slot' + i + '</text>').join('');
+  const dot = $('raDot');
+  const slotX = i => SX + i * (SW + GAP) + SW / 2;
+  let credit = 4;
+  const setCredit = v => { credit = v; $('raCredit').textContent = 'credit ' + v + '/4'; $('raCredit').style.fill = v === 0 ? 'var(--crit)' : 'var(--ink)'; };
+  function reset() { [0,1,2,3].forEach(i => $('ras' + i).setAttribute('class', 'slot')); setCredit(4); dot.classList.remove('wait'); dot.setAttribute('opacity', '0'); dot.setAttribute('cy', 67); $('raSeq').textContent = 'seq=0'; }
+  async function play(slow) {
+    const t = K.token(); K.clear(); reset();
+    const filled = [];
+    const drain = async () => {
+      if (!filled.length) return true;
+      const s = filled.shift();
+      $('ras' + s).classList.add('reading');
+      if (!await K.sleep(t, slow ? 700 : 260)) return false;
+      $('ras' + s).setAttribute('class', 'slot'); setCredit(credit + 1);
+      return K.say(t, ['[IP] memcpy slot' + s + ' → push_blocking → post_recv（credit 補回 → ' + credit + '）']);
+    };
+    for (let seq = 0; seq < 8; seq++) {
+      if (!K.live(t)) return;
+      $('raSeq').textContent = 'seq=' + seq;
+      if (credit === 0) {
+        dot.setAttribute('cx', 150); dot.setAttribute('opacity', '1'); dot.classList.add('wait');
+        if (!await K.say(t, [PE('[Grab] credit=0 → WRITE_WITH_IMM 觸發 RNR → poll_one 阻塞'), PW('[Grab] 不丟幀、不斷線，就地等（實測降速至 9.6fps）')])) return;
+        if (!await drain()) return;
+        dot.classList.remove('wait');
+      }
+      const s = seq % 4;
+      dot.setAttribute('cx', 70); dot.setAttribute('opacity', '1');
+      if (!await K.move(t, dot, 'cx', 70, slotX(s), 420)) return;
+      $('ras' + s).classList.add('filled'); filled.push(s); setCredit(credit - 1);
+      if (!await K.say(t, ['seq=' + seq + ' → slot=' + seq + '%4=' + s + '｜credit→' + credit])) return;
+      if (!slow || seq < 2) { if (!await drain()) return; }
+    }
+    await K.say(t, [PP('→ in-flight 永遠 ≤ 4：credit 沒補回來之前，slot 不可能被覆寫（不變式 23）')]);
+  }
+  document.querySelectorAll('[data-ra]').forEach(b => b.addEventListener('click', () => play(b.dataset.ra === 'slow')));
+}
+ringInit();
+
+/* ch6：行車記錄器環形緩衝 */
+function frInit() {
+  const ring = $('frRing'); if (!ring) return;
+  const K = animKit('frConsole');
+  const N = 12, X0 = 15, Y = 28, W = 40, H = 34, GP = 3;
+  ring.innerHTML = [...Array(N)].map((_, i) =>
+    '<rect class="ringcell" id="frc' + i + '" x="' + (X0 + i * (W + GP)) + '" y="' + Y + '" width="' + W + '" height="' + H + '" rx="6"/>').join('');
+  function reset() {
+    for (let i = 0; i < N; i++) $('frc' + i).setAttribute('class', 'ringcell');
+    $('frDisk').classList.remove('alert'); $('frF1').textContent = ' '; $('frF2').textContent = ' ';
+  }
+  async function fill(t, count) {
+    for (let i = 0; i < count; i++) {
+      if (!K.live(t)) return false;
+      $('frc' + (i % N)).setAttribute('class', 'ringcell live');
+      await new Promise(r => setTimeout(r, 70));
+    }
+    return true;
+  }
+  async function play(mode) {
+    const t = K.token(); K.clear(); reset();
+    if (mode === 'normal') {
+      if (!await K.say(t, ['[每張影像] set_scene → record_frame：只寫記憶體環（µs 級、計時區外）'])) return;
+      if (!await fill(t, 18)) return;
+      if (!await K.say(t, ['環繞回：最舊的現場被新的覆寫（示意 12 格；實際 64 張）', '[程式正常結束]'])) return;
+      for (let i = 0; i < N; i++) $('frc' + i).setAttribute('class', 'ringcell gone');
+      await K.say(t, [PP('→ 現場蒸發、磁碟寫入 0 次。平時零成本，這就是「永遠放心開著」的原因')]);
+    } else if (mode === 'incident') {
+      if (!await fill(t, 8)) return;
+      if (!await K.say(t, ['[第 8 張] 收圖 CRC 驗證失敗 → ' + PE('FR_RECORD_INCIDENT("frame_validation", …)')])) return;
+      for (let i = 0; i < 8; i++) $('frc' + i).setAttribute('class', 'ringcell snap');
+      $('frDisk').classList.add('alert');
+      $('frF1').textContent = '20260712.jsonl +1 行';
+      $('frF2').textContent = 'incident_….json';
+      await K.say(t, ['[FR] 鎖內深拷 current_frame ＋ 最近 8 張摘要（含每 zone algo_mode/參數）', '[FR] 落地：jsonl 索引行 ＋ incident 完整快照（src=出錯的 檔:行）', PP('→ 事後你拿到的不是一行錯誤，是出事前後的整段現場（06 章）')]);
+    } else {
+      if (!await fill(t, 6)) return;
+      if (!await K.say(t, ['[持續性錯誤] 例如 CFAOI_RDMA_NOCRC 只設一邊 → 每一幀都驗證失敗：'])) return;
+      $('frDisk').classList.add('alert');
+      $('frF1').textContent = 'incident ×1';
+      if (!await K.say(t, ['#1 → 寫完整 incident 檔 ✓'])) return;
+      for (let i = 2; i <= 5; i++) {
+        if (!await K.say(t, ['#' + i + ' → ' + PW('同 kind 30s 窗內 → 抑制（只計數，不寫檔）')])) return;
+        $('frF2').textContent = 'suppressed=' + (i - 1);
+      }
+      await K.say(t, [PP('→ 有痕跡（jsonl 摘要行＋下次完整檔帶 suppressed_since_last）'), PP('   但不會用幾十萬個檔案灌爆 _diag 的 inode（v2 節流）')]);
+    }
+  }
+  document.querySelectorAll('[data-fr]').forEach(b => b.addEventListener('click', () => play(b.dataset.fr)));
+}
+frInit();
 
 /* ── ⌘K 命令面板：全域模糊搜尋（內建引擎，等效 Fuse.js 子集）── */
 const cmdkEntries = [];
