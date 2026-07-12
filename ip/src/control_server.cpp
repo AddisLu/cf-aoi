@@ -1,3 +1,8 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 r1] R1.6 8200 命令總表 / [手冊 ch2] 協議三層動畫（LOAD_RECIPE 換三次語言）
+// [手冊 g3] condition_variable 會合動畫（SEND_IMAGE 等結果=本檔 rendezvous）
+// [手冊 p2] bad_json/frame_validation/queue_* 破案卡
+// ═══════════════════════════════════════════════════════════════
 #include "control_server.h"
 
 #include <algorithm>

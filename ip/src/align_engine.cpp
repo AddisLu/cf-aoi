@@ -1,3 +1,7 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch4] 對位動畫（CHECK→SET、全幅跳過、F1 bug 重演）＋對位流程 R4-F5
+// [手冊 p4] run_align 導師卡（失敗不回位移=誠實失敗）
+// ═══════════════════════════════════════════════════════════════
 #include "align_engine.h"
 
 #include <cmath>

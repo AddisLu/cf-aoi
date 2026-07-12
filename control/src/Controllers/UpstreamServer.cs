@@ -1,3 +1,7 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch2] 協議三層動畫（CF_ 文字↔JSON）/ 誠實失敗（決策 A）
+// [手冊 r3] R3.2 類別地圖（⚠ detectMode P(9) 與模擬器管線數差異=審計 P3-7）
+// ═══════════════════════════════════════════════════════════════
 using System;
 using System.IO;
 using System.Net;

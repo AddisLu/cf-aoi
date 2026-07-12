@@ -1,3 +1,8 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch6] 行車記錄器全章：jsonl 五行型/十種 incident/環形緩衝動畫（蒸發/落地/節流）
+// [手冊 p2] 逐 kind 破案卡 / Log 分析器（頂部導覽 🩺）會解析本檔輸出
+// [手冊 p3] verify_flight_v2.py（11 項）+ verify_flight_src.py（9 項）回歸
+// ═══════════════════════════════════════════════════════════════
 /**
  * FlightRecorder 實作 — 見 flight_recorder.h 的設計說明。
  */
@@ -195,6 +200,7 @@ void FlightRecorder::record_incident(const std::string& kind, const std::string&
 
     std::string src_rel = repo_relative(src);   // repo 相對 "檔名:行號"（log → VS Code 跳轉用）
 
+    // [手冊 ch6] 「🌊 持續出事：節流」動畫演的就是這段
     // ── 節流：同 kind 在 kThrottleWindow 內只寫一次完整 incident 檔 ──────────
     // 防「持續性錯誤（如 CFAOI_RDMA_NOCRC 單邊設定）→ 每幀一個 incident 檔」把 _diag
     // 磁碟/inode 灌爆。被抑制期間仍每滿 100 筆補一行 compact jsonl 摘要（有痕跡、不洪水）。

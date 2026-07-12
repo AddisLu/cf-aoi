@@ -1,3 +1,8 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 r1] R1.4 GPU 管線八步流程圖＋逐站計時動畫（mode0 加總=黃金數字 7.4ms）
+// [手冊 ch3] GPU 工廠比喻 / 決定性兩根柱子（CCL 收斂＋canonical 排序）
+// [手冊 p4] GpuPipelineImpl::run 導師卡（gpu_ms 含 H2D；換尺寸=全套重配）
+// ═══════════════════════════════════════════════════════════════
 /**
  * ============================================================================
  * gpu_pipeline.cpp
@@ -268,6 +273,7 @@ public:
         params.choose_amount = cfg.choose_amount;
         params.dark_eps      = cfg.mean_low_threshold;
 
+        // [手冊 ch3] 三演算法白話對照表＋沙盒（親手拉爆 pitch）；[手冊 ch4] 守門怎麼選到這裡
         // Step 4: 偵測 —— DIV(比例單次) / SUB(灰階差投票,legacy) / DIV-voting(融合:比值逐路投票)
         if (cfg.algo_mode == 1 || cfg.algo_mode == 2) {
             // 前處理（legacy 偵測前順序：Ip_Remap → 3×3 高斯平滑×SmoothTimes2；d_binary 暫作平滑 scratch）

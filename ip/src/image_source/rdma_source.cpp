@@ -1,3 +1,8 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch5] N-slot ring + credit 背壓動畫（slot=seq%4、RNR 等待可視化）
+// [手冊 r2] R2.3 兩端握手/背壓對照圖（本檔=IP 半邊）
+// [手冊 p2] frame_validation 破案卡（NOCRC 兩端一致性）
+// ═══════════════════════════════════════════════════════════════
 // =============================================================================
 // rdma_source.cpp — RdmaImageSource N-slot ring buffer 實作
 // 改自 Reference/cfaoi_phase1/t40_e2e_server.cpp，升級為 N-slot + credit 背壓。
@@ -112,6 +117,7 @@ bool RdmaImageSource::init(const std::string& bind_ip, const std::string& port,
 // recv_thread：非阻塞 poll + 100μs sleep（可被 running_=false 中斷）。
 //
 // ★ 釘點 1 的正確順序（sequential statements in single thread）：
+// [手冊 ch5] ring 動畫的三步就是下面 [1][2][3]——順序不可換（換了=slot 覆寫風險）
 //   [1] memcpy slot → payload（CPU 讀 pinned memory，slot data 安全複製出來）
 //   [2] push_blocking（阻塞等 FrameQueue 有位置，payload 已 move 進佇列）
 //   [3] post_recv（補 credit，此後 Grab 可重用此 slot）

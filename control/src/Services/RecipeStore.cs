@@ -1,3 +1,7 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 r3] 單一資料來源動畫（改一處三處同步/自己 new 一份=脫鉤示範）
+// [手冊 ch4] 配方管理紀律 / [手冊 p4] Select 導師卡（⚠ 查無配方自動生成=P0-4）
+// ═══════════════════════════════════════════════════════════════
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;

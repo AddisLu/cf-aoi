@@ -1,3 +1,8 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch3] 8 方向取樣動畫（判定式逐步算）＋ CCL 收斂動畫（labels 迭代到不動點）
+// [手冊 g3] CUDA 語法急救包（<<<>>>/__shared__/atomicMin 白話對照本檔）
+// ⚠ __global__ kernel 本體禁改（不變式1）；host wrapper 的收斂迴圈=決定性支柱（不變式7）
+// ═══════════════════════════════════════════════════════════════
 /**
  * LCD CF Pattern Defect Detection - Ultra-Fast CUDA Kernels
  * ==========================================================

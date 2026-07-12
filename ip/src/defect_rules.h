@@ -1,3 +1,7 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 r1] R1.4 步8 CPU 後處理鏈（blob 先於 Rule、flood 取樣在過濾前）
+// [手冊 p4] apply_blob 導師卡（O(n²) 合併/Control 預設 80 陷阱）
+// ═══════════════════════════════════════════════════════════════
 #ifndef CFAOI_DEFECT_RULES_H
 #define CFAOI_DEFECT_RULES_H
 

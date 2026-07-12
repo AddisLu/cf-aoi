@@ -1,3 +1,9 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 r1] R1.2 六種執行模式 / R1.3 本檔進入點表 / R1.4 管線八步（含計時動畫）
+// [手冊 p4] process_image 的 Function 導師卡（讀碼三問）
+// [手冊 ch6] defect_flood 觸發器與行車記錄 hooks（環形緩衝動畫）
+// [手冊 r4] F3 送圖檢測端到端時序 / F4 生產取像鏈
+// ═══════════════════════════════════════════════════════════════
 /**
  * ============================================================================
  * CF-AOI IP 程式 — 進入點
@@ -213,6 +219,7 @@ std::string first_determinism_diff(const DetectionResult& a, const DetectionResu
 // 任一 zone 觸頂 GPU cap（MAX_DEFECTS=10000，不變式 6；觸頂結果非 bit-exact、大概率
 // Pitch 設錯/守門誤路由）或全 panel 過濾前總數 ≥ cap → 記 incident，自動把最近 64 張
 // 現場（含正常張缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
+// [手冊 ch6] defect_flood 動畫＋破案卡：訊號取「過濾前」計數的原因見 P2
 constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
 void record_defect_flood(const std::string& panel_id, int zone_capped,
                          int zone_defects, long pre_filter_total) {
@@ -225,6 +232,7 @@ void record_defect_flood(const std::string& panel_id, int zone_capped,
     FR_RECORD_INCIDENT("defect_flood", detail);
 }
 
+// [手冊 p4][手冊 r1] R1.4 步8：verify→blob→Rule→截斷 的順序是鐵律（詳見導師卡）
 // 對一張影像跑所有 zone，回傳聚合結果。
 // verify=true 時每個 zone 跑兩次比對 bit-exact，不一致則把 verify_failed 設 true 並印第一個差異。
 // saving_cfg.max_defect_count_pass >= 0 時：累計缺陷超過上限後停止後續 zone（整數比較，zone 完成後才 break）。

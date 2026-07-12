@@ -1,3 +1,7 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 r4] F3 Step1 Test 端到端時序 / [手冊 p4] AnalyzeAsync 導師卡
+// [手冊 ch2] network-clean（配方傳內容不傳路徑）
+// ═══════════════════════════════════════════════════════════════
 using System;
 using System.IO;
 using System.Text.Json;

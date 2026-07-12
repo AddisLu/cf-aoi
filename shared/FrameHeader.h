@@ -1,3 +1,7 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch2] 第三層 RDMA wire 格式（256B/magic/CRC32）＋詞彙表（imm/QP/MR）
+// ⚠ 兩端必須同版（不變式2/3）——單邊重編=frame_validation 風暴（p2 破案卡）
+// ═══════════════════════════════════════════════════════════════
 #ifndef CFAOI_SHARED_FRAMEHEADER_H
 #define CFAOI_SHARED_FRAMEHEADER_H
 

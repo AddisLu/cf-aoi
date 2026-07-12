@@ -1,3 +1,9 @@
+// ═══ 📖 手冊對照（docs/html/cf-aoi-training.html，開啟後 ⌘K 搜章節）═══
+// [手冊 ch4] 守門判定動畫（SUB/融合/stale DIV/拒載 四情境走一遍）＋配方章全文
+// [手冊 p2] recipe_load 破案卡（被拒收=系統仍用上一份配方）
+// [手冊 p4] from_recipe_xml_content 導師卡（⚠ 別再相信 AlgorithmCompare 字串）
+// [手冊 p7] 模擬器案件三：域錯配假 PASS 的完整劇本
+// ═══════════════════════════════════════════════════════════════
 #include "zone_config_adapter.h"
 #include "config_parser.h"   // ✅ 從 gpu_algo 直接複製來的 INI 解析器
 
