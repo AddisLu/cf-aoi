@@ -279,6 +279,46 @@ h3::before { content: ""; width: 4px; height: 1.05em; border-radius: 99px; backg
 .kcard dd { margin: 2px 0 0 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.65; }
 .kcard .klinks { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; font-size: 12.5px; color: var(--ink-3); }
 
+/* ── 虛擬終端機（預錄回放）── */
+.term { background: #16232b; border-radius: var(--radius); margin: 16px 0; overflow: hidden; box-shadow: var(--shadow); max-width: 68ch; }
+.term-bar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: #0e1a21; }
+.term-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+.term-bar .dot:nth-child(1){background:#f56} .term-bar .dot:nth-child(2){background:#fb5} .term-bar .dot:nth-child(3){background:#4c4}
+.term-bar .tl { font-family: var(--mono); font-size: 11px; color: #8fa9b5; flex: 1; margin-left: 6px; }
+.term-bar .btn { padding: 2px 10px; font-size: 11.5px; background: #1c2f3a; border-color: #2a4250; color: #cfe4ee; }
+.term-out { font-family: var(--mono); font-size: 12.3px; line-height: 1.65; color: #cfe4ee; padding: 12px 16px; min-height: 90px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; }
+.term-out .tc { color: #7ee2a8; }      /* 命令 */
+.term-out .te { color: #ff8a8a; }      /* 錯誤 */
+.term-out .tw { color: #ffd479; }      /* 警告 */
+.term-out .tp { color: #58c4dd; }      /* PASS/重點 */
+.term-out .cursor { display: inline-block; width: 7px; height: 13px; background: #cfe4ee; animation: blink 1s steps(1) infinite; vertical-align: -2px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── 參數沙盒 ── */
+.sandbox { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; margin: 16px 0; box-shadow: var(--shadow); }
+.sandbox canvas { border-radius: 8px; border: 1px solid var(--line); image-rendering: pixelated; }
+.sb-ctrl { flex: 1; min-width: 240px; }
+.sb-row { display: grid; grid-template-columns: 120px 1fr 56px; gap: 10px; align-items: center; margin: 10px 0; font-size: 13px; }
+.sb-row input[type=range] { accent-color: var(--accent); width: 100%; }
+.sb-row .v { font-family: var(--mono); font-size: 12.5px; color: var(--accent); text-align: right; }
+.sb-stat { font-size: 14px; margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: var(--ok-soft); }
+.sb-stat.boom { background: var(--crit-soft); font-weight: 700; }
+.sb-note { font-size: 12px; color: var(--ink-3); margin-top: 8px; }
+
+/* ── Trace Viewer 站點旅程 ── */
+.lane { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 14px 0; }
+.station { border: 1.5px solid var(--line); border-radius: 10px; padding: 8px 14px; background: var(--panel); font-size: 12.5px; text-align: center; }
+.station b { display: block; font-size: 13px; }
+.station .cnt { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.station.ok { border-color: var(--ok); }
+.station.bad { border-color: var(--crit); background: var(--crit-soft); cursor: pointer; box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 18%, transparent); }
+.station.warnlv { border-color: var(--warn); background: var(--warn-soft); cursor: pointer; }
+.lane .arr { color: var(--ink-3); font-size: 14px; }
+
+/* ── 🤖 複製給 AI ── */
+.ai-copy { font-size: 12px; }
+.ai-copy.done { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+
 /* ── 流程圖 / 時序圖（參考手冊用）── */
 .flow { margin: 14px 0; max-width: 46em; }
 .fstep {
@@ -580,7 +620,9 @@ cd control/src && dotnet build          # 或 dotnet run 直接起 UI</code></pr
 <p>加碼（有 GPU 時）：跑一張真實面板圖，對黃金數字 2606（P5）：</p>
 <pre><code>./build/cfaoi_ip --mode offline-file --input ../test_images/IP01_Origin000002.tif \
     --output /tmp/day1 --no-save-images
-# 期望 log：[Diag] … 總缺陷(DetectionResult)=2606</code></pre></div>
+# 期望 log：[Diag] … 總缺陷(DetectionResult)=2606</code></pre>
+<p style="font-size:12.8px;margin-top:10px">沒有機器在手邊？先看預錄的真實執行過程（RTX2080 實錄）：</p>
+<div class="term" data-rec="day1"><div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tl">addis@rtx2080: ~/cf-aoi/ip</span><button class="btn" data-t="play">▶ 播放</button><button class="btn" data-t="skip">⏩ 直接看結果</button></div><div class="term-out"></div></div></div>
 <div class="callout hands"><span class="tag">🔧 Track B（Mac／任何電腦）：跑 Control selftest</span>
 <pre><code>cd control/src && dotnet run -- --selftest store
 # 期望全部 PASS ← Control 端環境 OK（此測試用假資料，不需要 IP 在線）
@@ -892,6 +934,19 @@ __global__ void kernelDetect(const uint8_t* img, int w, int h, ...) {
 <div class="callout crit"><span class="tag">爆量陷阱（血淚不變式 14）</span>
 <p><strong>Pitch 設錯 1–4 px，整片正常網格都會被判成缺陷</strong>：實測 PitchX 26→30，缺陷數 561→10000（觸頂 MAX_DEFECTS）。新面板一定先用 FFT 估算 Pitch（<code>scripts/estimate_pitch.py</code> 或 Step1 的 FFT 鈕），不可沿用舊值或用猜的。<strong>缺陷數接近 10000 時，第一個懷疑對象就是 Pitch。</strong></p></div>
 
+<h4>🎛 親手體驗爆量陷阱（參數沙盒——真的 DIV 演算法在你的瀏覽器裡跑）</h4>
+<p>下面的紋理以週期 <b>26px</b> 產生（含 4 顆真缺陷：2 亮 2 暗）。拉動 PitchX/Y 滑桿偏離 26，親眼看整片網格「變成缺陷」——這就是不變式 14 的物理直覺：</p>
+<div class="sandbox">
+  <div><canvas id="sbCanvas" width="280" height="200" style="width:280px;height:200px"></canvas><div class="sb-note">紅=判亮缺陷｜藍=判暗缺陷（演算法與 kernelFast8WayComparison 同式）</div></div>
+  <div class="sb-ctrl">
+    <div class="sb-row"><span>PitchX/Y 設定</span><input type="range" id="sbPitch" min="14" max="40" value="26"><span class="v" id="sbPitchV">26</span></div>
+    <div class="sb-row"><span>BrightThreshold</span><input type="range" id="sbBth" min="105" max="200" value="140"><span class="v" id="sbBthV">1.40</span></div>
+    <div class="sb-row"><span>DarkThreshold</span><input type="range" id="sbDth" min="30" max="95" value="60"><span class="v" id="sbDthV">0.60</span></div>
+    <div class="sb-stat" id="sbStat"></div>
+    <div class="sb-note">試試：①Pitch 拉到 30 → 爆量（561→10000 的現場）②拉回 26 → 只剩 4 顆真缺陷 ③BTH 降到 1.1 → 噪點開始誤報</div>
+  </div>
+</div>
+
 <h3>兩套偵測演算法：DIV 與 SUB</h3>
 <div class="tablewrap"><table>
 <tr><th></th><th>DIV（比例式，Demo 移植）</th><th>SUB 投票式（legacy 移植，生產配方用）</th></tr>
@@ -1000,6 +1055,10 @@ IP recv_thread 收到完成事件：
 <p>RoCE v2 上 Grab 斷線後 <code>WR_FLUSH_ERR</code> <strong>不保證出現</strong> → recv_thread 永不退出 → FrameQueue 永不 close → 主迴圈永久卡死。修法：no-event 分支輪詢 CM event channel（<code>check_cm_disconnect()</code>）。<strong>教訓：分散式系統裡「對方死了」的訊號永遠要有第二來源。</strong></p></div>
 <div class="card"><h4>坑 3：GB10 不能用 nvidia_peermem</h4>
 <p>DGX Spark 是 NVLink-C2C SoC，GPU Bus ID 不在標準 PCIe 空間，<code>modprobe nvidia_peermem</code> 直接 EINVAL。正解：<code>cudaHostAlloc(Portable|Mapped)</code> pinned host memory 註冊 MR，GPU 經 <code>cudaHostGetDevicePointer</code> 走 NVLink-C2C（~900GB/s）讀。<strong>教訓：換硬體平台時，「業界標準做法」要重新驗證。</strong></p></div>
+
+<h4>實錄：背壓保護動作時你會看到什麼</h4>
+<p>下面是 Spark 實機驗證時的真實畫面（GB10、FrameQueue 上限 1 幀、故意用 2 秒延遲模擬慢消費端）——注意「系統繁忙」是<strong>保護</strong>不是故障：</p>
+<div class="term" data-rec="backpressure"><div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tl">auo001@spark-c16f: ~/Addis/cf-aoi/ip</span><button class="btn" data-t="play">▶ 播放</button><button class="btn" data-t="skip">⏩ 直接看結果</button></div><div class="term-out"></div></div>
 
 <h3>記憶體紀律：固定上限，絕不動態擴</h3>
 <p>legacy 系統曾因「每幀 new 一個 buffer 塞進 List」在生產環境 OOM。新系統的鐵律（不變式 18/19）：</p>
@@ -1941,6 +2000,7 @@ grep -rn "ChooseAmount" Reference/PrjCfAoi/ --include="*.cs" --include="*.cu" | 
     <a class="btn" id="cpVscode" href="#" title="用 VS Code 開啟（⚙ 可改本機 repo 路徑）">VS Code</a>
     <button class="btn" id="cpRoot" title="設定本機 repo 根目錄">⚙</button>
     <button class="btn" id="cpCopy" title="複製 路徑:行號">複製</button>
+    <button class="btn ai-copy" id="cpAI" title="把目前檔案片段+系統不變式打包成 AI prompt">🤖</button>
     <button class="btn" id="cpMax" title="專注模式：放大/還原">⛶</button>
     <button class="btn" id="cpClose" aria-label="關閉">✕</button>
   </div>
@@ -2985,6 +3045,23 @@ function analyzeAndRender(jsonlText, incidents) {
     '</div>');
   if (sess.mode) out.push('<p>Session：mode=<code>' + sess.mode + '</code>，ip_name=<code>' + (sess.ip_name||'') + '</code>' +
     (sess.gpu && sess.gpu.name ? '，GPU=' + sess.gpu.name + '（free ' + sess.gpu.free_mb + 'MB）' : '') + '</p>');
+  // Trace Viewer：站點旅程（incident 映射到管線站點，紅站可點開源碼）
+  const STATIONS = [
+    { label: '收圖驗證', kinds: ['frame_validation', 'bad_json', 'rdma_validate'] },
+    { label: 'FrameQueue', kinds: ['queue_overflow', 'queue_high_watermark'], warn: true },
+    { label: 'GPU 檢測', kinds: ['cuda_fatal', 'defect_flood'] },
+    { label: '配方/守門', kinds: ['recipe_load'] },
+    { label: '存檔/回傳', kinds: ['uncaught_exception', 'source_ring_full'], warn: true },
+  ];
+  const laneHtml = STATIONS.map(st => {
+    const hits = incEvents.filter(e => st.kinds.includes(e.kind));
+    const first = hits.find(e => e.src);
+    const cls = hits.length ? (st.warn ? 'warnlv' : 'bad') : 'ok';
+    const attr = first ? ' data-src="' + first.src.split(':')[0] + '" data-line="' + (first.src.split(':')[1]||'') + '" title="點擊開啟 ' + first.src + '"' : '';
+    return '<div class="station ' + cls + '"' + attr + '><b>' + (hits.length ? (st.warn ? '⚠ ' : '🔴 ') : '✓ ') + st.label + '</b><span class="cnt">' + (hits.length ? hits.length + ' incident' : '正常') + '</span></div>';
+  }).join('<span class="arr">→</span>');
+  out.push('<h3>旅程健康圖（點紅/橘站直達出錯源碼）</h3><div class="lane">' + laneHtml + '</div>');
+
   // 效能趨勢
   if (stats.length) {
     const vals = stats.map(s => s.gpu_ms_p50 || 0), mx = Math.max(...vals, 0.001);
@@ -3008,13 +3085,15 @@ function analyzeAndRender(jsonlText, incidents) {
   // 逐 incident 診斷卡
   const fulls = Object.values(incidents || {});
   const diagSrc = fulls.length ? fulls : incEvents;
+  lastDiagList = diagSrc;
   if (diagSrc.length) out.push('<h3>自動診斷</h3>');
-  diagSrc.forEach(inc => {
+  diagSrc.forEach((inc, dIdx) => {
     const kb = KB[inc.kind] || { lv: 'warn', mean: '（此 kind 尚無知識庫條目）', causes: [], next: [], go: 'p2' };
     const finds = autoChecks(inc);
     const srcParts = (inc.src || '').split(':');
     let card = '<div class="card diagcard' + (kb.lv === 'warn' ? ' warnlv' : '') + '">' +
-      '<h4>' + inc.kind + '</h4><div class="dts">' + (inc.ts||'') + (inc.suppressed_since_last ? ' ｜前窗抑制 ' + inc.suppressed_since_last + ' 筆' : '') + '</div>' +
+      '<h4>' + inc.kind + ' <button class="btn ai-copy" data-ai="' + dIdx + '" title="打包 incident+源碼片段+不變式 成 AI prompt">🤖 複製給 AI</button></h4>' +
+      '<div class="dts">' + (inc.ts||'') + (inc.suppressed_since_last ? ' ｜前窗抑制 ' + inc.suppressed_since_last + ' 筆' : '') + '</div>' +
       '<p style="margin:6px 0">' + kb.mean + '</p>' +
       '<p style="font-size:13px"><b>detail</b>：' + esc(inc.detail || '') + '</p>' +
       (inc.src ? '<p style="font-size:13px"><b>出錯位置</b>：<a class="srclink" data-src="' + srcParts[0] + '" data-line="' + (srcParts[1]||'') + '">' + inc.src + '</a>（點開直接看碼）</p>' : '');
@@ -3066,6 +3145,179 @@ $('laDemo').addEventListener('click', () => {
   if (!window.DEMO_LOG) { alert('此版本未內嵌範例（跑 build_manual.py 注入）'); return; }
   analyzeAndRender(window.DEMO_LOG.jsonl, window.DEMO_LOG.incidents);
 });
+
+/* ── 🤖 AI 上下文打包 ── */
+let lastDiagList = [];
+const INV_BY_KIND = {
+  defect_flood: ['不變式14：Pitch 偏差 1–4px 即爆量（561→10000），新面板先 FFT 估算', '不變式6：MAX_DEFECTS=10000 觸頂結果非 bit-exact'],
+  frame_validation: ['不變式2/3：FrameHeader 兩端同版 sizeof==256 magic 0xA01CF00D', 'CFAOI_RDMA_NOCRC 兩端必須一致（無握手協商）'],
+  rdma_validate: ['同 frame_validation；RoCE 斷線偵測靠 CM event 輪詢'],
+  recipe_load: ['守門權威欄位=M_AlgorithmWayCompare（AlgorithmCompare 可能 stale）', 'DIV 域 0<DTH<1；SUB 域 DTH<0（灰階差）'],
+  queue_overflow: ['不變式18：FrameQueue 固定上限、滿則背壓，絕不動態擴大記憶體'],
+  queue_high_watermark: ['不變式18：同上——先查下游為何變慢，別調大上限'],
+  cuda_fatal: ['不變式11：GB10 不可用 nvidia_peermem，用 cudaHostAlloc(Portable|Mapped)', '不變式1：__global__ kernel 本體禁改'],
+  uncaught_exception: ['output/_diag 同卷：磁碟滿時 incident 也可能寫不進去'],
+};
+const INV_COMMON = ['不變式5：同影像兩跑 bit-exact（改動後必跑 --verify-deterministic）', '不變式1/7：kernel 本體禁改；CCL 收斂迴圈與 canonical 排序不可刪', '誠實失敗：任何失敗回 ERR，不得假 OK'];
+function snippetOf(path, line, ctx) {
+  if (!SRC[path]) return '（快照未含 ' + path + '）';
+  const L = SRC[path].split('\n');
+  const a = Math.max(0, (line || 1) - 1 - ctx), b = Math.min(L.length, (line || 1) + ctx);
+  return L.slice(a, b).map((t, i) => String(a + i + 1).padStart(5) + '  ' + t).join('\n');
+}
+function buildIncidentPrompt(inc) {
+  const src = inc.src || '';
+  const [sp, sl] = src.split(':');
+  const kb = KB[inc.kind] || {};
+  const invs = [...(INV_BY_KIND[inc.kind] || []), ...INV_COMMON];
+  const incCopy = { ...inc }; delete incCopy.recent_frames;
+  return [
+    '你是熟悉 CF-AOI 面板檢測系統（C++/CUDA + C# Avalonia + RDMA）的資深工程師。',
+    '以下是生產環境行車記錄器抓到的 incident 與相關背景，請：①判斷最可能根因 ②給出可執行的驗證步驟 ③提出修補建議（必須遵守下方不變式）。',
+    '',
+    '## Incident（行車記錄器）',
+    '```json', JSON.stringify(incCopy, null, 1).slice(0, 4000), '```',
+    inc.recent_frames ? '（另有最近 ' + inc.recent_frames.length + ' 幀摘要，需要可再提供）' : '',
+    src ? '\n## 出錯位置源碼 ' + src + '（±30 行）\n```\n' + snippetOf(sp, +sl, 30) + '\n```' : '',
+    '\n## 系統不變式（修補不可違反）', invs.map(s => '- ' + s).join('\n'),
+    kb.causes ? '\n## 既有排障知識（常見根因排行）\n' + kb.causes.map((c, i) => (i+1) + '. ' + c).join('\n') : '',
+    kb.next ? '\n## 建議的下一步命令\n' + kb.next.join('\n') : '',
+  ].filter(Boolean).join('\n');
+}
+function copyWithFeedback(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const old = btn.textContent; btn.textContent = '✓ 已複製'; btn.classList.add('done');
+    setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1600);
+  }).catch(() => alert('複製失敗——請手動選取'));
+}
+$('laOut').addEventListener('click', e => {
+  const b = e.target.closest('button[data-ai]');
+  if (b) { const inc = lastDiagList[+b.dataset.ai]; if (inc) copyWithFeedback(b, buildIncidentPrompt(inc)); return; }
+  const st = e.target.closest('.station[data-src]');
+  if (st) openCode(st.dataset.src, +st.dataset.line || 0);
+});
+$('cpAI').addEventListener('click', () => {
+  if (!curPath) return;
+  const text = [
+    '你是熟悉 CF-AOI 面板檢測系統的資深工程師。以下是我正在研究的源碼片段與系統不變式，請解釋這段碼的行為並回答我接下來的問題。',
+    '', '## ' + curPath + (curLine ? ':' + curLine : '') + '（±40 行）',
+    '```', snippetOf(curPath, curLine || 1, 40), '```',
+    '', '## 系統不變式（相關約束）', INV_COMMON.map(s => '- ' + s).join('\n'),
+  ].join('\n');
+  copyWithFeedback($('cpAI'), text);
+});
+
+/* ── 虛擬終端機（預錄真實輸出回放）── */
+const RECS = {
+  day1: [
+    ['c', './build/align_verify'],
+    ['o', '[align_verify] Stage1 sub-pixel: L1 ok Δ=0.031px'],
+    ['o', '[align_verify] Stage1 sub-pixel: L2 ok Δ=0.087px'],
+    ['o', '[align_verify] ... (14 個子像素/旋轉/全幅 case)'],
+    ['o', '[align_verify] Stage3C 全幅套對位: aligned_start_x=-1 eff_start_x=-1 is_full=1 ok'],
+    ['p', '結果: PASS 18 / FAIL 0 (共 18)'],
+    ['c', './build/cfaoi_ip --mode offline-file --input ../test_images/IP01_Origin000002.tif --output /tmp/day1 --no-save-images'],
+    ['o', '==== CF-AOI IP (mode=offline-file) ===='],
+    ['o', '[Optical] opt_res=(0,0) ccd_index=0'],
+    ['o', '[GPU] zero_copy=no ai=off（模型已載入但停用）'],
+    ['o', '[Zone] 1 個檢測區'],
+    ['o', '[DeathMargin] zone 0 ROI=(0,0)+8192x5000 death_margin=(x:53, y:39)'],
+    ['p', '[Diag] zones=1 各zone缺陷=[2606] 總缺陷(DetectionResult)=2606 = JSON_DefectInfo筆數'],
+    ['p', '[Done] 處理 1 張影像   ← 2606 = P5 黃金數字，環境 OK 🎉'],
+  ],
+  backpressure: [
+    ['c', './build/cfaoi_ip --mode offline-tcp --max-queue-size 1 --test-consumer-delay-ms 2000'],
+    ['o', '[BufferCalc] host可用RAM=112488MB  幀大小~39MB  FrameQueue上限=1幀  SourceRing上限=4幀'],
+    ['o', '[ControlServer] listening 0.0.0.0:8200'],
+    ['o', '（另一端：no_wait 模式快速連送 20 幀，模擬上游比下游快）'],
+    ['o', 'frame#1 OK（入隊）'],
+    ['e', 'frame#2 ERR "FrameQueue 滿（上限 1 幀）：系統繁忙，請稍後重試"'],
+    ['e', 'frame#3 ERR "FrameQueue 滿（上限 1 幀）：系統繁忙，請稍後重試"'],
+    ['w', '[WaterLevel] 100% → queue_high_watermark incident 落地 _diag/'],
+    ['o', 'frame#4 OK（消費端空出一格）'],
+    ['e', 'frame#5..#20：14 幀 ERR / 6 幀 OK ——隊深始終 ≤ 上限'],
+    ['p', 'VmRSS 增長 155MB < 20幀×38MB=778MB ← 背壓生效：記憶體有頂、絕不 OOM ✓'],
+    ['p', '（這就是不變式 18：滿了拒收讓上游慢下來，而不是吃光記憶體）'],
+  ],
+};
+function initTerms() {
+  document.querySelectorAll('.term').forEach(t => {
+    const rec = RECS[t.dataset.rec]; if (!rec) return;
+    const out = t.querySelector('.term-out');
+    let run = 0;
+    const cls = { c: 'tc', e: 'te', w: 'tw', p: 'tp', o: '' };
+    const lineHtml = ([ty, s]) => (ty === 'c' ? '<span class="tc">$ ' + esc(s) + '</span>' : '<span class="' + cls[ty] + '">' + esc(s) + '</span>');
+    async function play() {
+      const my = ++run; let hist = '';
+      for (const item of rec) {
+        if (my !== run) return;
+        if (item[0] === 'c') {   // 命令逐字打
+          let typed = '';
+          for (const ch of item[1]) {
+            if (my !== run) return;
+            typed += ch;
+            out.innerHTML = hist + '<span class="tc">$ ' + esc(typed) + '</span><span class="cursor"></span>';
+            out.scrollTop = out.scrollHeight;
+            await new Promise(r => setTimeout(r, 14));
+          }
+          hist += '<span class="tc">$ ' + esc(item[1]) + '</span>\n';
+          await new Promise(r => setTimeout(r, 250));
+        } else {
+          await new Promise(r => setTimeout(r, 110));
+          hist += lineHtml(item) + '\n';
+        }
+        out.innerHTML = hist;
+        out.scrollTop = out.scrollHeight;
+      }
+    }
+    t.querySelector('[data-t=play]').addEventListener('click', play);
+    t.querySelector('[data-t=skip]').addEventListener('click', () => { run++; out.innerHTML = rec.map(lineHtml).join('\n'); out.scrollTop = out.scrollHeight; });
+    out.innerHTML = '<span class="tc">$ </span><span class="cursor"></span>  ← 按「▶ 播放」看真實執行過程';
+  });
+}
+initTerms();
+
+/* ── 參數沙盒：真的 DIV 演算法在瀏覽器跑 ── */
+function sbInit() {
+  const cv = $('sbCanvas'); if (!cv) return;
+  const W = 280, H = 200, PT = 26;
+  const tex = new Uint8Array(W * H);
+  let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let v = 128 + (rnd() * 6 - 3);
+    if (x % PT < 2 || y % PT < 2) v += 14;          // 週期 26 的網格紋理
+    tex[y * W + x] = v;
+  }
+  const defs = [[60, 50, 5, 210], [200, 140, 5, 210], [140, 80, 5, 55], [90, 160, 4, 55]];   // 2 亮 2 暗真缺陷
+  for (const [dx, dy, sz, val] of defs)
+    for (let y = dy; y < dy + sz; y++) for (let x = dx; x < dx + sz; x++) tex[y * W + x] = val;
+  const ctx = cv.getContext('2d');
+  function detect() {
+    const pitch = +$('sbPitch').value, bth = +$('sbBth').value / 100, dth = +$('sbDth').value / 100;
+    $('sbPitchV').textContent = pitch; $('sbBthV').textContent = bth.toFixed(2); $('sbDthV').textContent = dth.toFixed(2);
+    const img = ctx.createImageData(W, H); const d = img.data;
+    let nB = 0, nD = 0;
+    const m = pitch + 1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const v = tex[y * W + x]; const o = (y * W + x) * 4;
+      d[o] = d[o+1] = d[o+2] = v; d[o+3] = 255;
+      if (x < m || x >= W - m || y < m || y >= H - m) continue;
+      const s = tex[(y-pitch)*W + x-pitch] + tex[(y-pitch)*W + x] + tex[(y-pitch)*W + x+pitch] +
+                tex[y*W + x-pitch] + tex[y*W + x+pitch] +
+                tex[(y+pitch)*W + x-pitch] + tex[(y+pitch)*W + x] + tex[(y+pitch)*W + x+pitch];
+      if (v * 8 > s * bth) { d[o] = 235; d[o+1] = 60; d[o+2] = 60; nB++; }          // 亮缺陷＝紅
+      else if (v * 8 < s * dth) { d[o] = 70; d[o+1] = 110; d[o+2] = 235; nD++; }    // 暗缺陷＝藍
+    }
+    ctx.putImageData(img, 0, 0);
+    const n = nB + nD, st = $('sbStat');
+    if (n > 2500) { st.className = 'sb-stat boom'; st.textContent = '🚨 爆量！檢出 ' + n + ' 像素——整片網格被當缺陷。這就是 561→10000 觸頂的現場（pitch ' + pitch + ' ≠ 紋理週期 26）'; }
+    else if (n === 0) { st.className = 'sb-stat'; st.textContent = '檢出 0——閾值太鬆（真缺陷也漏了）。試試 BTH 調回 1.40'; }
+    else { st.className = 'sb-stat'; st.textContent = '✓ 檢出 ' + n + ' 像素 ≈ 4 顆真缺陷（紅 ' + nB + '／藍 ' + nD + '）——參數健康'; }
+  }
+  ['sbPitch', 'sbBth', 'sbDth'].forEach(id => $(id).addEventListener('input', () => requestAnimationFrame(detect)));
+  detect();
+}
+sbInit();
 
 show(LS.get('lastPage', 'ch0'));   // 重新觸發一次以更新麵包屑
 })();
