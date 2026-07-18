@@ -71,6 +71,33 @@ public sealed class RoiResultModel
     public List<DefectModel> Defects { get; set; } = new();
 }
 
+/// <summary>
+/// 玻璃前緣/尾緣健檢（IP edge_check；JSON-only，IP 停用時整欄缺席 → 屬性為 null）。
+/// 前緣 = Align Fail 警告（進片 sensor→取像時序）；尾緣 = 傳送片健檢（速度漂移 drift_pct）。
+/// </summary>
+public sealed class EdgeCheckResultModel
+{
+    [JsonPropertyName("leading_found")]    public bool LeadingFound { get; set; }
+    [JsonPropertyName("leading_line")]     public int LeadingLine { get; set; } = -1;
+    [JsonPropertyName("leading_in_range")] public bool LeadingInRange { get; set; } = true;
+    [JsonPropertyName("align_ok")]         public bool AlignOk { get; set; } = true;
+    [JsonPropertyName("tail_found")]       public bool TailFound { get; set; }
+    [JsonPropertyName("tail_line")]        public int TailLine { get; set; } = -1;
+    [JsonPropertyName("transport_ok")]     public bool TransportOk { get; set; } = true;
+    [JsonPropertyName("measured_lines")]   public long MeasuredLines { get; set; }
+    [JsonPropertyName("expected_lines")]   public long ExpectedLines { get; set; }
+    [JsonPropertyName("drift_pct")]        public double DriftPct { get; set; }
+
+    [JsonIgnore] public string Summary =>
+        $"前緣={(LeadingFound ? LeadingLine.ToString() : "未找到")}" +
+        (LeadingFound && !LeadingInRange ? "(超出預期範圍)" : "") +
+        $" 尾緣={(TailFound ? TailLine.ToString() : "未找到")}" +
+        (LeadingFound && TailFound
+            ? $" 實測行數={MeasuredLines}" +
+              (ExpectedLines > 0 ? $" 理論={ExpectedLines} drift={DriftPct:+0.000;-0.000}%" : "")
+            : "");
+}
+
 /// <summary>整張影像結果 — 頂層對齊 IP JSON；XML 對齊 legacy JudgeResult（root 元素 JudgeResult）。</summary>
 [XmlRoot("JudgeResult")]
 public sealed class DefectResultModel
@@ -95,6 +122,9 @@ public sealed class DefectResultModel
     [JsonPropertyName("RoiInfoList")]
     [XmlArray("RoiInfoList")] [XmlArrayItem("RoiInfo")]
     public List<RoiResultModel> RoiInfoList { get; set; } = new();
+
+    // 玻璃前緣/尾緣健檢（JSON-only；IP edge_check 停用時為 null → 舊 IP 完全相容）
+    [JsonPropertyName("edge_check")] [XmlIgnore] public EdgeCheckResultModel? EdgeCheck { get; set; }
 
     // === UI 衍生 ===
     [JsonIgnore] [XmlIgnore] public IEnumerable<DefectModel> AllDefects =>

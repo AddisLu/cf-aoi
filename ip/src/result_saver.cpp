@@ -218,6 +218,23 @@ std::string to_json(const InspectionResult& r) {
         });
     }
     j["IoiInfoList"] = ioi_list;
+
+    // 玻璃前緣/尾緣健檢（docs plan「37 CCD 觸發設計」）。停用時整個欄位省略 → 舊收端無感知。
+    // XML（legacy JudgeResult）刻意不加：保 CF_GET_RESULT 上位機鏈相容，警告走 JSON/status。
+    if (r.edge.checked) {
+        j["edge_check"] = {
+            {"leading_found",  r.edge.leading_found},
+            {"leading_line",   r.edge.leading_line},
+            {"leading_in_range", r.edge.leading_in_range},
+            {"align_ok",       r.edge.align_ok()},
+            {"tail_found",     r.edge.tail_found},
+            {"tail_line",      r.edge.tail_line},
+            {"transport_ok",   r.edge.transport_ok(r.edge_drift_warn_pct)},
+            {"measured_lines", r.edge.measured_lines},
+            {"expected_lines", r.edge.expected_lines},
+            {"drift_pct",      r.edge.drift_pct},
+        };
+    }
     return j.dump(2);
 }
 

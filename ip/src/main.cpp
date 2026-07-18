@@ -21,6 +21,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <cmath>
@@ -41,6 +42,7 @@
 #include "config/zone_config_adapter.h"
 #include "defect_rules.h"
 #include "diag/flight_recorder.h"
+#include "edge_check.h"
 #include "gpu/gpu_pipeline.h"
 #include "image_source/file_source.h"
 #include "image_source/source_image_writer.h"
@@ -232,6 +234,43 @@ void record_defect_flood(const std::string& panel_id, int zone_capped,
     FR_RECORD_INCIDENT("defect_flood", detail);
 }
 
+// 玻璃前緣/尾緣健檢（Align Fail 警告 + 傳送片檢查；docs plan「37 CCD 觸發設計」）。
+// 純 CPU、在 GPU 計時區外呼叫；INI [EdgeCheck] enabled=0（預設）→ 直接 return，行為不變。
+// counters 供 GET_STATUS 監控（control server 執行緒讀 → atomic）。
+struct EdgeCheckCounters {
+    std::atomic<long>   align_fail{0};
+    std::atomic<long>   transport_warn{0};
+    std::atomic<double> last_drift_pct{0.0};
+};
+
+void apply_edge_check(const EdgeCheckConfig& cfg, const cv::Mat& gray,
+                      InspectionResult& res, EdgeCheckCounters& ctr) {
+    if (!cfg.enabled) return;
+    res.edge = EdgeCheck::run(gray.data, gray.cols, gray.rows, cfg);
+    res.edge_drift_warn_pct = cfg.drift_warn_pct;
+    const std::string sum = EdgeCheck::summary(res.edge, cfg);
+    const bool align_ok = res.edge.align_ok();
+    const bool transport_ok = res.edge.transport_ok(cfg.drift_warn_pct);
+    if (!align_ok) {
+        ctr.align_fail.fetch_add(1, std::memory_order_relaxed);
+        std::cout << "[EdgeCheck] ⚠ Align Fail panel=" << res.panel_id << " " << sum << "\n";
+        FR_RECORD_INCIDENT("align_fail",
+            "玻璃前緣檢查失敗 panel=" + res.panel_id + "：" + sum +
+            "；疑：進片sensor→取像延遲漂移超窗 / sensor未觸發 / 前緣不在第一張");
+    }
+    if (!transport_ok) {
+        ctr.transport_warn.fetch_add(1, std::memory_order_relaxed);
+        std::cout << "[EdgeCheck] ⚠ 傳送異常 panel=" << res.panel_id << " " << sum << "\n";
+        FR_RECORD_INCIDENT("transport_anomaly",
+            "玻璃尾緣/速度檢查失敗 panel=" + res.panel_id + "：" + sum +
+            "；疑：片未走完 / 傳送速度漂移 / 取像張數不足");
+    }
+    if (res.edge.leading_found && res.edge.tail_found && res.edge.expected_lines > 0)
+        ctr.last_drift_pct.store(res.edge.drift_pct, std::memory_order_relaxed);
+    if (align_ok && transport_ok)
+        std::cout << "[EdgeCheck] ✓ panel=" << res.panel_id << " " << sum << "\n";
+}
+
 // [手冊 p4][手冊 r1] R1.4 步8：verify→blob→Rule→截斷 的順序是鐵律（詳見導師卡）
 // 對一張影像跑所有 zone，回傳聚合結果。
 // verify=true 時每個 zone 跑兩次比對 bit-exact，不一致則把 verify_failed 設 true 並印第一個差異。
@@ -390,6 +429,18 @@ int main(int argc, char** argv) {
     std::cout << "[Optical] opt_res=(" << machine_optical.opt_res_x
               << "," << machine_optical.opt_res_y
               << ") ccd_index=" << machine_optical.ccd_index << "\n";
+    // 玻璃前緣/尾緣健檢設定（INI [EdgeCheck]；預設停用 → 行為不變）
+    const EdgeCheckConfig edge_cfg = EdgeCheck::load_config(args.ini);
+    EdgeCheckCounters edge_ctr;
+    if (edge_cfg.enabled) {
+        std::cout << "[EdgeCheck] enabled frame_lines=" << edge_cfg.frame_lines
+                  << " min_contrast=" << edge_cfg.min_contrast
+                  << " expected_leading=" << edge_cfg.expected_leading_line
+                  << "±" << edge_cfg.leading_tolerance
+                  << " expected_panel_lines=" << edge_cfg.expected_panel_lines
+                  << " drift_warn=" << edge_cfg.drift_warn_pct << "%"
+                  << " tail_frames=" << edge_cfg.tail_search_frames << "\n";
+    }
     // bench 覆寫單一全幅 zone（掃缺陷負載上下界用；只對無 recipe 的單 zone 生效）
     if (args.ov_bth >= 0.f)  base.BTH = args.ov_bth;
     if (args.ov_dth >= 0.f)  base.DTH = args.ov_dth;
@@ -495,6 +546,7 @@ int main(int argc, char** argv) {
                                              args.verify_deterministic, vf,
                                              cli_saving_cfg, machine_optical);
         res.ioi_list = file_ioi;
+        apply_edge_check(edge_cfg, panel, res, edge_ctr);  // 前緣/尾緣健檢（GPU 計時區外）
         ResultSaver::save(res, panel.data, panel.cols, panel.rows, args.output, args.ip_name, save_opt);
         std::cout << "[Done] 拼接 panel 偵測完成，缺陷 " << res.total_defects() << "\n";
 
@@ -517,6 +569,7 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
+            apply_edge_check(edge_cfg, gray, res, edge_ctr);  // 前緣/尾緣健檢（GPU 計時區外）
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height, args.output, args.ip_name, save_opt);
             ++processed;
         }
@@ -605,6 +658,10 @@ int main(int argc, char** argv) {
             json s;
             s["processed"] = processed;
             s["ai"] = pipe.ai_enabled();
+            // 前緣/尾緣健檢 running counters（edge_check 停用時恆 0，收端容忍缺欄故直出）
+            s["edge_align_fail"]     = edge_ctr.align_fail.load(std::memory_order_relaxed);
+            s["edge_transport_warn"] = edge_ctr.transport_warn.load(std::memory_order_relaxed);
+            s["edge_last_drift_pct"] = edge_ctr.last_drift_pct.load(std::memory_order_relaxed);
             std::lock_guard<std::mutex> lk(zones_mtx);
             s["zones"] = zones.size();
             return s.dump();
@@ -640,6 +697,7 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
+            apply_edge_check(edge_cfg, gray, res, edge_ctr);  // 前緣/尾緣健檢（結果進 JSON 回 Control）
             // TuningRecipe：GPU 跑、結果仍回 TCP，但完全不寫磁碟（量速/調參模式）。
             if (sflags.tuning_recipe) {
                 std::cout << "[TuningRecipe] 跳過存圖（結果仍回傳）panel=" << name << "\n";
@@ -890,6 +948,7 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().record_frame(scene);
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
+            apply_edge_check(edge_cfg, gray, res, edge_ctr);  // 前緣/尾緣健檢（GPU 計時區外）
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
                               args.output, args.ip_name, save_opt);
             ++processed;

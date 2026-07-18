@@ -24,6 +24,7 @@
 
 #include "gpu/gpu_pipeline.h"            // DetectionResult
 #include "config/zone_config_adapter.h"  // ZoneConfig
+#include "edge_check.h"                  // EdgeCheckResult（玻璃前緣/尾緣健檢）
 
 // 單一 zone 的檢測結果（缺陷座標為 ROI-local）。
 struct ZoneResult {
@@ -48,6 +49,8 @@ struct InspectionResult {
     double total_time_ms = 0.0;
     std::vector<ZoneResult> zones;
     std::vector<IoiRect> ioi_list;   // #23 興趣區（DetectIoiList）；存圖時裁切+寫 IoiInfoList
+    EdgeCheckResult edge;            // 玻璃前緣/尾緣健檢（checked=false → JSON 不輸出）
+    double edge_drift_warn_pct = 0.2;  // transport_ok 判定閾值（來自 EdgeCheckConfig，進 JSON 供 Control 判讀）
 
     int total_defects() const {
         int n = 0;

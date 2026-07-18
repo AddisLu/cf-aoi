@@ -50,6 +50,7 @@ add_executable(cfaoi_ip
     src/result_saver.cpp
     src/control_server.cpp
     src/align_engine.cpp
+    src/edge_check.cpp
     $<$<BOOL:${IBVERBS_LIB}>:src/image_source/rdma_source.cpp>
 )
 
@@ -102,6 +103,18 @@ target_include_directories(coord_verify PRIVATE
 )
 target_link_libraries(coord_verify PRIVATE)
 target_compile_options(coord_verify PRIVATE -std=c++17)
+
+# ── edge_verify（純 OpenCV，不需 CUDA；玻璃前緣/尾緣健檢 Stage 1 合成驗證）────────
+add_executable(edge_verify
+    src/edge_verify.cpp
+    src/edge_check.cpp
+)
+target_include_directories(edge_verify PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(edge_verify PRIVATE ${OpenCV_LIBS})
+target_compile_options(edge_verify PRIVATE -std=c++17)
 
 # ── rules_verify（純 OpenCV，不需 CUDA；#16 Rule 改判 + #32 邊界略過 單元驗證）────
 add_executable(rules_verify
