@@ -48,36 +48,36 @@ std::vector<float> smooth_profile(const std::vector<float>& p) {
     return out;
 }
 
-// 在剖面中找邊緣躍變：|smooth[y+kGap] - smooth[y-kGap]| >= min_contrast 的躍變峰。
+// 在剖面中找邊緣躍變：|smooth[y+kGap] - smooth[y-kGap]| >= min_contrast 判定存在，
 // first=true → 由前往後找第一個跨越點（前緣）；false → 由後往前找最後一個（尾緣）。
-// 找到跨越點後在 ±(kGap+kSmooth) 窗內取 |diff| 最大值 = 邊緣中心
-//（貪婪爬坡會被雜訊的局部小峰提早擋下 → 系統性偏差，不可用）。
+// 定位不用 diff 峰值——帶間隔差分在硬邊緣是 ~2×kGap 寬的「平頂」，argmax 會被雜訊
+// 在平頂上隨機選點（實測 ±6 行偏差）。改用剖面中值跨越：跨越點兩側 ±win 當基準，
+// 第一個穿過 (低側+高側)/2 的 index = 邊緣中心（決定性、±1~2 行）。
 // 回傳剖面內 index（-1 = 未找到）。
 int find_edge(const std::vector<float>& sm, int min_contrast, bool first) {
     const int n = (int)sm.size();
     if (n < 2 * kGap + 1) return -1;
     auto diff_at = [&](int i) { return std::fabs(sm[i + kGap] - sm[i - kGap]); };
 
+    // 由 diff 跨越點 i 定位邊緣中心：窗兩端 sm[a]/sm[b] 為兩側基準，回傳中值跨越 index。
+    auto localize = [&](int i) {
+        const int win = 2 * kGap + kSmooth;   // 覆蓋整個差分坡 + 平滑過渡帶
+        const int a = std::max(0, i - win);
+        const int b = std::min(n - 1, i + win);
+        const float mid = 0.5f * (sm[a] + sm[b]);
+        const bool rising = sm[b] > sm[a];
+        for (int j = a; j <= b; ++j)
+            if (rising ? (sm[j] >= mid) : (sm[j] <= mid)) return j;
+        return i;
+    };
+
     const int lo = kGap, hi = n - kGap;      // 有效 diff 範圍 [lo, hi)
-    const int win = kGap + kSmooth;          // 跨越點到峰的最大距離（差分坡寬）
     if (first) {
-        for (int i = lo; i < hi; ++i) {
-            if (diff_at(i) < (float)min_contrast) continue;
-            int peak = i;
-            const int end = std::min(hi, i + win + 1);
-            for (int j = i + 1; j < end; ++j)
-                if (diff_at(j) > diff_at(peak)) peak = j;
-            return peak;
-        }
+        for (int i = lo; i < hi; ++i)
+            if (diff_at(i) >= (float)min_contrast) return localize(i);
     } else {
-        for (int i = hi - 1; i >= lo; --i) {
-            if (diff_at(i) < (float)min_contrast) continue;
-            int peak = i;
-            const int begin = std::max(lo, i - win);
-            for (int j = i - 1; j >= begin; --j)
-                if (diff_at(j) > diff_at(peak)) peak = j;
-            return peak;
-        }
+        for (int i = hi - 1; i >= lo; --i)
+            if (diff_at(i) >= (float)min_contrast) return localize(i);
     }
     return -1;
 }
