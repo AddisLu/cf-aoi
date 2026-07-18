@@ -48,28 +48,34 @@ std::vector<float> smooth_profile(const std::vector<float>& p) {
     return out;
 }
 
-// 在剖面中找邊緣躍變：|smooth[y+kGap] - smooth[y-kGap]| >= min_contrast 的局部峰。
-// first=true → 掃描方向由前往後取第一個峰（前緣）；false → 由後往前取最後一個峰（尾緣）。
+// 在剖面中找邊緣躍變：|smooth[y+kGap] - smooth[y-kGap]| >= min_contrast 的躍變峰。
+// first=true → 由前往後找第一個跨越點（前緣）；false → 由後往前找最後一個（尾緣）。
+// 找到跨越點後在 ±(kGap+kSmooth) 窗內取 |diff| 最大值 = 邊緣中心
+//（貪婪爬坡會被雜訊的局部小峰提早擋下 → 系統性偏差，不可用）。
 // 回傳剖面內 index（-1 = 未找到）。
 int find_edge(const std::vector<float>& sm, int min_contrast, bool first) {
     const int n = (int)sm.size();
     if (n < 2 * kGap + 1) return -1;
     auto diff_at = [&](int i) { return std::fabs(sm[i + kGap] - sm[i - kGap]); };
 
-    const int lo = kGap, hi = n - kGap;  // 有效 diff 範圍 [lo, hi)
+    const int lo = kGap, hi = n - kGap;      // 有效 diff 範圍 [lo, hi)
+    const int win = kGap + kSmooth;          // 跨越點到峰的最大距離（差分坡寬）
     if (first) {
         for (int i = lo; i < hi; ++i) {
             if (diff_at(i) < (float)min_contrast) continue;
-            // 前進到局部峰（躍變最大處 = 邊緣中心）
             int peak = i;
-            while (peak + 1 < hi && diff_at(peak + 1) >= diff_at(peak)) ++peak;
+            const int end = std::min(hi, i + win + 1);
+            for (int j = i + 1; j < end; ++j)
+                if (diff_at(j) > diff_at(peak)) peak = j;
             return peak;
         }
     } else {
         for (int i = hi - 1; i >= lo; --i) {
             if (diff_at(i) < (float)min_contrast) continue;
             int peak = i;
-            while (peak - 1 >= lo && diff_at(peak - 1) >= diff_at(peak)) --peak;
+            const int begin = std::max(lo, i - win);
+            for (int j = i - 1; j >= begin; --j)
+                if (diff_at(j) > diff_at(peak)) peak = j;
             return peak;
         }
     }
