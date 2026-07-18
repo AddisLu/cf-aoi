@@ -57,6 +57,10 @@ public:
     void start(uint16_t cam_id);
     void stop();
 
+    // 每片張數上限：grab_loop 收滿 N 張後自動結束（thread 自然退出，stop() 再 join）。
+    // 0 = 不限（連續取像，legacy 行為）。軟體觸發架構「每台收滿 N 張×5000 條自動停」的機制。
+    void set_max_frames(uint64_t n) { max_frames_ = n; }
+
     bool     is_open()    const { return opened_; }
     bool     is_running() const { return running_.load(); }
     uint64_t grabbed()    const { return grabbed_; }
@@ -93,4 +97,5 @@ private:
 
     uint64_t grabbed_ = 0;
     uint64_t dropped_ = 0;
+    uint64_t max_frames_ = 0;   // 0 = 不限；>0 = 收滿自動停（每片 N 張）
 };

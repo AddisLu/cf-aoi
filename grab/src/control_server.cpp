@@ -147,20 +147,26 @@ void ControlServer::handle_client(int fd) {
 
             } else if (cmd == "GRAB_START") {
                 int timeout_ms = 40000;
-                if (req.contains("params") && req["params"].contains("timeout_ms"))
-                    timeout_ms = req["params"]["timeout_ms"].get<int>();
+                int frames_per_panel = 0;   // 0 = 連續（legacy）；>0 = 每台收滿 N 張自動停
+                if (req.contains("params")) {
+                    if (req["params"].contains("timeout_ms"))
+                        timeout_ms = req["params"]["timeout_ms"].get<int>();
+                    if (req["params"].contains("frames_per_panel"))
+                        frames_per_panel = req["params"]["frames_per_panel"].get<int>();
+                }
 
                 if (!start_fn_) {
                     resp["status"] = "ERR";
                     resp["error"]  = "no handler";
                 } else {
                     std::string err;
-                    bool ok = start_fn_(timeout_ms, err);
+                    bool ok = start_fn_(timeout_ms, frames_per_panel, err);
                     resp["status"] = ok ? "OK" : "ERR";
                     if (!ok) resp["error"] = err;
                 }
-                printf("[ctrl] GRAB_START timeout_ms=%d → %s\n",
-                       timeout_ms, resp["status"].get<std::string>().c_str());
+                printf("[ctrl] GRAB_START timeout_ms=%d frames_per_panel=%d → %s\n",
+                       timeout_ms, frames_per_panel,
+                       resp["status"].get<std::string>().c_str());
 
             } else if (cmd == "GRAB_STOP") {
                 if (stop_fn_) stop_fn_();

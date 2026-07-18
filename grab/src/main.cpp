@@ -7,26 +7,33 @@
 // -----------------------------------------------------------------------------
 // 狀態機：
 //   IDLE → (LOAD_RECIPE) → IDLE（更新 panel_id）
-//        → (GRAB_START)  → GRABBING（開相機 + 連 RDMA + 送幀）
+//        → (GRAB_START)  → GRABBING（開相機陣列 + 連 RDMA + 送幀）
 //        → (GRAB_STOP)   → IDLE（停相機 + 斷 RDMA）
+//
+// 軟體觸發架構（docs plan「37 CCD 觸發設計」）：GRAB_START = 觸發。
+//   逐台平行 arm（啟動 skew 由 IP 端玻璃前緣對位吸收），每台收滿
+//   frames_per_panel 張 × 5000 條自動停；sliceIndex/totalSlice 進 FrameHeader。
 //
 // 用法：
 //   cfaoi_grab --rdma-dest 192.168.3.1:18515 [options]
 //
 // 選項：
 //   --rdma-dest   IP:PORT    Spark IP 端的 RDMA server（必填）
-//   --cam-id      N          相機 cam_id（預設 0）
-//   --serial      STRING     pylon 序號；auto = 第一台（預設 auto）
+//   --cam-count   N|ALL      啟用相機台數（預設 1；ALL = 列舉到的全部）
+//   --frames-per-panel N     每片每台張數（預設 0 = 連續；GRAB_START params 可覆蓋）
+//   --cam-id      N          單台模式 cam_id（預設 0；多台依列舉順序 0..N-1）
+//   --serial      STRING     pylon 序號；auto = 第一台（僅單台模式，預設 auto）
 //   --pkt-size    N          GevSCPSPacketSize（預設 8192）
 //   --ctrl-port   N          等 Control 連入的 port（預設 8100）
-//   --cam-config  PATH       相機參數 JSON（預設 cam_config.json）
+//   --cam-config  PATH       相機參數 JSON（預設 cam_config.json；每台一筆 cam_id 條目）
 // =============================================================================
 
-#include "cam_pylon.h"
+#include "cam_manager.h"
 #include "control_server.h"
 #include "rdma_sender.h"
 #include "../../shared/FrameHeader.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -36,18 +43,20 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-// ---- cam_config.json helpers ----
+// ---- cam_config.json helpers（每台一筆 {cam_id, exposure_us, gain_raw}）----
 
 struct CamCfg {
     float exposure_us = 70.0f;   // Stage 0 actual: raL8192-12gm 出廠預設
     int   gain_raw    = 256;     // Stage 0 actual: min raw = 0dB 基準
 };
 
-static CamCfg load_cam_config(const std::string& path) {
+static CamCfg load_cam_config(const std::string& path, int cam_id) {
     CamCfg cfg;
     try {
         std::ifstream f(path);
@@ -55,7 +64,7 @@ static CamCfg load_cam_config(const std::string& path) {
         auto j = json::parse(f);
         if (j.contains("cameras") && j["cameras"].is_array()) {
             for (auto& c : j["cameras"]) {
-                if (c.value("cam_id", -1) == 0) {
+                if (c.value("cam_id", -1) == cam_id) {
                     cfg.exposure_us = c.value("exposure_us", cfg.exposure_us);
                     cfg.gain_raw    = c.value("gain_raw",    cfg.gain_raw);
                     break;
@@ -66,7 +75,7 @@ static CamCfg load_cam_config(const std::string& path) {
     return cfg;
 }
 
-static void save_cam_config(const std::string& path, float exp_us, int gain_raw) {
+static void save_cam_config(const std::string& path, int cam_id, float exp_us, int gain_raw) {
     json j;
     try {
         std::ifstream fi(path);
@@ -76,14 +85,14 @@ static void save_cam_config(const std::string& path, float exp_us, int gain_raw)
         j["cameras"] = json::array();
     bool found = false;
     for (auto& c : j["cameras"]) {
-        if (c.value("cam_id", -1) == 0) {
+        if (c.value("cam_id", -1) == cam_id) {
             c["exposure_us"] = exp_us;
             c["gain_raw"]    = gain_raw;
             found = true; break;
         }
     }
     if (!found)
-        j["cameras"].push_back({{"cam_id",0},{"exposure_us",exp_us},{"gain_raw",gain_raw}});
+        j["cameras"].push_back({{"cam_id",cam_id},{"exposure_us",exp_us},{"gain_raw",gain_raw}});
     try {
         std::ofstream fo(path);
         fo << j.dump(2) << "\n";
@@ -106,7 +115,9 @@ static bool parse_host_port(const std::string& s, std::string& host, std::string
 int main(int argc, char** argv) {
     // ---- 解析 CLI ----
     std::string rdma_dest;
-    uint16_t    cam_id      = 0;
+    int         cam_count   = 1;       // 1 = 單台（legacy）；0 = ALL；N = 前 N 台
+    int         cli_frames  = 0;       // 每片每台張數預設（0 = 連續；GRAB_START 可覆蓋）
+    uint16_t    cam_id      = 0;       // 單台模式使用；多台依列舉順序派 0..N-1
     std::string serial      = "auto";
     int64_t     pkt_size    = 8192;
     int         ctrl_port   = 8100;
@@ -118,6 +129,9 @@ int main(int argc, char** argv) {
             return (i + 1 < argc) ? argv[++i] : "";
         };
         if      (a == "--rdma-dest")   rdma_dest    = next();
+        else if (a == "--cam-count")   { std::string v = next();
+                                         cam_count = (v == "ALL" || v == "all") ? 0 : atoi(v.c_str()); }
+        else if (a == "--frames-per-panel") cli_frames = atoi(next());
         else if (a == "--cam-id")      cam_id       = (uint16_t)atoi(next());
         else if (a == "--serial")      serial       = next();
         else if (a == "--pkt-size")    pkt_size     = atoll(next());
@@ -138,25 +152,40 @@ int main(int argc, char** argv) {
     ::signal(SIGTERM, sig_handler);
 
     // ---- 元件 ----
-    CamPylon      cam;
+    CamManager    mgr;
     RdmaSender    sender;
     ControlServer ctrl(ctrl_port);
 
-    // ---- 狀態（mutex 保護，跨 ControlServer thread 與 cam grab thread）----
+    // ---- 狀態（mutex 保護，跨 ControlServer thread 與 N 個 cam grab thread）----
     std::mutex          state_mtx;
     bool                grabbing    = false;
     std::string         panel_id    = "PANEL";
     uint32_t            panel_hash  = frame_panel_hash(panel_id);
     std::atomic<uint64_t> frame_seq{0};
 
-    // ---- 每幀回呼（跑在 CamPylon 的 grab thread 裡）----
-    cam.set_frame_callback([&](uint16_t cid, const uint8_t* data,
-                                uint32_t bytes, uint32_t w, uint32_t h) {
-        uint64_t seq = ++frame_seq;  // atomic fetch_add
+    // ---- 每片切片狀態（GRAB_START 時設定；grab threads 啟動前就緒）----
+    std::mutex            send_mtx;            // N 相機 thread 共用一條 RDMA QP → 序列化
+    std::atomic<uint32_t> total_slice{1};      // frames_per_panel（0/連續 → 1，legacy 語意）
+    std::vector<uint32_t> slice_seq;           // 每台自己的 slice 計數（各 thread 只動自己那格）
+
+    // ---- 每幀回呼（跑在各 CamPylon 的 grab thread 裡，併發）----
+    FrameCb frame_cb = [&](uint16_t cid, const uint8_t* data,
+                           uint32_t bytes, uint32_t w, uint32_t h) {
+        uint32_t total = total_slice.load(std::memory_order_relaxed);
+        uint16_t slice = 0;
+        if (total > 1) {
+            if (cid >= slice_seq.size()) return;      // 防呆：未知 cam
+            uint32_t s = slice_seq[cid]++;            // 該台自己的 thread 才會動這格
+            if (s >= total) return;                   // 收滿後的殘幀不送（自動停前的競態）
+            slice = (uint16_t)s;
+        }
+        uint64_t seq = ++frame_seq;  // atomic：全域唯一（RDMA slot 定址用）
         uint32_t phash;
         { std::lock_guard<std::mutex> lk(state_mtx); phash = panel_hash; }
-        sender.send_frame(cid, seq, phash, data, bytes, w, h);
-    });
+        std::lock_guard<std::mutex> lk(send_mtx);
+        sender.send_frame(cid, seq, phash, data, bytes, w, h,
+                          slice, (uint16_t)(total > 65535u ? 65535u : total));
+    };
 
     // ---- Control 回呼 ----
     ctrl.set_load_recipe([&](const std::string& recipe, const std::string& pid) {
@@ -167,47 +196,60 @@ int main(int argc, char** argv) {
                recipe.c_str(), panel_id.c_str(), panel_hash);
     });
 
-    ctrl.set_grab_start([&](int /*timeout_ms*/, std::string& err) -> bool {
+    // GRAB_START = 軟體觸發：開陣列 → 套每台曝光/增益 → 連 RDMA → 逐台平行 arm。
+    // frames_per_panel（命令參數優先，其次 --frames-per-panel CLI）>0 → 每台收滿自動停。
+    ctrl.set_grab_start([&](int /*timeout_ms*/, int frames_per_panel,
+                            std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
         if (grabbing) { err = "already grabbing"; return false; }
+        const int n_frames = frames_per_panel > 0 ? frames_per_panel : cli_frames;
 
-        // 開相機（若尚未開）
-        if (!cam.open(serial, pkt_size)) {
-            err = "pylon open failed";
-            return false;
-        }
+        // 開相機陣列（fail-fast：任一台失敗全關）
+        if (!mgr.open_all(cam_count, serial, pkt_size, err)) return false;
+        // 單台模式沿用 --cam-id（legacy：FrameHeader.camId 可自訂）；多台依列舉順序 0..N-1
+        if (cam_count == 1 && !mgr.empty()) mgr.entries().front().cam_id = cam_id;
 
-        // Gap #2：套用 cam_config.json 的曝光/增益（read-back actual 後 re-save）
-        {
-            auto cfg = load_cam_config(cam_cfg_path);
+        // 每台套用 cam_config.json 對應條目的曝光/增益（read-back actual 後 re-save）
+        for (auto& e : mgr.entries()) {
+            auto cfg = load_cam_config(cam_cfg_path, e.cam_id);
             float exp_actual; int gain_actual;
-            if (cam.set_params(cfg.exposure_us, cfg.gain_raw, exp_actual, gain_actual)) {
-                save_cam_config(cam_cfg_path, exp_actual, gain_actual);
-                printf("[main] 啟動套用 cam_config：exp=%.1f→%.1fµs  gain=%d→%d raw\n",
-                       cfg.exposure_us, exp_actual, cfg.gain_raw, gain_actual);
+            if (e.cam->set_params(cfg.exposure_us, cfg.gain_raw, exp_actual, gain_actual)) {
+                save_cam_config(cam_cfg_path, e.cam_id, exp_actual, gain_actual);
+                printf("[main] cam%u 套用 cam_config：exp=%.1f→%.1fµs  gain=%d→%d raw\n",
+                       e.cam_id, cfg.exposure_us, exp_actual, cfg.gain_raw, gain_actual);
             } else {
-                printf("[main] 警告：cam_config 套用失敗，使用相機目前曝光/增益\n");
+                printf("[main] 警告：cam%u cam_config 套用失敗，使用相機目前曝光/增益\n",
+                       e.cam_id);
             }
         }
 
-        // 連 RDMA（用 pylon PayloadSize 決定緩衝大小）
+        // 連 RDMA（frame_cap = 陣列最大 PayloadSize）
         if (!sender.connect(rdma_host.c_str(), rdma_port.c_str(),
-                            (size_t)cam.payload_size())) {
+                            (size_t)mgr.max_payload())) {
+            mgr.stop_all();
             err = "RDMA connect failed";
             return false;
         }
+
+        // 切片狀態就緒後才 arm（grab threads 啟動前 slice_seq 已定，無競態）
         frame_seq.store(0);
-        cam.start(cam_id);
+        uint16_t max_id = 0;
+        for (auto& e : mgr.entries()) max_id = std::max(max_id, e.cam_id);
+        slice_seq.assign((size_t)max_id + 1, 0u);   // 以 cam_id 直接索引（含 --cam-id 自訂值）
+        total_slice.store(n_frames > 0 ? (uint32_t)n_frames : 1u);
+
+        mgr.start_all((uint64_t)(n_frames > 0 ? n_frames : 0), frame_cb);
         grabbing = true;
-        printf("[main] GRAB_START  cam%u  rdma→%s:%s  panel=%s\n",
-               cam_id, rdma_host.c_str(), rdma_port.c_str(), panel_id.c_str());
+        printf("[main] GRAB_START  %zu 台  rdma→%s:%s  panel=%s  frames/panel=%d%s\n",
+               mgr.size(), rdma_host.c_str(), rdma_port.c_str(), panel_id.c_str(),
+               n_frames, n_frames > 0 ? "" : "(連續)");
         return true;
     });
 
     ctrl.set_grab_stop([&]() {
         std::lock_guard<std::mutex> lk(state_mtx);
         if (!grabbing) return;
-        cam.stop();
+        mgr.stop_all();
         sender.disconnect();
         grabbing = false;
         printf("[main] GRAB_STOP  已送 %llu 幀（%llu bytes）\n",
@@ -215,42 +257,41 @@ int main(int argc, char** argv) {
                (unsigned long long)sender.sent_bytes());
     });
 
-    // Gap #2：SET_CAM_PARAMS handler
-    ctrl.set_cam_params_handler([&](int /*cam_id*/, float exp_us, int gain_raw,
+    // Gap #2：SET_CAM_PARAMS handler（依 cam_id 路由；該台未開 → 只存 JSON，啟動時套用）
+    ctrl.set_cam_params_handler([&](int cid, float exp_us, int gain_raw,
                                      float& exp_actual, int& gain_actual,
                                      std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
-        if (!cam.is_open()) {
-            // 相機未開：只存 JSON，以啟動時套用為準
-            save_cam_config(cam_cfg_path, exp_us, gain_raw);
+        CamPylon* c = mgr.get(cid);
+        if (!c || !c->is_open()) {
+            save_cam_config(cam_cfg_path, cid, exp_us, gain_raw);
             exp_actual  = exp_us;
             gain_actual = gain_raw;
-            printf("[main] SET_CAM_PARAMS: 相機未開，已存 cam_config exp=%.1fµs gain=%d raw\n",
-                   exp_us, gain_raw);
+            printf("[main] SET_CAM_PARAMS: cam%d 未開，已存 cam_config exp=%.1fµs gain=%d raw\n",
+                   cid, exp_us, gain_raw);
             return true;
         }
-        if (!cam.set_params(exp_us, gain_raw, exp_actual, gain_actual)) {
+        if (!c->set_params(exp_us, gain_raw, exp_actual, gain_actual)) {
             err = "相機寫入失敗";
             return false;
         }
-        // 持久化：存 read-back 實際值
-        save_cam_config(cam_cfg_path, exp_actual, gain_actual);
+        save_cam_config(cam_cfg_path, cid, exp_actual, gain_actual);
         return true;
     });
 
-    // Gap #2：GET_CAM_PARAMS handler
-    ctrl.get_cam_params_handler([&](int /*cam_id*/,
+    // Gap #2：GET_CAM_PARAMS handler（該台未開 → 回 cam_config.json 對應條目）
+    ctrl.get_cam_params_handler([&](int cid,
                                      float& exp_actual, int& gain_actual,
                                      std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
-        if (!cam.is_open()) {
-            // 相機未開：回傳 cam_config.json 中最後儲存的值
-            auto cfg = load_cam_config(cam_cfg_path);
+        CamPylon* c = mgr.get(cid);
+        if (!c || !c->is_open()) {
+            auto cfg = load_cam_config(cam_cfg_path, cid);
             exp_actual  = cfg.exposure_us;
             gain_actual = cfg.gain_raw;
             return true;
         }
-        if (!cam.get_params(exp_actual, gain_actual)) {
+        if (!c->get_params(exp_actual, gain_actual)) {
             err = "相機讀取失敗";
             return false;
         }
@@ -281,9 +322,10 @@ int main(int argc, char** argv) {
     // GET_CAM_NODES：回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包），供 UI 顯示
     ctrl.set_get_nodes_handler([&](std::string& js, std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
-        if (!cam.is_open() && !cam.open(serial, pkt_size)) { err = "開相機失敗"; return false; }
+        CamPylon* c = mgr.get_or_open_primary(serial, pkt_size);
+        if (!c) { err = "開相機失敗"; return false; }
         MachineParams mp;
-        if (!cam.read_machine_params(mp, err)) return false;
+        if (!c->read_machine_params(mp, err)) return false;
         json j = {
             {"pixel_format",     mp.pixel_format},
             {"exposure_auto",    mp.exposure_auto},
@@ -301,33 +343,42 @@ int main(int argc, char** argv) {
     });
 
     // 調參效果確認：TUNE_MEAN（開相機免 RDMA → 設曝光/增益 → 抓 1 幀回 mean gray）
-    ctrl.set_tune_mean_handler([&](int /*cam_id*/, float exp_us, int gain_raw,
+    ctrl.set_tune_mean_handler([&](int cid, float exp_us, int gain_raw,
                                    float& ea, int& ga, double& mean,
                                    std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
         if (grabbing) { err = "取像中，請先 GRAB_STOP 再調參預覽"; return false; }
-        if (!cam.is_open() && !cam.open(serial, pkt_size)) { err = "開相機失敗"; return false; }
-        if (!cam.set_params(exp_us, gain_raw, ea, ga)) { err = "相機寫入失敗"; return false; }
-        save_cam_config(cam_cfg_path, ea, ga);
-        return cam.grab_one_mean(mean, err);
+        CamPylon* c = mgr.get(cid);
+        if (!c) c = mgr.get_or_open_primary(serial, pkt_size);
+        if (!c) { err = "開相機失敗"; return false; }
+        if (!c->set_params(exp_us, gain_raw, ea, ga)) { err = "相機寫入失敗"; return false; }
+        save_cam_config(cam_cfg_path, cid, ea, ga);
+        return c->grab_one_mean(mean, err);
     });
 
     ctrl.set_status_provider([&]() -> std::string {
         bool g;
+        size_t cams, running;
         uint64_t grabbed, dropped, sent_f, sent_b;
+        uint32_t tslice;
         {
             std::lock_guard<std::mutex> lk(state_mtx);
             g       = grabbing;
-            grabbed = cam.grabbed();
-            dropped = cam.dropped();
+            cams    = mgr.size();
+            running = mgr.running_count();
+            grabbed = mgr.total_grabbed();
+            dropped = mgr.total_dropped();
             sent_f  = sender.sent_frames();
             sent_b  = sender.sent_bytes();
+            tslice  = total_slice.load(std::memory_order_relaxed);
         }
-        char buf[256];
+        char buf[320];
         snprintf(buf, sizeof(buf),
-                 "{\"grabbing\":%s,\"grabbed\":%llu,\"dropped\":%llu,"
+                 "{\"grabbing\":%s,\"cams\":%zu,\"running\":%zu,"
+                 "\"frames_per_panel\":%u,\"grabbed\":%llu,\"dropped\":%llu,"
                  "\"sent_frames\":%llu,\"sent_bytes\":%llu}",
-                 g ? "true" : "false",
+                 g ? "true" : "false", cams, running,
+                 tslice > 1 ? tslice : 0,
                  (unsigned long long)grabbed,
                  (unsigned long long)dropped,
                  (unsigned long long)sent_f,
@@ -341,10 +392,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     {
-        auto cfg = load_cam_config(cam_cfg_path);
-        printf("[main] cfaoi_grab 就緒  ctrl_port=%d  rdma→%s:%s  cam_id=%u\n",
-               ctrl_port, rdma_host.c_str(), rdma_port.c_str(), cam_id);
-        printf("[main] cam_config=%s  exp=%.1fµs  gain=%d raw\n",
+        auto cfg = load_cam_config(cam_cfg_path, 0);
+        printf("[main] cfaoi_grab 就緒  ctrl_port=%d  rdma→%s:%s  cam_count=%s  frames/panel=%d\n",
+               ctrl_port, rdma_host.c_str(), rdma_port.c_str(),
+               cam_count == 0 ? "ALL" : std::to_string(cam_count).c_str(), cli_frames);
+        printf("[main] cam_config=%s  cam0: exp=%.1fµs  gain=%d raw\n",
                cam_cfg_path.c_str(), cfg.exposure_us, cfg.gain_raw);
     }
 
@@ -357,7 +409,7 @@ int main(int argc, char** argv) {
     {
         std::lock_guard<std::mutex> lk(state_mtx);
         if (grabbing) {
-            cam.stop();
+            mgr.stop_all();
             sender.disconnect();
             grabbing = false;
         }

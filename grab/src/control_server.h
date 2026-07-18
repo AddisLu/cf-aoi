@@ -5,7 +5,8 @@
 // 支援命令：
 //   CHECK_HEALTH      → {"seq":N,"status":"OK","grabbing":bool,"frames":N,"drops":N}
 //   LOAD_RECIPE       params{recipe, panel_id}  → load_recipe callback
-//   GRAB_START        params{timeout_ms?}        → grab_start callback
+//   GRAB_START        params{timeout_ms?, frames_per_panel?} → grab_start callback
+//                     frames_per_panel：每台收滿 N 張自動停（0/缺省 = 連續，legacy）
 //   GRAB_STOP                                    → grab_stop callback
 //   SET_CAM_PARAMS    params{cam_id,exposure_us,gain_raw} → set_cam callback
 //   GET_CAM_PARAMS    params{cam_id}             → get_cam callback
@@ -18,7 +19,9 @@
 
 class ControlServer {
 public:
-    using GrabStartFn  = std::function<bool(int timeout_ms, std::string& err)>;
+    // frames_per_panel：每台收滿 N 張自動停（0 = 連續取像，legacy 行為）
+    using GrabStartFn  = std::function<bool(int timeout_ms, int frames_per_panel,
+                                            std::string& err)>;
     using GrabStopFn   = std::function<void()>;
     using LoadRecipeFn = std::function<void(const std::string& recipe,
                                             const std::string& panel_id)>;

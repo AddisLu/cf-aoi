@@ -53,7 +53,8 @@ bool RdmaSender::connect(const char* spark_ip, const char* port, size_t max_payl
 
 void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_id_hash,
                              const uint8_t* payload, uint32_t payload_bytes,
-                             uint32_t width, uint32_t height) {
+                             uint32_t width, uint32_t height,
+                             uint16_t slice_index, uint16_t total_slice) {
     // 手填 FrameHeader（不用 make_frame_header，因為 frameSeq 需要 uint64）
     FrameHeader h{};
     h.magic        = FRAME_MAGIC;
@@ -62,8 +63,8 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
     h.frameSeq     = frame_seq;
     h.panelId      = panel_id_hash;
     h.camId        = cam_id;
-    h.sliceIndex   = 0;
-    h.totalSlice   = 1;
+    h.sliceIndex   = slice_index;
+    h.totalSlice   = total_slice;
     h.scanStep     = 0;
     h.width        = width;
     h.height       = height;

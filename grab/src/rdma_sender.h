@@ -20,9 +20,12 @@ public:
 
     // send_frame：組 FrameHeader + 複製影像 → post_write_imm → poll_one。
     // 呼叫前必須先 connect()。panel_id_hash 由呼叫端用 frame_panel_hash() 計算。
+    // slice_index/total_slice：每片 N 張切片標記（預設 0/1 = legacy 單幀語意，舊呼叫端不變）。
+    // ⚠ 非 thread-safe：多相機 thread 共用一條 QP 時，呼叫端負責序列化（見 main.cpp send_mtx）。
     void send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_id_hash,
                     const uint8_t* payload, uint32_t payload_bytes,
-                    uint32_t width, uint32_t height);
+                    uint32_t width, uint32_t height,
+                    uint16_t slice_index = 0, uint16_t total_slice = 1);
 
     void disconnect();
 

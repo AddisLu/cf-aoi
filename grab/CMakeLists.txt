@@ -93,6 +93,7 @@ endif()
 # =============================================================================
 set(GRAB_SOURCES
     src/main.cpp
+    src/cam_manager.cpp
     src/cam_pylon.cpp
     src/rdma_sender.cpp
     src/control_server.cpp

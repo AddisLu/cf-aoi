@@ -114,6 +114,7 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size) {
 
 void CamPylon::start(uint16_t cam_id) {
     if (!opened_ || !cb_ || running_) return;
+    if (thread_.joinable()) thread_.join();   // 回收前次自動停止（收滿 N 張）殘留的 thread
     cam_id_    = cam_id;
     stop_flag_ = false;
     running_   = true;
@@ -169,6 +170,13 @@ void CamPylon::grab_loop() {
                 (uint32_t)res->GetImageSize(),
                 (uint32_t)res->GetWidth(),
                 (uint32_t)res->GetHeight());
+
+            // 每片 N 張：收滿自動結束（thread 自然退出；同舊系統 M_FRAMES_PER_TRIGGER(N) 語意）
+            if (max_frames_ > 0 && grabbed_ >= max_frames_) {
+                printf("[cam_pylon] cam%u 收滿 %llu 張，自動停止取像\n",
+                       cam_id_, (unsigned long long)grabbed_);
+                break;
+            }
 
         } else {
             fprintf(stderr, "[cam_pylon] GrabFailed: %s\n",
