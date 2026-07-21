@@ -76,6 +76,12 @@ EdgeCheckConfig load_config(const std::string& ini_path);
 // cfg.enabled=false → 回 checked=false 的空結果（零成本早退）。
 EdgeCheckResult run(const uint8_t* img, int width, int height, const EdgeCheckConfig& cfg);
 
+// 逐 slice 模式（RDMA 多 slice 到貨：sliceIndex==0 找前緣、==totalSlice-1 找尾緣）：
+// 在「單張 slice」內找第一個/最後一個邊緣，回傳 slice 內行號（-1 = 未找到）。
+// 全域行號 = sliceIndex×slice高 + 回傳值，由呼叫端換算。
+int find_leading(const uint8_t* img, int width, int height, const EdgeCheckConfig& cfg);
+int find_tail(const uint8_t* img, int width, int height, const EdgeCheckConfig& cfg);
+
 // 人讀摘要（log / incident detail 用）。
 std::string summary(const EdgeCheckResult& r, const EdgeCheckConfig& cfg);
 

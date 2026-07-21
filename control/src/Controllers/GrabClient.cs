@@ -44,6 +44,26 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
     public Task<JsonNode?> CheckHealthAsync(CancellationToken ct = default)
         => SendCommandAsync("CHECK_HEALTH", null, ct);
 
+    // ---- 取像觸發鏈（37 CCD 軟體觸發設計：CF_LOAD_RECIPE→ARM 預熱、CF_GRAB_START→觸發本體）----
+
+    // LOAD_RECIPE：更新 Grab 端 panel_id（FrameHeader.panelId hash 來源）。
+    public Task<JsonNode?> LoadRecipeAsync(string recipe, string panelId, CancellationToken ct = default)
+        => SendCommandAsync("LOAD_RECIPE",
+               new JsonObject { ["recipe"] = recipe, ["panel_id"] = panelId }, ct);
+
+    // GRAB_ARM：預熱（開相機陣列+套曝光增益+RDMA connect），冪等。重活在此，觸發時零冷啟。
+    public Task<JsonNode?> GrabArmAsync(CancellationToken ct = default)
+        => SendCommandAsync("GRAB_ARM", null, ct);
+
+    // GRAB_START：觸發本體（已 ARM 時僅 ms 級 start_all）。framesPerPanel=0 → 連續（legacy）。
+    public Task<JsonNode?> GrabStartAsync(int timeoutMs, int framesPerPanel, CancellationToken ct = default)
+        => SendCommandAsync("GRAB_START",
+               new JsonObject { ["timeout_ms"] = timeoutMs, ["frames_per_panel"] = framesPerPanel }, ct);
+
+    // GRAB_STOP：停止取像＋斷 RDMA（完全 teardown，解除 ARM）。
+    public Task<JsonNode?> GrabStopAsync(CancellationToken ct = default)
+        => SendCommandAsync("GRAB_STOP", null, ct);
+
     // Gap #2：設定相機曝光/增益；回傳 read-back actual 值。
     public async Task<CamParamsResult?> SetCamParamsAsync(
         int camId, double exposureUs, int gainRaw, CancellationToken ct = default)

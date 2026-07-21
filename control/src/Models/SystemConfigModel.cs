@@ -20,6 +20,14 @@ public sealed class UpstreamServerConfig
     public bool Optional { get; set; } = true;
 }
 
+// Grab 取像設定（appsettings.json "Grab" 區；缺省 = 預設值，向下相容）
+public sealed class GrabConfig
+{
+    // 每片每台張數（CF_GRAB_START → Grab GRAB_START params.frames_per_panel）。
+    // 0 = 連續取像（legacy）；生產應設 N = ⌈(前緣裕度+玻璃長+尾緣裕度)/每張行程⌉（觸發設計 plan）。
+    public int FramesPerPanel { get; set; } = 0;
+}
+
 public sealed class PathsConfig
 {
     public string RecipeDir { get; set; } = "~/cf-aoi/recipes";
@@ -41,6 +49,7 @@ public sealed class SystemConfigModel
     public List<string> RecipeIps { get; set; } = new();
     public PathsConfig Paths { get; set; } = new();
     public ShareSettingModel ShareSetting { get; set; } = new();   // 全域系統旗標（appsettings.json）
+    public GrabConfig Grab { get; set; } = new();                  // 取像設定（frames_per_panel 等）
 
     public NodeConfig? ActiveIp =>
         Nodes.TryGetValue(ActiveIpNode, out var n) ? n : null;

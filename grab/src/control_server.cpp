@@ -145,6 +145,18 @@ void ControlServer::handle_client(int fd) {
                 printf("[ctrl] LOAD_RECIPE recipe=%s panel_id=%s\n",
                        recipe.c_str(), panel_id.c_str());
 
+            } else if (cmd == "GRAB_ARM") {
+                if (!arm_fn_) {
+                    resp["status"] = "ERR";
+                    resp["error"]  = "no handler";
+                } else {
+                    std::string err;
+                    bool ok = arm_fn_(err);
+                    resp["status"] = ok ? "OK" : "ERR";
+                    if (!ok) resp["error"] = err;
+                }
+                printf("[ctrl] GRAB_ARM → %s\n", resp["status"].get<std::string>().c_str());
+
             } else if (cmd == "GRAB_START") {
                 int timeout_ms = 40000;
                 int frames_per_panel = 0;   // 0 = 連續（legacy）；>0 = 每台收滿 N 張自動停

@@ -44,6 +44,7 @@ public static class SelfTest
                 case "topology": return await TopologyTest();
                 case "singleccd": return SingleCcdTest();
                 case "upstream": return await UpstreamTest();
+                case "grabtrigger": return await GrabTriggerTest();
                 case "remoteimg": return await RemoteImgTest();
                 case "recipemgmt": return RecipeMgmtTest();
                 case "recipesaving": return await RecipeSavingTest(rest);
@@ -392,6 +393,120 @@ public static class SelfTest
         Console.WriteLine($"  上位機連線燈轉綠(OnConnectedChanged): {(lampGreen ? "PASS" : "FAIL")}");
         bool ok = ready && load && get && checkFail && setFail && stopFail && lampGreen;
         Console.WriteLine(ok ? "✓ 上位機 CF_：接線啟動+回呼接 IP+9參數交握；align/grab 誠實失敗(非假OK)；燈轉綠 (L2 in-process)"
+                             : "✗ 不符");
+        return ok ? 0 : 1;
+    }
+
+    // ---- 觸發鏈（37 CCD 軟體觸發設計）：CF_LOAD_RECIPE→Grab ARM 預熱、CF_GRAB_START→觸發、CF_STOP→teardown ----
+    // 假 IP + 假 Grab server（loopback）驗 UpstreamWiring 真接線：命令轉送、參數傳遞（timeout_ms/
+    // frames_per_panel）、Grab 離線時 CF_GRAB_START 誠實 ERR（決策 A 精神）。L2 in-process。
+    private static async Task<int> GrabTriggerTest()
+    {
+        // 假 IP server：一律回 OK（LOAD_RECIPE 用）
+        var ipL = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        ipL.Start();
+        int ipPort = ((System.Net.IPEndPoint)ipL.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await ipL.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var seq = (int?)req["seq"] ?? 0;
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"{{\"seq\":{seq},\"status\":\"OK\"}}\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        // 假 Grab server：一律回 OK，並記錄收到的 (cmd, params)
+        var received = new System.Collections.Concurrent.ConcurrentQueue<System.Text.Json.Nodes.JsonNode>();
+        var grabL = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        grabL.Start();
+        int grabPort = ((System.Net.IPEndPoint)grabL.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await grabL.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                received.Enqueue(req);
+                var seq = (int?)req["seq"] ?? 0;
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"{{\"seq\":{seq},\"status\":\"OK\"}}\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        var svc = AppServices.Build();
+        svc.Config.Grab.FramesPerPanel = 27;   // 驗 frames_per_panel 由 config 傳遞
+        await svc.Connection.Ip.ConnectAsync("127.0.0.1", ipPort);
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", grabPort);
+
+        var fp = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        fp.Start(); int upPort = ((System.Net.IPEndPoint)fp.LocalEndpoint).Port; fp.Stop();
+        var server = new Controllers.UpstreamServer(upPort);
+        Controllers.UpstreamWiring.Bind(server, svc);
+        server.Start();
+
+        System.Net.Sockets.TcpClient up = new();
+        for (int i = 0; i < 20 && !up.Connected; i++)
+        { try { await up.ConnectAsync("127.0.0.1", upPort); } catch { await Task.Delay(50); } }
+        using var us = up.GetStream();
+        var ur = new System.IO.StreamReader(us, System.Text.Encoding.UTF8);
+        var uw = new System.IO.StreamWriter(us, new System.Text.UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
+        async Task<string> Cmd(string l) { await uw.WriteLineAsync(l); return await ur.ReadLineAsync() ?? ""; }
+
+        var rLoad  = await Cmd("CF_LOAD_RECIPE|DEFAULT|panelX|2026-07-21-00-00-00|||||||0");
+        var rStart = await Cmd("CF_GRAB_START|12345");
+        var rStop  = await Cmd("CF_STOP");
+        await Task.Delay(50);
+        up.Dispose(); server.Dispose();
+        svc.Connection.Ip.Disconnect(); svc.Connection.Grab.Disconnect();
+        ipL.Stop(); grabL.Stop();
+
+        // 收到的 Grab 命令序列與參數
+        var cmds = received.ToArray();
+        string CmdAt(int i) => i < cmds.Length ? cmds[i]?["cmd"]?.GetValue<string>() ?? "" : "";
+        var startNode = System.Linq.Enumerable.FirstOrDefault(cmds, c => c?["cmd"]?.GetValue<string>() == "GRAB_START");
+        int? tMs = startNode?["params"]?["timeout_ms"]?.GetValue<int>();
+        int? fpp = startNode?["params"]?["frames_per_panel"]?.GetValue<int>();
+        var loadNode = System.Linq.Enumerable.FirstOrDefault(cmds, c => c?["cmd"]?.GetValue<string>() == "LOAD_RECIPE");
+        string panel = loadNode?["params"]?["panel_id"]?.GetValue<string>() ?? "";
+
+        bool seqOk   = CmdAt(0) == "LOAD_RECIPE" && CmdAt(1) == "GRAB_ARM" && CmdAt(2) == "GRAB_START" && CmdAt(3) == "GRAB_STOP";
+        bool loadOk  = rLoad.StartsWith("OK") && panel == "panelX";
+        bool startOk = rStart.StartsWith("OK") && tMs == 12345 && fpp == 27;
+        bool stopOk  = rStop.StartsWith("OK");
+
+        Console.WriteLine($"  Grab 收到命令序列 LOAD_RECIPE→GRAB_ARM→GRAB_START→GRAB_STOP: {(seqOk ? "PASS" : "FAIL")} ({string.Join(",", System.Linq.Enumerable.Select(cmds, c => c?["cmd"]?.GetValue<string>()))})");
+        Console.WriteLine($"  CF_LOAD_RECIPE → OK + Grab panel_id=panelX: {(loadOk ? "PASS" : "FAIL")} (\"{rLoad}\")");
+        Console.WriteLine($"  CF_GRAB_START|12345 → OK + timeout_ms=12345 + frames_per_panel=27: {(startOk ? "PASS" : "FAIL")} (\"{rStart}\", t={tMs}, fpp={fpp})");
+        Console.WriteLine($"  CF_STOP → OK（GRAB_STOP teardown）: {(stopOk ? "PASS" : "FAIL")} (\"{rStop}\")");
+
+        // 負案例：Grab 離線 → CF_GRAB_START 誠實 ERR（不假 OK）
+        var svc2 = AppServices.Build();
+        var fp2 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        fp2.Start(); int upPort2 = ((System.Net.IPEndPoint)fp2.LocalEndpoint).Port; fp2.Stop();
+        var server2 = new Controllers.UpstreamServer(upPort2);
+        Controllers.UpstreamWiring.Bind(server2, svc2);
+        server2.Start();
+        System.Net.Sockets.TcpClient up2 = new();
+        for (int i = 0; i < 20 && !up2.Connected; i++)
+        { try { await up2.ConnectAsync("127.0.0.1", upPort2); } catch { await Task.Delay(50); } }
+        using var us2 = up2.GetStream();
+        var ur2 = new System.IO.StreamReader(us2, System.Text.Encoding.UTF8);
+        var uw2 = new System.IO.StreamWriter(us2, new System.Text.UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
+        await uw2.WriteLineAsync("CF_GRAB_START|40000");
+        var rOffline = await ur2.ReadLineAsync() ?? "";
+        up2.Dispose(); server2.Dispose();
+        bool offlineOk = rOffline.StartsWith("ERR");
+        Console.WriteLine($"  Grab 離線 → CF_GRAB_START 誠實 ERR: {(offlineOk ? "PASS" : "FAIL")} (\"{rOffline}\")");
+
+        bool ok = seqOk && loadOk && startOk && stopOk && offlineOk;
+        Console.WriteLine(ok ? "✓ 觸發鏈：CF_LOAD_RECIPE→ARM 預熱 + CF_GRAB_START→觸發(參數正確) + CF_STOP→teardown + 離線誠實 ERR (L2 in-process)"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }

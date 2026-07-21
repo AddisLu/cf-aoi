@@ -6,9 +6,9 @@
 bool CamManager::open_all(int want, const std::string& cli_serial,
                           int64_t pkt_size, std::string& err) {
     if (!cams_.empty()) {
-        // 調參路徑（get_or_open_primary）已開的單台：單台需求直接重用（legacy 行為）；
-        // 多台需求則關掉重開成目標陣列。
-        if (want == 1 && cams_.size() == 1) return true;
+        // ARM 冪等：台數符合需求（或 ALL）直接重用已開陣列（每片重 ARM 零冷啟成本）；
+        // 台數需求改變才關掉重開。重插拔相機請先 GRAB_STOP 再 ARM。
+        if (want <= 0 || cams_.size() == (size_t)want) return true;
         stop_all();
     }
 

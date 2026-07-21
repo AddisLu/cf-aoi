@@ -158,7 +158,8 @@ int main(int argc, char** argv) {
 
     // ---- 狀態（mutex 保護，跨 ControlServer thread 與 N 個 cam grab thread）----
     std::mutex          state_mtx;
-    bool                grabbing    = false;
+    bool                grabbing    = false;   // GRAB_START 後為 true（收滿自動停不清，GRAB_STOP 才清）
+    bool                armed       = false;   // GRAB_ARM 後為 true（相機開+參數套+RDMA 連）
     std::string         panel_id    = "PANEL";
     uint32_t            panel_hash  = frame_panel_hash(panel_id);
     std::atomic<uint64_t> frame_seq{0};
@@ -196,15 +197,11 @@ int main(int argc, char** argv) {
                recipe.c_str(), panel_id.c_str(), panel_hash);
     });
 
-    // GRAB_START = 軟體觸發：開陣列 → 套每台曝光/增益 → 連 RDMA → 逐台平行 arm。
-    // frames_per_panel（命令參數優先，其次 --frames-per-panel CLI）>0 → 每台收滿自動停。
-    ctrl.set_grab_start([&](int /*timeout_ms*/, int frames_per_panel,
-                            std::string& err) -> bool {
-        std::lock_guard<std::mutex> lk(state_mtx);
-        if (grabbing) { err = "already grabbing"; return false; }
-        const int n_frames = frames_per_panel > 0 ? frames_per_panel : cli_frames;
-
-        // 開相機陣列（fail-fast：任一台失敗全關）
+    // ---- ARM（預熱，冪等）：開陣列 → 套每台曝光/增益 → 連 RDMA。呼叫端須已持 state_mtx。
+    // 軟體觸發架構（docs plan「37 CCD 觸發設計」）：冷啟重活（開 37 台=秒級、RDMA connect）
+    // 全部提前到這裡（掛在 LOAD_RECIPE 後的空檔）；GRAB_START 觸發本體只剩 ms 級 start_all。
+    auto do_arm = [&](std::string& err) -> bool {
+        // 開相機陣列（冪等：台數符合直接重用；fail-fast：任一台失敗全關）
         if (!mgr.open_all(cam_count, serial, pkt_size, err)) return false;
         // 單台模式沿用 --cam-id（legacy：FrameHeader.camId 可自訂）；多台依列舉順序 0..N-1
         if (cam_count == 1 && !mgr.empty()) mgr.entries().front().cam_id = cam_id;
@@ -223,15 +220,41 @@ int main(int argc, char** argv) {
             }
         }
 
-        // 連 RDMA（frame_cap = 陣列最大 PayloadSize）
-        if (!sender.connect(rdma_host.c_str(), rdma_port.c_str(),
+        // 連 RDMA（冪等；frame_cap = 陣列最大 PayloadSize）
+        if (!sender.is_connected() &&
+            !sender.connect(rdma_host.c_str(), rdma_port.c_str(),
                             (size_t)mgr.max_payload())) {
             mgr.stop_all();
             err = "RDMA connect failed";
             return false;
         }
+        armed = true;
+        printf("[main] GRAB_ARM  %zu 台就緒  rdma→%s:%s（等觸發）\n",
+               mgr.size(), rdma_host.c_str(), rdma_port.c_str());
+        return true;
+    };
 
-        // 切片狀態就緒後才 arm（grab threads 啟動前 slice_seq 已定，無競態）
+    ctrl.set_grab_arm([&](std::string& err) -> bool {
+        std::lock_guard<std::mutex> lk(state_mtx);
+        if (grabbing && mgr.running_count() > 0) { err = "grabbing 中，不可 ARM"; return false; }
+        return do_arm(err);
+    });
+
+    // GRAB_START = 觸發本體：已 ARM → 只做切片歸零 + start_all（ms 級）。
+    // 未 ARM → 自動先 ARM（相容 nc 手動測試；代價 = 冷啟秒級，產線流程應先 ARM）。
+    // frames_per_panel（命令參數優先，其次 --frames-per-panel CLI）>0 → 每台收滿自動停。
+    ctrl.set_grab_start([&](int /*timeout_ms*/, int frames_per_panel,
+                            std::string& err) -> bool {
+        std::lock_guard<std::mutex> lk(state_mtx);
+        // 收滿自動停後 running_count=0 → 視為上一片完成，允許直接開下一片
+        if (grabbing && mgr.running_count() > 0) { err = "already grabbing"; return false; }
+        if (!armed) {
+            printf("[main] GRAB_START 未 ARM → 自動預熱（冷啟；產線請先 GRAB_ARM）\n");
+            if (!do_arm(err)) return false;
+        }
+        const int n_frames = frames_per_panel > 0 ? frames_per_panel : cli_frames;
+
+        // 切片狀態就緒後才 start（grab threads 啟動前 slice_seq 已定，無競態）
         frame_seq.store(0);
         uint16_t max_id = 0;
         for (auto& e : mgr.entries()) max_id = std::max(max_id, e.cam_id);
@@ -248,10 +271,11 @@ int main(int argc, char** argv) {
 
     ctrl.set_grab_stop([&]() {
         std::lock_guard<std::mutex> lk(state_mtx);
-        if (!grabbing) return;
+        if (!grabbing && !armed) return;
         mgr.stop_all();
         sender.disconnect();
         grabbing = false;
+        armed    = false;
         printf("[main] GRAB_STOP  已送 %llu 幀（%llu bytes）\n",
                (unsigned long long)sender.sent_frames(),
                (unsigned long long)sender.sent_bytes());
@@ -357,13 +381,14 @@ int main(int argc, char** argv) {
     });
 
     ctrl.set_status_provider([&]() -> std::string {
-        bool g;
+        bool g, a;
         size_t cams, running;
         uint64_t grabbed, dropped, sent_f, sent_b;
         uint32_t tslice;
         {
             std::lock_guard<std::mutex> lk(state_mtx);
             g       = grabbing;
+            a       = armed;
             cams    = mgr.size();
             running = mgr.running_count();
             grabbed = mgr.total_grabbed();
@@ -372,12 +397,12 @@ int main(int argc, char** argv) {
             sent_b  = sender.sent_bytes();
             tslice  = total_slice.load(std::memory_order_relaxed);
         }
-        char buf[320];
+        char buf[352];
         snprintf(buf, sizeof(buf),
-                 "{\"grabbing\":%s,\"cams\":%zu,\"running\":%zu,"
+                 "{\"grabbing\":%s,\"armed\":%s,\"cams\":%zu,\"running\":%zu,"
                  "\"frames_per_panel\":%u,\"grabbed\":%llu,\"dropped\":%llu,"
                  "\"sent_frames\":%llu,\"sent_bytes\":%llu}",
-                 g ? "true" : "false", cams, running,
+                 g ? "true" : "false", a ? "true" : "false", cams, running,
                  tslice > 1 ? tslice : 0,
                  (unsigned long long)grabbed,
                  (unsigned long long)dropped,

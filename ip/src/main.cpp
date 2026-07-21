@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -269,6 +270,82 @@ void apply_edge_check(const EdgeCheckConfig& cfg, const cv::Mat& gray,
         ctr.last_drift_pct.store(res.edge.drift_pct, std::memory_order_relaxed);
     if (align_ok && transport_ok)
         std::cout << "[EdgeCheck] ✓ panel=" << res.panel_id << " " << sum << "\n";
+}
+
+// 逐 slice 模式（rdma-process，totalSlice>1）：slice0 找前緣、末 slice 找尾緣，中間 slice 零成本。
+// per-cam 前緣行號存 state（single-consumer 主迴圈，無鎖）；37 台的 slice0 前緣 log 即啟動 skew 實測。
+void apply_edge_check_slice(const EdgeCheckConfig& cfg, const cv::Mat& gray,
+                            const FrameHeader& hdr, InspectionResult& res,
+                            EdgeCheckCounters& ctr,
+                            std::map<uint16_t, long>& leading_state) {
+    if (!cfg.enabled) return;
+    const uint16_t cam = hdr.camId;
+
+    if (hdr.sliceIndex == 0) {
+        leading_state.erase(cam);   // 新 panel：清舊狀態
+        const int lead = EdgeCheck::find_leading(gray.data, gray.cols, gray.rows, cfg);
+        res.edge.checked = true;
+        res.edge.leading_found = (lead >= 0);
+        res.edge.leading_line  = lead;
+        if (lead >= 0 && cfg.expected_leading_line >= 0)
+            res.edge.leading_in_range =
+                std::abs(lead - cfg.expected_leading_line) <= cfg.leading_tolerance;
+        else if (lead < 0)
+            res.edge.leading_in_range = false;
+        res.edge_drift_warn_pct = cfg.drift_warn_pct;
+
+        if (!res.edge.align_ok()) {
+            ctr.align_fail.fetch_add(1, std::memory_order_relaxed);
+            std::cout << "[EdgeCheck] ⚠ Align Fail cam" << cam << " slice0 前緣="
+                      << (lead >= 0 ? std::to_string(lead) : std::string("未找到")) << "\n";
+            FR_RECORD_INCIDENT("align_fail",
+                "玻璃前緣不在第一張 cam=" + std::to_string(cam) +
+                " panel=" + res.panel_id + " leading=" + std::to_string(lead) +
+                "；疑：觸發延遲漂移超窗 / sensor 未觸發");
+        } else {
+            leading_state[cam] = lead;
+            std::cout << "[EdgeCheck] cam" << cam << " slice0 前緣=" << lead
+                      << "（37 台此行號 spread = 啟動 skew 實測）\n";
+        }
+    }
+
+    if (hdr.totalSlice > 1 && hdr.sliceIndex == hdr.totalSlice - 1) {
+        const int tail_local = EdgeCheck::find_tail(gray.data, gray.cols, gray.rows, cfg);
+        res.edge.checked = true;
+        res.edge_drift_warn_pct = cfg.drift_warn_pct;
+        res.edge.tail_found = (tail_local >= 0);
+        auto it = leading_state.find(cam);
+        if (tail_local >= 0) {
+            const long tail_global = (long)hdr.sliceIndex * gray.rows + tail_local;
+            res.edge.tail_line = (int)tail_global;
+            if (it != leading_state.end()) {
+                res.edge.leading_found = true;
+                res.edge.leading_line  = (int)it->second;
+                res.edge.measured_lines = tail_global - it->second;
+                res.edge.expected_lines = cfg.expected_panel_lines;
+                if (cfg.expected_panel_lines > 0)
+                    res.edge.drift_pct = 100.0 *
+                        ((double)res.edge.measured_lines - (double)cfg.expected_panel_lines)
+                        / (double)cfg.expected_panel_lines;
+            }
+        }
+        const bool tok = res.edge.transport_ok(cfg.drift_warn_pct);
+        if (!tok) {
+            ctr.transport_warn.fetch_add(1, std::memory_order_relaxed);
+            std::cout << "[EdgeCheck] ⚠ 傳送異常 cam" << cam << " "
+                      << EdgeCheck::summary(res.edge, cfg) << "\n";
+            FR_RECORD_INCIDENT("transport_anomaly",
+                "玻璃尾緣/速度檢查失敗 cam=" + std::to_string(cam) +
+                " panel=" + res.panel_id + "：" + EdgeCheck::summary(res.edge, cfg) +
+                "；疑：片未走完 / 傳送速度漂移 / 張數不足");
+        } else {
+            std::cout << "[EdgeCheck] ✓ cam" << cam << " "
+                      << EdgeCheck::summary(res.edge, cfg) << "\n";
+            if (res.edge.expected_lines > 0)
+                ctr.last_drift_pct.store(res.edge.drift_pct, std::memory_order_relaxed);
+        }
+        leading_state.erase(cam);
+    }
 }
 
 // [手冊 p4][手冊 r1] R1.4 步8：verify→blob→Rule→截斷 的順序是鐵律（詳見導師卡）
@@ -918,6 +995,7 @@ int main(int argc, char** argv) {
         bool verify_failed = false;
         double sum_proc_ms = 0.0, max_proc_ms = 0.0;
         size_t max_queue_depth = 0, backpressure_hits = 0;
+        std::map<uint16_t, long> edge_leading_state;   // 逐 slice edge_check：per-cam slice0 前緣
         auto t_start = std::chrono::steady_clock::now();
 
         while (rdma_src.next_frame(hdr, payload)) {
@@ -948,7 +1026,12 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().record_frame(scene);
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
                                                         scene.queue_depth);
-            apply_edge_check(edge_cfg, gray, res, edge_ctr);  // 前緣/尾緣健檢（GPU 計時區外）
+            // 前緣/尾緣健檢（GPU 計時區外）：多 slice → 逐 slice 模式（slice0 前緣/末 slice 尾緣，
+            // 37 台 slice0 前緣行號 spread = 啟動 skew 實測）；單幀（totalSlice<=1）→ 全圖模式。
+            if (hdr.totalSlice > 1)
+                apply_edge_check_slice(edge_cfg, gray, hdr, res, edge_ctr, edge_leading_state);
+            else
+                apply_edge_check(edge_cfg, gray, res, edge_ctr);
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
                               args.output, args.ip_name, save_opt);
             ++processed;

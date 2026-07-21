@@ -177,6 +177,18 @@ EdgeCheckResult run(const uint8_t* img, int width, int height, const EdgeCheckCo
     return r;
 }
 
+int find_leading(const uint8_t* img, int width, int height, const EdgeCheckConfig& cfg) {
+    if (!img || width <= 0 || height <= 0) return -1;
+    auto sm = smooth_profile(row_profile(img, width, height, 0, height));
+    return find_edge(sm, cfg.min_contrast, /*first=*/true);
+}
+
+int find_tail(const uint8_t* img, int width, int height, const EdgeCheckConfig& cfg) {
+    if (!img || width <= 0 || height <= 0) return -1;
+    auto sm = smooth_profile(row_profile(img, width, height, 0, height));
+    return find_edge(sm, cfg.min_contrast, /*first=*/false);
+}
+
 std::string summary(const EdgeCheckResult& r, const EdgeCheckConfig& cfg) {
     if (!r.checked) return "edge_check: off";
     std::ostringstream os;
