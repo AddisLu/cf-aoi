@@ -169,11 +169,21 @@ void CamManager::annotate(std::vector<CamInfo>& infos) const {
 bool CamManager::open_all(int want, const std::string& cli_serial,
                           int64_t pkt_size, std::string& err) {
     if (!cams_.empty()) {
-        // ARM 冪等：台數符合需求（或 ALL）直接重用已開陣列（每片重 ARM 零冷啟成本）；
-        // 台數需求改變才關掉重開。重插拔相機請先 GRAB_STOP 再 ARM。
-        if (want <= 0 || cams_.size() == (size_t)want) return true;
-        stop_all();
+        // ⚠️ 2026-07-30 實機抓到的靜默失效：
+        //   idle 調參路徑（GET_CAM_NODES / TUNE_MEAN）會經 get_or_open_primary 開「一台」進 cams_。
+        //   舊碼在 want<=0（ALL）時**無條件重用** cams_ → 之後的 GRAB_ARM 回 OK、armed=true，
+        //   但實際只有那一台在取像（實測 CHECK_HEALTH cams=1）。37 台時等於整片面板少 36 顆 CCD，
+        //   且沒有任何錯誤訊息。→ 只要目前這組是 idle 路徑開的，一律關掉重開。
+        if (primary_only_) {
+            stop_all();
+        } else {
+            // ARM 冪等：台數符合需求（或 ALL）直接重用已開陣列（每片重 ARM 零冷啟成本）；
+            // 台數需求改變才關掉重開。重插拔相機請先 GRAB_STOP 再 ARM。
+            if (want <= 0 || cams_.size() == (size_t)want) return true;
+            stop_all();
+        }
     }
+    primary_only_ = false;   // 以下為正式開陣列路徑
 
     // 無映射 + 單台：沿用舊語意（auto/指定序號），不需先列舉（保留 legacy 快路徑）。
     // 有映射時即使單台也要列舉，才拿得到 MAC 來查真正的 cam_id。
@@ -277,6 +287,7 @@ void CamManager::start_all(uint64_t max_frames_per_cam, FrameCb cb) {
 void CamManager::stop_all() {
     for (auto& e : cams_) if (e.cam) e.cam->stop();
     cams_.clear();
+    primary_only_ = false;
 }
 
 CamPylon* CamManager::get(int cam_id) {
@@ -293,6 +304,9 @@ CamPylon* CamManager::get_or_open_primary(const std::string& cli_serial, int64_t
     e.serial = cli_serial;
     if (!e.cam->open(cli_serial, pkt_size)) return nullptr;
     cams_.push_back(std::move(e));
+    // 標記「這組是 idle 調參路徑開的、不是完整陣列」→ 下次 open_all 必須重開，
+    // 否則 GRAB_ARM(ALL) 會把這一台當成整個陣列（靜默少台，見 open_all 註解）。
+    primary_only_ = true;
     return cams_.front().cam.get();
 }
 

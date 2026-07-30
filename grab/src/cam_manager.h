@@ -88,4 +88,7 @@ public:
 private:
     std::vector<Entry> cams_;
     std::map<std::string, MacBinding> mac_map_;   // key = normalize_mac(mac)
+    // true = 目前 cams_ 是 idle 調參路徑（get_or_open_primary）開的單台，非完整陣列。
+    // open_all 看到此旗標一律重開，避免把單台當成整個陣列（靜默少台）。
+    bool primary_only_ = false;
 };
