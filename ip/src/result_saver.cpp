@@ -235,6 +235,19 @@ std::string to_json(const InspectionResult& r) {
             {"drift_pct",      r.edge.drift_pct},
         };
     }
+
+    // 收圖遺失（CRC/magic/尺寸驗證失敗被丟棄的幀）。無遺失時整個欄位省略 → 舊收端無感知。
+    // XML（legacy JudgeResult）同樣刻意不加：保 CF_GET_RESULT 上位機鏈相容。
+    // ⚠️ DefectCnt==0 但 panel_incomplete==true 時，**不可**當成乾淨的 PASS ——
+    //    有一段影像根本沒進檢測，缺陷數為 0 只代表「檢查過的部分沒缺陷」。
+    if (r.frame_loss.incomplete()) {
+        j["frame_loss"] = {
+            {"panel_incomplete", true},
+            {"lost_frames",      r.frame_loss.lost_frames},
+            {"lost_slices",      r.frame_loss.lost_slices},
+            {"unattributed",     r.frame_loss.unattributed},
+        };
+    }
     return j.dump(2);
 }
 

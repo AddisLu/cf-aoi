@@ -1015,9 +1015,58 @@ int main(int argc, char** argv) {
         double sum_proc_ms = 0.0, max_proc_ms = 0.0;
         size_t max_queue_depth = 0, backpressure_hits = 0;
         std::map<uint16_t, long> edge_leading_state;   // 逐 slice edge_check：per-cam slice0 前緣
+
+        // ── 收圖遺失追蹤（非 ECC 記憶體 + 軟體 bug 的最後一道防線）────────────────
+        // 被丟棄的幀不會進 FrameQueue，若不追蹤，上位機會拿到「看似正常的 PASS」，
+        // 但其中一段影像根本沒進檢測 = 靜默漏檢。
+        // per-cam 累計本片遺失；slice0 抵達 = 新的一片開始 → 歸零。
+        std::map<uint16_t, FrameLossInfo> loss_by_cam;
+        uint64_t last_seq_seen = 0;      // 0 = 尚未收過任何幀
+        uint64_t total_lost = 0;
         auto t_start = std::chrono::steady_clock::now();
 
         while (rdma_src.next_frame(hdr, payload)) {
+            // ① 新的一片（slice0）→ 該台的遺失計數歸零
+            if (hdr.totalSlice > 1 && hdr.sliceIndex == 0) loss_by_cam[hdr.camId] = FrameLossInfo{};
+
+            // ② 吸收收端記錄的遺失（CRC 失敗時 header 可信 → 可歸屬到 cam/slice）
+            for (const auto& lf : rdma_src.take_lost()) {
+                ++total_lost;
+                if (lf.header_ok) {
+                    auto& fl = loss_by_cam[lf.cam_id];
+                    ++fl.lost_frames;
+                    fl.lost_slices.push_back((int)lf.slice_index);
+                    fprintf(stderr, "[rdma-process] ⚠ 收圖遺失：cam%u slice%u/%u seq=%llu"
+                            " → 該片標記不完整\n", lf.cam_id, lf.slice_index, lf.total_slice,
+                            (unsigned long long)lf.frame_seq);
+                } else {
+                    // header 不可信 → 無法歸屬 → **保守**把所有進行中的片都標為不完整
+                    // （AOI 寧可誤報也不能漏檢；誤報只是多一次人工複核）
+                    fprintf(stderr, "[rdma-process] ⚠ 收圖遺失但 header 不可信 →"
+                            " 保守標記所有進行中的片為不完整\n");
+                    for (auto& kv : loss_by_cam) { ++kv.second.lost_frames; kv.second.unattributed = true; }
+                    if (loss_by_cam.empty()) { auto& fl = loss_by_cam[hdr.camId]; ++fl.lost_frames; fl.unattributed = true; }
+                }
+            }
+
+            // ③ seq 跳號備援：frame_seq 已保證全域單調（見 grab main.cpp），
+            //    跳號 = 有幀沒到達消費端。這條抓得到「收端根本沒 poll 到」的遺失。
+            if (last_seq_seen != 0 && hdr.frameSeq > last_seq_seen + 1) {
+                uint64_t gap = hdr.frameSeq - last_seq_seen - 1;
+                // 已由 take_lost() 歸屬過的不重複計入
+                if (gap > total_lost) {
+                    uint64_t extra = gap - total_lost;
+                    fprintf(stderr, "[rdma-process] ⚠ seq 跳號 %llu→%llu（%llu 幀未達消費端，"
+                            "收端未記錄）→ 保守標記所有進行中的片\n",
+                            (unsigned long long)last_seq_seen, (unsigned long long)hdr.frameSeq,
+                            (unsigned long long)extra);
+                    for (auto& kv : loss_by_cam) {
+                        kv.second.lost_frames += (int)extra; kv.second.unattributed = true;
+                    }
+                    total_lost = gap;
+                }
+            }
+            last_seq_seen = hdr.frameSeq;
             size_t depth = queue.size();                      // 取出本幀後佇列殘量（塞車徵兆）
             if (depth > max_queue_depth) max_queue_depth = depth;
             if (depth >= queue.max_size()) ++backpressure_hits;
@@ -1051,6 +1100,16 @@ int main(int argc, char** argv) {
                 apply_edge_check_slice(edge_cfg, gray, hdr, res, edge_ctr, edge_leading_state);
             else
                 apply_edge_check(edge_cfg, gray, res, edge_ctr);
+            // 本片若有遺失 → 寫進 ResultInfo.json 的 frame_loss（XML 不動，保 CF_GET_RESULT 鏈）
+            {
+                auto it = loss_by_cam.find(hdr.camId);
+                if (it != loss_by_cam.end() && it->second.incomplete()) {
+                    res.frame_loss = it->second;
+                    FR_RECORD_INCIDENT("frame_loss",
+                        "cam" + std::to_string(hdr.camId) + " 本片遺失 " +
+                        std::to_string(it->second.lost_frames) + " 幀 → panel_incomplete");
+                }
+            }
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
                               args.output, args.ip_name, rdma_save_opt);
             ++processed;
@@ -1064,6 +1123,10 @@ int main(int argc, char** argv) {
         rdma_src.stop();
         double total_s = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t_start).count();
+        if (total_lost > 0)
+            fprintf(stderr, "[rdma-process] ⚠⚠ 本次共遺失 %llu 幀 → 受影響的片已在 ResultInfo.json "
+                    "標記 frame_loss.panel_incomplete=true。**DefectCnt=0 不等於乾淨**，"
+                    "缺陷數只代表「檢查過的部分」沒缺陷。\n", (unsigned long long)total_lost);
         printf("[rdma-process] 完成：%d 幀  全程 %.1fs（%.2f fps）  proc avg/max=%.1f/%.1fms"
                "  佇列峰值=%zu/%zu  背壓幀=%zu  recv ok/err=%llu/%llu\n",
                processed, total_s, total_s > 0 ? processed / total_s : 0.0,

@@ -32,6 +32,7 @@
 #include "rdma_common.h"
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -63,6 +64,19 @@ public:
     uint64_t recv_ok()  const { return recv_ok_.load(); }
     uint64_t recv_err() const { return recv_err_.load(); }
 
+    // 被丟棄的幀（CRC/magic/尺寸驗證失敗）。丟棄是對的——絕不能拿壞資料判缺陷——
+    // 但必須讓消費端知道「哪一片少了哪一張」，否則會變成靜默漏檢。
+    // header_ok=false 表示連 header 都不可信（magic/尺寸失敗）→ cam_id/slice 不可用。
+    struct LostFrame {
+        uint16_t cam_id = 0;
+        uint16_t slice_index = 0;
+        uint16_t total_slice = 1;
+        uint64_t frame_seq = 0;
+        bool     header_ok = false;   // true = CRC 失敗但 header 通過驗證，可歸屬到 cam/slice
+    };
+    // 取出並清空累積的遺失記錄（消費端每處理一幀呼叫一次）。
+    std::vector<LostFrame> take_lost();
+
 private:
     void recv_thread_fn();
 
@@ -85,6 +99,9 @@ private:
 
     std::atomic<uint64_t> recv_ok_{0};
     std::atomic<uint64_t> recv_err_{0};
+
+    std::mutex             lost_mtx_;   // recv_thread 寫、消費端 take_lost() 讀
+    std::vector<LostFrame> lost_;
 
     std::string panel_id_;  // 最近一幀 panel_id（next_frame 後更新）
 };

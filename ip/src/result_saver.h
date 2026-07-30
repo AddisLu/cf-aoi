@@ -36,6 +36,16 @@ struct ZoneResult {
 };
 
 // 一張影像（panel）的完整檢測結果（聚合所有 zone）。
+// 收圖遺失記錄（CRC/magic/尺寸驗證失敗的幀會被丟棄，不得拿壞資料去判缺陷）。
+// ⚠️ 丟棄本身是對的，但「丟了」必須讓下游知道：線掃一片面板切成多張 slice，
+//    少一張 = 那一段根本沒檢查過。若不標記，上位機會拿到一個看似正常的 PASS（靜默漏檢）。
+struct FrameLossInfo {
+    int  lost_frames = 0;              // 本片累計遺失幀數
+    std::vector<int> lost_slices;      // 遺失的 sliceIndex（header 可讀時才知道）
+    bool unattributed = false;         // 有遺失但無法歸屬到 slice（header 也壞）→ 保守視為本片不完整
+    bool incomplete() const { return lost_frames > 0; }
+};
+
 struct InspectionResult {
     std::string panel_id;
     std::string recipe_name = "DEFAULT";
@@ -51,6 +61,7 @@ struct InspectionResult {
     std::vector<IoiRect> ioi_list;   // #23 興趣區（DetectIoiList）；存圖時裁切+寫 IoiInfoList
     EdgeCheckResult edge;            // 玻璃前緣/尾緣健檢（checked=false → JSON 不輸出）
     double edge_drift_warn_pct = 0.2;  // transport_ok 判定閾值（來自 EdgeCheckConfig，進 JSON 供 Control 判讀）
+    FrameLossInfo frame_loss;        // 收圖遺失（lost_frames==0 → JSON 不輸出，舊收端無感知）
 
     int total_defects() const {
         int n = 0;

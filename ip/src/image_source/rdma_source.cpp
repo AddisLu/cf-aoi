@@ -176,6 +176,17 @@ void RdmaImageSource::recv_thread_fn() {
         auto repost_slot = [&]() {
             conn_.post_recv(ring_mr_, slot, slot_size_, /*wr_id=*/slot_id);
         };
+        // 記錄被丟棄的幀，供消費端標記「該片不完整」（不記＝靜默漏檢）
+        auto record_lost = [&](bool header_ok) {
+            LostFrame lf;
+            lf.header_ok = header_ok;
+            if (header_ok) {
+                lf.cam_id = h.camId; lf.slice_index = h.sliceIndex;
+                lf.total_slice = h.totalSlice; lf.frame_seq = h.frameSeq;
+            }
+            std::lock_guard<std::mutex> lk(lost_mtx_);
+            if (lost_.size() < 4096) lost_.push_back(lf);   // 上限防爆（極端故障時不無限累積）
+        };
 
         // magic / version 快速檢查
         if (h.magic != FRAME_MAGIC || h.version != FRAME_VERSION) {
@@ -185,6 +196,7 @@ void RdmaImageSource::recv_thread_fn() {
                 "rdma magic/version seq=" + std::to_string(seq) +
                 " slot=" + std::to_string(slot_id));
             ++recv_err_;
+            record_lost(/*header_ok=*/false);   // header 本身不可信 → 無法歸屬 cam/slice
             repost_slot();
             continue;
         }
@@ -208,6 +220,7 @@ void RdmaImageSource::recv_thread_fn() {
                 " w=" + std::to_string(h.width) + " h=" + std::to_string(h.height) +
                 " payload=" + std::to_string(h.payloadBytes));
             ++recv_err_;
+            record_lost(/*header_ok=*/false);   // 尺寸不合法 → header 不可信
             repost_slot();
             continue;
         }
@@ -246,6 +259,9 @@ void RdmaImageSource::recv_thread_fn() {
                     "rdma crc seq=" + std::to_string(seq) +
                     " slot=" + std::to_string(slot_id));
                 ++recv_err_;
+                // header 已過 magic/尺寸/byte_len 驗證（256B vs 40.8MB payload，
+                // 位元翻轉剛好落在 header 又通過全部檢查的機率極低）→ 視為可歸屬
+                record_lost(/*header_ok=*/true);
                 repost_slot();
                 continue;
             }
@@ -289,6 +305,13 @@ void RdmaImageSource::recv_thread_fn() {
 }
 
 // ---------------------------------------------------------------------------
+std::vector<RdmaImageSource::LostFrame> RdmaImageSource::take_lost() {
+    std::lock_guard<std::mutex> lk(lost_mtx_);
+    std::vector<LostFrame> out;
+    out.swap(lost_);
+    return out;
+}
+
 bool RdmaImageSource::next_frame(FrameHeader& hdr, std::vector<uint8_t>& payload) {
     FrameQueue::Item item;
     // 把呼叫端「上一幀用完」的 buffer 帶進 pop()，由它收進 free_ 池供收端重用。
