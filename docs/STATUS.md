@@ -344,7 +344,7 @@ ARM 的起始條件。建議改為相對 repo 根或啟動時印出實際採用�
 2. **`SET_CAM_PARAMS`/`GET_CAM_PARAMS`/`TUNE_MEAN` 被 `if (cam_id != 0) → ERR` 擋死**（`control_server.cpp`），
    但 `main.cpp:375` 的 tune_mean handler 其實已用 `mgr.get(cid)` 支援多台 → **只需拿掉 control_server 的守門**
    （改為對照實際相機清單驗證 cam_id）。現況：第二台完全無法調曝光/增益。
-3. **Gap #21 的 cam_id↔MAC 不穩定已實際發生**：加入第二台後列舉順序改變 →
+3. ~~**Gap #21 的 cam_id↔MAC 不穩定已實際發生**~~ → **✅ 2026-07-30 已修並驗證（見下方 Gap #21 專節）**：加入第二台後列舉順序改變 →
    raL4096 變 `cam_id 0`、raL8192 變 `cam_id 1`（原本 raL8192 是 0）。`cam_config.json` 的 `cam_id 0`
    條目（曝光/增益）因此**套到了不同的實體相機**。37 台前必須改 MAC keying。
 
@@ -487,6 +487,36 @@ recv ok=24 err=0、24 個輸出夾全不同名、dropped=0**（`rdma-process` �
 （收端已有小訊息 SEND 路徑：`rx_mr_`/`rx_small_` 與 MrInfoEx，可沿用。）這是兩端的 wire 協議變更，須自帶驗證循環。
 
 （以上「暫時緩解 / 勿讓 IP 端長時間背壓」的告誡已隨資料路徑改 SEND 而解除 —— 背壓現在只影響吞吐，不影響正確性。）
+
+### Gap #21：cam_id ↔ MAC 穩定映射（2026-07-30 **已修並驗證 L3**）
+
+**問題**：cam_id 依 pylon 列舉順序暫派 0..N-1。實測接上第二台後 raL8192 由 `cam_id 0` 變成 `1`
+→ `cam_config.json` 的曝光/增益、`FrameHeader.camId`、IP 端輸出夾 `CCD{camId}` **全部對到別台**。
+
+**作法**：`grab/cam_map.json`（每機本地不版控，模板 `cam_map.example.json`）以 `{mac, cam_id, ccd_id}` 綁定。
+`CamManager::load_map()` + `open_all()` 依 MAC 查 cam_id、**依 cam_id 由小到大**取前 N 台
+（`--cam-count N` 才是決定性的，不隨列舉順序飄）。新增 `--cam-map PATH`。
+`CamInfo` 加 `ccd_id`/`bound`，`LIST_CAMERAS` 誠實回報綁定狀態供 Control 陣列總覽分開呈現宣告 vs 偵測。
+
+**驗證（damac 2 台實機）**：
+
+| 測項 | 結果 |
+|---|---|
+| 映射生效（**刻意設成與列舉順序相反**）| 列舉 idx0=raL4096 → **cam_id 1/CCD01**；idx1=raL8192 → **cam_id 0/CCD00**。開相機後 `GET_CAM_NODES cam_id=0 → width 8160`(raL8192)、`cam_id=1 → 4096`(raL4096) ✅ |
+| MAC 正規化 | `"003053 15-b0c1"`（小寫+空白+連字號）與 `00:30:53:15:B0:C1` 視為同一台 ✅ |
+| 未列於映射的相機 | `GRAB_ARM → ERR 下列相機未列於 cam_map.json，拒絕暫派槽位：00:30:53:15:B0:C1 SN=21421505 raL4096-24gm` ✅ |
+| `cam_id` 重複 | 啟動即中止：`cam_id 重複：0（一個槽位只能綁一台）` ✅ |
+| MAC 重複（不同格式）| 啟動即中止：`MAC 重複：003053531941` ✅（同時證明正規化）|
+| MAC 格式錯 / JSON 壞 | 啟動即中止，**exit code = 1**（非 0）✅ |
+| 無映射檔（舊行為）| WARN + cam_id 退回列舉 index、`bound=false`（誠實，不假裝已綁定）✅ |
+| 回歸 | `verify_step3_trigger`（2 台）**6/6 PASS**；`rdma-process` 20 幀 CRC/seq 錯誤 **0**，輸出夾 `CCD00`/`CCD01` 由映射決定 ✅ |
+
+⚠️ **本機 `cam_map.json` 的 ccd_id 指派待 Addis 確認**：現填
+`raL8192(SN25445953)=CCD00`（對應交換機 `WGE1/0/33` 描述）、`raL4096(SN21421505)=CCD01`，
+實體 CCD 編號請以產線實際位置為準。37 台時每台都要補一筆。
+
+**尚未做（本次不含）**：Control 端陣列總覽尚未消費新的 `ccd_id`/`bound` 欄位（UI 仍顯示舊邏輯）；
+`array_topology.json` 的 `expected_mac` 與 Grab 的 `cam_map.json` 目前是兩份獨立宣告，未做一致性校驗。
 
 #### 其他發現（非阻斷）
 - **IP/Grab 的 ControlServer 都是單客戶端序列處理**（[ip/control_server.cpp:386-392](../ip/src/control_server.cpp#L386)

@@ -171,12 +171,27 @@ source /opt/pleora/ebus_sdk/.../set_puregev_env.sh
    nvidia_peermem 未載入」在 GB10 上**不適用**；移植到 IP 時該註解要改成上述 cudaHostAlloc 方案。
    證據：`docs/verification/verification_report_20260611.md` §五問題1 + `t40_e2e_server.cpp`。
    （此即 `t40_e2e_server` 已採用的作法：`cudaHostAlloc(...Portable|Mapped)` 配 `gpu_buf`。）
-7. **N-slot ring buffer + MrInfoEx 握手（Step 3，2026-06-17 damac↔Spark 實機驗通 L3）**：
-   `rdma_sender.cpp` 不再使用單一 `MrInfo`，改接收 IP 送來的 256B `MrInfoEx`（含 `n_slots`/`slot_size`）：
-   - `connect()` 收 `MrInfoEx`，驗 `n_slots != 0 && slot_size >= frame_cap`
-   - `send_frame()` 定址：`slot_id = frame_seq % n_slots`，`write_addr = addr + slot_id × slot_size`
-   - `poll_one()` 完成等待 = 背壓點：credit 耗盡時 RNR（`rnr_retry_count=7=∞`）→ 此處自然阻塞
-   IP 端（`rdma_source.cpp`）以 credit 補充時機保證 slot 安全：
-   `memcpy → push_blocking → post_recv`（不可換序，見 ip/CLAUDE.md 不變式 23）。
-   **實測數據（2026-06-17）**：`rdma_nslot_test` 120 幀 CRC=OK；背壓 20 幀 ok=20 err=0，
-   QP 未進 error state（Grab 9.6fps vs IP 200ms 限速，確認 poll_one 阻塞非斷線）。commit `de047a3`。
+7. **N-slot ring + MrInfoEx 握手；資料路徑必須是 `SEND`，不可用 `RDMA_WRITE_WITH_IMM`**
+   （2026-07-30 實機抓到資料損毀後改正）：
+   - `connect()` 收 256B `MrInfoEx`，驗 `n_slots != 0 && slot_size >= frame_cap`
+   - `send_frame()` 用 **`post_send`**（不指定遠端位址）；資料落點由 IP 端的 recv WQE 決定
+   - `poll_one()` 完成等待 = 背壓點：IP 端 WQE 用完 → SEND 收 RNR（`rnr_retry_count=7=∞`）→ 此處阻塞
+   IP 端（`rdma_source.cpp`）N 個 `post_recv` **各指向一個 slot**（`wr_id`=slot 編號），
+   處理完該 slot 才重掛它的 WQE。
+   **⚠️ 為何不能用 WRITE_WITH_IMM**：RNR credit 只擋 immediate 遞送，**擋不住 payload 落地**——
+   送端一拿到前一筆 send completion 就 post 下一筆 write，payload 照樣寫進 slot，且 RNR 期間
+   持續重試、每次重寫該 slot ⇒ IP 端正在讀的 slot 被覆寫。實測（2 台相機+背壓）
+   slots=2/4/16 → err=11/10/0（純由 ring 深度決定）。改 SEND 後三種深度全 err=0，
+   ring 深度只影響吞吐不影響正確性。**縮短收端讀取窗口治不了此問題**（試過，err 只從 10 降到 7）。
+   **實測數據**：2026-06-17 `rdma_nslot_test` 120 幀 CRC=OK（WRITE 版）；
+   2026-07-30 SEND 版 4 片×3 張×2 台=24 幀 CRC/seq 錯誤 0、背壓下 slots=2 亦 ok=20 err=0。
+
+8. **cam_id 必須來自 MAC 穩定映射，不可用列舉順序（Gap #21，2026-07-30）**：
+   `cam_map.json`（每機本地，模板 `cam_map.example.json`）以 `{mac, cam_id, ccd_id}` 綁定。
+   - 有映射 → **嚴格模式**：列舉到但未列於映射的相機**直接報錯拒開**，不默默佔用槽位
+     （docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）
+   - 映射檔格式錯 / `cam_id` 重複 / MAC 重複 → **啟動即中止（exit 1）**，
+     不可默默退回列舉順序（那會在無人察覺下把槽位對錯台）
+   - 無映射檔 → 退回舊行為 + 明確 WARN（僅限開發；正式陣列必須有映射）
+   **為何**：cam_id 決定 `cam_config.json` 的曝光/增益、`FrameHeader.camId`、
+   IP 端輸出夾 `CCD{camId}`。2026-07-30 實測：接上第二台後 raL8192 由 cam_id 0 變成 1。
