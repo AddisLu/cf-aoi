@@ -92,7 +92,7 @@
 | 模組 | 級別 | 驗證方式 / 缺什麼 |
 | ---- | ---- | ----------------- |
 | 正式 cfaoi_grab 單相機→RDMA→Spark（cam_pylon + rdma_sender + control_server + main） | **L4** | 2026-06-15 Step 2 實機：raL8192-12gm → pylon → FrameHeader(0xA01CF00D)+CRC32 → RDMA 18515 → Spark GB10 pinned memory → CRC 20/20，FAIL=0（見 [Step 2 報告](verification/verification_report_step2_20260615.md)）|
-| 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L1** | **2026-07-18 cam_manager 落地（37 CCD 軟體觸發設計：GRAB_START=觸發，逐台平行 arm，skew 由 IP 玻璃前緣對位吸收）**：`open_all`（--cam-count N\|ALL，fail-fast 不半開）/`start_all` 逐台 arm/收滿 `frames_per_panel` 自動停（cam_pylon `set_max_frames`，= 舊 M_FRAMES_PER_TRIGGER(N) 語意）/GRAB_START params 加 `frames_per_panel`（0=連續 legacy）/**FrameHeader sliceIndex/totalSlice 填真值**（原三處硬編碼 1）/N 相機 thread 共用單 QP 以 send_mtx 序列化/cam_config.json 每台一筆。單台 legacy 路徑保留（--cam-count 1 預設 + --cam-id/--serial 語意不變）。cam_manager/control_server **語法驗證 ✓**（RTX2080 g++ -fsyntax-only）；**完整編譯待 damac**（pylon+rdma dev headers；本日 damac 離線）；**實機多台 = Step 3 待 Switch+相機到貨**。commit `28bf4fb`。**2026-07-30 fix：ARM(ALL) 靜默少台（idle 調參開的單台被 `open_all` 當成整個陣列，commit `fc00b87`，修法未驗 → 見 Switch 章節 ★7）** |
+| 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L1** | **2026-07-18 cam_manager 落地（37 CCD 軟體觸發設計：GRAB_START=觸發，逐台平行 arm，skew 由 IP 玻璃前緣對位吸收）**：`open_all`（--cam-count N\|ALL，fail-fast 不半開）/`start_all` 逐台 arm/收滿 `frames_per_panel` 自動停（cam_pylon `set_max_frames`，= 舊 M_FRAMES_PER_TRIGGER(N) 語意）/GRAB_START params 加 `frames_per_panel`（0=連續 legacy）/**FrameHeader sliceIndex/totalSlice 填真值**（原三處硬編碼 1）/N 相機 thread 共用單 QP 以 send_mtx 序列化/cam_config.json 每台一筆。單台 legacy 路徑保留（--cam-count 1 預設 + --cam-id/--serial 語意不變）。cam_manager/control_server **語法驗證 ✓**（RTX2080 g++ -fsyntax-only）；**完整編譯待 damac**（pylon+rdma dev headers；本日 damac 離線）；**實機多台 = Step 3 待 Switch+相機到貨**。commit `28bf4fb`。**2026-07-30 fix：ARM(ALL) 靜默少台（idle 調參開的單台被 `open_all` 當成整個陣列，commit `fc00b87`）→ 2026-07-31 實機補驗 L3 ✓（cams=2 + 回歸 6/6，見 Switch 章節 ★7）** |
 | rdma_nslot_test（合成幀送器，驗 N-slot ring + 背壓，不需相機） | **L3** | **2026-06-17 damac↔Spark 實機**：120 幀連送 CRC=OK；背壓 20 幀（IP 200ms 延遲）ok=20 err=0；commit `de047a3` |
 | Control↔Grab 8100 完整接線（觸發鏈：CF_→Grab）| **L2（selftest）/ 實機待 Switch** | **2026-07-21 觸發鏈落地（sensor→上位機(與 Control 同機)→CF_GRAB_START=觸發本體）**：grab 新 `GRAB_ARM`（冷啟重活=開陣列/套參數/RDMA connect 提前預熱，冪等重用）/`GRAB_START` 只剩切片歸零+start_all（**ms 級觸發**，未 ARM 自動冷啟相容 nc）/收滿自動停後可直接下一片/status 加 `armed`。Control：`GrabClient` 加 LoadRecipe/GrabArm/GrabStart/GrabStop；`UpstreamWiring` **CF_LOAD_RECIPE→IP+Grab 預熱、CF_GRAB_START→GRAB_START(timeout+frames_per_panel from appsettings Grab.FramesPerPanel)、CF_STOP→GRAB_STOP（#25 收掉）**；Grab 離線自然誠實 ERR（決策 A 精神）。驗：`--selftest grabtrigger` **5/5**（命令序列 LOAD_RECIPE→ARM→START→STOP/參數傳遞 t=12345 fpp=27/離線 ERR）+ `upstream` 回歸 7/7。**觸發延遲 2026-07-30 實機量到（HPE 5945 + 1 台相機）：`scripts/verify_step3_trigger.py` 6/6 全 PASS — GRAB_ARM 冷啟 542ms（重活已移出觸發路徑）/ 冪等重呼 3ms / GRAB_START 往返 **0.3ms**（目標 <100ms，餘裕 300×）/ 收滿自動停對帳 grabbed=5 sent=5 dropped=0 / 第二片不重 ARM 觸發 0.2ms / teardown armed=false。** 單相機 = **L3**；37 台仍待相機到貨。commit `9913b5a` |
 | ⤷ Gap #2：參數控制（SET/GET_CAM_PARAMS）| **L3** | **2026-06-17 damac raL8192-12gm 實機**：Stage 0（ExposureTimeAbs 2~10000µs；GainRaw 256~2047；TLParamsLocked=0）；Stage 1（SET actual 誤差 0%：exp 200/500µs actual 完全一致；gain 256/512 actual 完全一致）；Stage 4（4 ERR 路徑全 PASS）；cam_config.json 持久化。close() 空 QP bug fix：重現 connect 127.0.0.1 route 失敗 → `rdma_destroy_qp(nullptr)` SIGSEGV；修後 `if (id && id->qp)` guard + null-clear，乾淨退出。⚠️ 假設：曝光/增益為機器層（cam_config.json），若日後隨產品調 → 補 recipe-override。|
@@ -305,7 +305,8 @@ L3 驗證寫出的 `cam_map.json` 實際落在 `grab/build/`。
 
 副本對帳：`grab/build/` 的活值（2 台 exp=70/gain=256 + 2 筆 MAC 綁定）已複製回 `grab/`；三處殘留
 （repo 根 `cam_config.json`、`grab/build/cam_config.json`、`grab/build/cam_map.json`+`.bak`）**待手動刪除**
-（有 WARN 點名不致誤用）。LIST_CAMERAS 實體回歸未跑：當下 `enp1s0f1np1` DOWN（交換機未上電），非程式問題。
+（有 WARN 點名不致誤用）。**LIST_CAMERAS 實體回歸（交換機上電後同日補跑）PASS**：2 台全列到、
+MAC 映射由錨定後的 `grab/cam_map.json` 正確生效（raL8192→CCD00、raL4096→CCD01，皆 bound=true）。
 
 ### 追加：第二台相機（port 35）+ 同步觸發 + inter-packet delay 實測（2026-07-30 同日 → 觸發同步 L3）
 
@@ -710,10 +711,11 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 **真面板缺陷正確性**（現為 free-run 無 encoder 觸發、無相對運動 → 線掃的 Y 軸是「時間」不是「位置」，
 拍到的是同一條線的時間紀錄，非真實 2D 面板影像；需接 encoder 行觸發或讓工件移動）／上位機 8787 經交換機端到端。
 
-### 追加：當日尾聲兩筆修正（2026-07-30 18:16／18:27）— 缺陷實機抓到，**修法皆無驗證紀錄 → L1**
+### 追加：當日尾聲兩筆修正（2026-07-30 18:16／18:27）— ★7 已補驗 **L3 ✓**（2026-07-31）；★8 仍 **L1**
 
-> 補帳於 2026-07-31。兩筆 commit 訊息只含「缺陷發現」的實機證據，**查無修後的編譯/復測數據** →
-> 依 §8「沒有驗證就不算完成」，修法標 **L1**，補驗步驟明列如下。
+> 補帳於 2026-07-31。兩筆 commit 訊息只含「缺陷發現」的實機證據，查無修後的編譯/復測數據 →
+> 依 §8「沒有驗證就不算完成」，修法先標 L1。**★7 已於 2026-07-31 damac+Spark 實機補驗通過（見下）**；
+> ★8 為 Control 端（Mac）行為，仍待目視驗證。
 
 #### ★7【靜默漏檢級】ARM(ALL) 靜默少台：idle 調參開的單台被當成整個陣列（grab，commit `fc00b87`）
 
@@ -724,8 +726,13 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
   **無條件重用** `cams_` → 單台被當成整個陣列。
 - **修法**：`CamManager` 加 `primary_only_` 旗標——`get_or_open_primary` 開的標 true、`stop_all`/正式
   `open_all` 清 false；`open_all` 見此旗標一律 `stop_all()` 重開。正常 ARM 冪等重用（連續多片零冷啟）不受影響。
-- **修法 L1（未驗）**，補驗步驟：damac 編譯 → 重現序列 `GET_CAM_NODES` → `GRAB_ARM(ALL)` →
-  `CHECK_HEALTH` 應回 **cams=2** → 回歸 `verify_step3_trigger`（2 台）6/6 + ARM 冪等重呼仍 ms 級（不誤傷零冷啟）。
+- **修法 L3 ✓（2026-07-31 damac+Spark 實機補驗，2 台真相機）**：
+  ① 重現序列：`GET_CAM_NODES(cam_id=0)`（idle 陷阱，521ms 開單台）→ `GRAB_ARM(ALL)` 1414ms
+  （= 強制 `stop_all()` 重開全陣列的冷啟時間，證旗標生效）→ `CHECK_HEALTH` 回 **cams=2**（修正前 =1）；
+  ② ARM 冪等重呼 **5ms**（正常零冷啟重用未被誤傷）；GRAB_STOP 36ms、teardown `armed=false cams=0` 乾淨；
+  ③ 回歸 `verify_step3_trigger`（2 台，expect_cams=2）**6/6 全 PASS**（ARM 冷啟 1272ms／冪等 4ms／
+  觸發 0.3ms／收滿自動停 grabbed=10 sent=10 dropped=0／第二片 0.3ms 累積 sent=20／teardown）；
+  Spark 收端 **ok=20 err=0 CRC 全對**、Grab 斷線後乾淨退出。
 
 #### ★8【誤報級】Control 心跳單次逾時即斷線 → 改 5s 逾時 × 連續 2 次失敗（control，commit `2423b6b`）
 
