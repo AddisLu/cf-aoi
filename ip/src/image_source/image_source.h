@@ -63,14 +63,30 @@ public:
     }
 
     // 阻塞直到有資料或被 close()。回傳 false 代表已關閉且佇列清空。
+    // ★ 緩衝回收：out 原本持有的 buffer（消費端上一幀用完的）不直接釋放，而是收進 free_ 池，
+    //   供 take_buffer() 交還給生產端重用 —— 避免每幀重新配置 40.8MB 造成的 page fault。
+    //   實測（Spark GB10，8160×5000）：純 memcpy 僅 1.69ms，但每幀新配置時整段要 10.5–11.7ms。
     bool pop(Item& out) {
         std::unique_lock<std::mutex> lk(mtx_);
         cv_.wait(lk, [&] { return closed_ || !q_.empty(); });
         if (q_.empty()) return false;  // closed
+        if (out.payload.capacity() > 0 && free_.size() < kMaxFree)
+            free_.push_back(std::move(out.payload));   // 回收消費端上一幀的 buffer
         out = std::move(q_.front());
         q_.pop();
         cv_prod_.notify_one();  // 通知 push_blocking 有位置了
         return true;
+    }
+
+    // 生產端取一塊可重用的 buffer（沒有就回空的，由呼叫端自行配置）。
+    // 回傳的 vector 已 clear()（size=0）但**保留 capacity** → assign() 不會重新配置、不會歸零。
+    std::vector<uint8_t> take_buffer() {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (free_.empty()) return {};
+        std::vector<uint8_t> b = std::move(free_.back());
+        free_.pop_back();
+        b.clear();
+        return b;
     }
 
     // 阻塞推入：阻塞直到佇列有位置或被 close()。
@@ -114,6 +130,11 @@ private:
     std::queue<Item> q_;
     bool closed_ = false;
     size_t max_size_ = 0;  // 0 = 無上限（向下相容）；set_max_size 後固定
+
+    // 空閒 buffer 池（見 pop()/take_buffer()）。上限刻意小：只需覆蓋「in-flight 幀數」，
+    // 池子太大等於白佔記憶體（一塊 = 一幀 = 40.8MB）。
+    static constexpr size_t kMaxFree = 8;
+    std::vector<std::vector<uint8_t>> free_;
 };
 
 #endif // CFAOI_IMAGE_SOURCE_H

@@ -223,8 +223,11 @@ void RdmaImageSource::recv_thread_fn() {
         // 實測：純 memcpy 本身只要 1.69ms（24GB/s，Portable|Mapped 與一般 malloc 幾無差別），
         // 但舊寫法整段量到 10.6–12.3ms —— 多出來的全是 vector 歸零 + 新頁 page fault。
         // 這是 37 台 @12kHz 的關鍵：收端 recv_thread 是單執行緒，每幀預算只有 11.3ms。
+        // 先跟 FrameQueue 要一塊回收的 buffer（capacity 夠就不會重新配置、也不會歸零）；
+        // 拿不到才由 assign 自行配置。這一步把 page fault 從「每幀」降成「暖機期幾次」。
         const uint8_t* src = slot + sizeof(FrameHeader);
-        std::vector<uint8_t> payload(src, src + h.payloadBytes);
+        std::vector<uint8_t> payload = queue_->take_buffer();
+        payload.assign(src, src + h.payloadBytes);
         sum_cpy_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tm0).count();
 
         // CRC 驗證（對**已複製出來的 payload**做，不再碰 slot）
