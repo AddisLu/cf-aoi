@@ -291,7 +291,11 @@ void RdmaImageSource::recv_thread_fn() {
 // ---------------------------------------------------------------------------
 bool RdmaImageSource::next_frame(FrameHeader& hdr, std::vector<uint8_t>& payload) {
     FrameQueue::Item item;
-    if (!queue_->pop(item)) return false;
+    // 把呼叫端「上一幀用完」的 buffer 帶進 pop()，由它收進 free_ 池供收端重用。
+    // 少了這行，pop() 拿到的永遠是剛建立的空 Item（capacity=0）→ 池子收不到任何東西，
+    // 收端每幀仍要新配置 40.8MB（實測 ~10ms 的 page fault，佔了 memcpy 計時的絕大部分）。
+    item.payload = std::move(payload);
+    if (!queue_->pop(item)) return false;   // 關閉時呼叫端 payload 為空屬正常（停機路徑）
     hdr      = item.hdr;
     payload  = std::move(item.payload);
     panel_id_ = item.panel_id;
