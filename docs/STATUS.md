@@ -286,10 +286,26 @@
 12kHz 上限）時即使 gain 拉滿 2047，`mean_gray` 只有 **5.81**；要達 mean≈90 需 `exp=2000µs`，代價是 3000 行 × 2000µs
 = **6s/幀（0.16 fps）**，完全無法生產。→ **需加強光源亮度或改用更大光圈鏡頭**，否則 Step 4/5 無法進行。
 
-**⚠️ 順帶發現：`cam_config.json` 路徑相對 CWD** —— `--cam-config` 預設值是相對路徑 `cam_config.json`，從 `grab/build/`
-啟動 cfaoi_grab 時實際讀寫的是 `grab/build/cam_config.json`，**不是**文件與 `.gitignore` 所指的 `grab/cam_config.json`
-（兩份內容已實測不同步）。且 `SET_CAM_PARAMS` 會 `save_cam_config` 回寫、`GRAB_ARM` 每次重套 → 調參會靜默改變下一次
-ARM 的起始條件。建議改為相對 repo 根或啟動時印出實際採用的絕對路徑。
+**~~⚠️ 順帶發現：`cam_config.json` 路徑相對 CWD~~ → ✅ 已修並驗證（2026-07-31，commit `8ae447f`，damac 實機 L3）**
+—— 原問題：`--cam-config` 預設相對 CWD，從 `grab/build/` 啟動實際讀寫 `grab/build/cam_config.json` 而非文件
+與 `.gitignore` 所指的 `grab/cam_config.json`（兩份實測不同步）；`SET_CAM_PARAMS` 回寫 + `GRAB_ARM` 重套 →
+調參靜默改變下次 ARM 起始條件。**修時發現比原記載更嚴重**：① damac repo **根目錄還有第三份**（6/22 從
+repo 根啟動所留）② **`cam_map.json` 同病且更危險**——換 CWD 啟動被當「檔案不存在」→ 合法 fallback 只印
+WARN 就**靜默丟失 Gap #21 MAC 綁定**退回列舉順序（fail-fast 只擋格式錯，擋不了路徑漂移）；且 7/30 SET_CAM_MAP
+L3 驗證寫出的 `cam_map.json` 實際落在 `grab/build/`。
+**修法**：兩檔預設路徑錨定 `/proc/self/exe` 上一層（= `grab/`）；啟動印兩檔絕對路徑；CWD 有同名檔且非採用
+那份 → WARN 點名；明確 `--cam-config`/`--cam-map` 維持相對 CWD 語意。**damac 實機驗證（第一次編譯即過）**：
+
+| 測項 | 結果 |
+|---|---|
+| A. 從 `grab/build/` 啟動 | 採用 `grab/cam_config.json`+`grab/cam_map.json`（絕對路徑印出）；CWD 兩份殘留**皆被 WARN 點名**；cam_map 嚴格模式載入 2 筆 MAC 綁定 |
+| B. 從 repo 根啟動 | **與 A 同一份**絕對路徑；根目錄殘留被 WARN 點名 |
+| C. 明確 `--cam-config c_test.json`（CWD=/tmp）| 解析為 `/tmp/c_test.json` 並讀到其值（exp=123 gain=300）→ CLI 語意不變 |
+| D. `SET_CAM_MAP`（從 /tmp 啟動）| 寫進 `grab/cam_map.json`（回應帶絕對路徑回聲）、`.bak` 產生、`/tmp` 零落檔、重載 OK |
+
+副本對帳：`grab/build/` 的活值（2 台 exp=70/gain=256 + 2 筆 MAC 綁定）已複製回 `grab/`；三處殘留
+（repo 根 `cam_config.json`、`grab/build/cam_config.json`、`grab/build/cam_map.json`+`.bak`）**待手動刪除**
+（有 WARN 點名不致誤用）。LIST_CAMERAS 實體回歸未跑：當下 `enp1s0f1np1` DOWN（交換機未上電），非程式問題。
 
 ### 追加：第二台相機（port 35）+ 同步觸發 + inter-packet delay 實測（2026-07-30 同日 → 觸發同步 L3）
 
