@@ -75,6 +75,7 @@ struct Args {
     // 存圖選項（調參加速）
     bool save_patches = true;
     bool save_overlay = true;
+    bool overlay_always = false;   // --overlay-always：rdma-process 也逐幀存 overlay（生產不建議）
     int  max_patches = -1;         // >=0 → 只存前 N 張缺陷小圖
     int  save_threads = 0;         // 0 → 自動
     // bench 模式（量純 GPU 運算速度）
@@ -115,6 +116,9 @@ void usage(const char* prog) {
     "  --use-ai              啟用 AI 分類過濾（預設停用：訓練資料不足，缺陷標待人工複核）\n"
     "  --no-save-images      只存 ResultInfo，不存任何缺陷小圖/overlay（調參加速）\n"
     "  --no-overlay          不存 overlay 全圖（仍存缺陷小圖）\n"
+    "  --overlay-always      rdma-process：0 缺陷的幀也存 overlay（**生產不建議**：8160×5000 PNG\n"
+    "                        實測 406-410ms/幀 = GPU 檢測的 56 倍，逐幀存只能到 2.4 幀/s）。\n"
+    "                        rdma-process 預設只在有缺陷時存；offline-file/offline-tcp 調參路徑一律存。\n"
     "  --max-patches <n>     只存前 n 張缺陷小圖（調參加速）\n"
     "  --save-threads <n>    缺陷小圖平行寫入緒數（0=自動）\n"
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
@@ -154,6 +158,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--use-ai") a.use_ai = true;
         else if (k == "--no-save-images") { a.save_patches = false; a.save_overlay = false; }
         else if (k == "--no-overlay") a.save_overlay = false;
+        else if (k == "--overlay-always") a.overlay_always = true;
         else if (k == "--max-patches") a.max_patches = std::stoi(next("--max-patches"));
         else if (k == "--save-threads") a.save_threads = std::stoi(next("--save-threads"));
         else if (k == "--bench-iters") a.bench_iters = std::stoi(next("--bench-iters"));
@@ -983,6 +988,17 @@ int main(int argc, char** argv) {
                       << "  zones=" << zones.size() << "\n";
         }
 
+        // 生產（inline）存圖策略：0 缺陷的幀不寫 overlay。
+        // 8160×5000×3ch PNG 實測 406–410ms/幀 = GPU 檢測(7.3ms) 的 56 倍 → 逐幀存上限僅 2.4 幀/s，
+        // 而 37 台 @12kHz 需要 88.8 幀/s。0 缺陷的 overlay 只是原圖加空白疊圖、無資訊量。
+        // --overlay-always 可還原逐幀存（僅供偵錯）；offline-file/offline-tcp 調參路徑不受影響。
+        SaveOptions rdma_save_opt = save_opt;
+        rdma_save_opt.overlay_on_defect_only = !args.overlay_always;
+        std::cout << "[rdma-process] overlay 策略："
+                  << (args.overlay_always ? "逐幀存（--overlay-always；生產不建議）"
+                                          : "僅有缺陷時存（0 缺陷跳過，省 ~410ms/幀）")
+                  << "\n";
+
         RdmaImageSource rdma_src;
         if (!rdma_src.init(args.rdma_bind, args.rdma_port,
                            args.rdma_slots, max_payload, queue)) {
@@ -1033,7 +1049,7 @@ int main(int argc, char** argv) {
             else
                 apply_edge_check(edge_cfg, gray, res, edge_ctr);
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
-                              args.output, args.ip_name, save_opt);
+                              args.output, args.ip_name, rdma_save_opt);
             ++processed;
             if (processed <= 5 || processed % 20 == 0)
                 printf("[rdma-process] #%d %s defects=%d proc=%.1fms queue=%zu/%zu recv_ok=%llu\n",

@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
         sender.send_frame(/*cam_id*/0, /*frame_seq*/(uint64_t)i,
                           /*panel_id_hash*/0xDEADBEEFu,
                           payload.data(), (uint32_t)max_payload,
-                          width, height);
+                          width, height, /*slice*/0, /*total_slice*/1,
+                          RdmaSender::crc_of(payload.data(), (uint32_t)max_payload));
         ++ok;
 
         if (i < 5 || (i + 1) % 20 == 0)

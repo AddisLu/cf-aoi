@@ -417,8 +417,11 @@ int save(const InspectionResult& r,
     double patch_ms = ms(t_patch0, clk::now());
 
     // -- overlay（PNG，低壓縮）--
+    // 生產路徑用 overlay_on_defect_only 跳過 0 缺陷的幀：8160×5000×3ch PNG 實測 406–410ms/幀，
+    // 是 GPU 檢測(7.3ms)的 56 倍，逐幀存只能到 2.4 幀/s（37 台 @12kHz 需 88.8 幀/s）。
     auto t_ov0 = clk::now();
-    if (opt.save_overlay) {
+    const bool skip_overlay_no_defect = opt.overlay_on_defect_only && r.total_defects() == 0;
+    if (opt.save_overlay && !skip_overlay_no_defect) {
         cv::Mat overlay;
         cv::cvtColor(gray, overlay, cv::COLOR_GRAY2BGR);
         for (const auto& z : r.zones) {
@@ -474,6 +477,7 @@ int save(const InspectionResult& r,
               << (long)ov_ms << "ms"
               << (opt.save_patches ? "" : " [跳過 patch]")
               << (opt.save_overlay ? "" : " [跳過 overlay]")
+              << (skip_overlay_no_defect ? " [跳過 overlay：0 缺陷]" : "")
               << (opt.max_patches >= 0 ? (" [限 " + std::to_string(opt.max_patches) + " 張]") : "")
               << "\n";
     return saved.load();

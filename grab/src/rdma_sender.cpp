@@ -51,10 +51,18 @@ bool RdmaSender::connect(const char* spark_ip, const char* port, size_t max_payl
     }
 }
 
+// app-CRC 計算（可在 send_mtx 之外先算好 → 37 台共用一條 QP 時不佔序列化區間）。
+// CFAOI_RDMA_NOCRC=1 → 回 0（跳過；RDMA RC 已保證有序無損送達）。
+uint32_t RdmaSender::crc_of(const uint8_t* payload, uint32_t payload_bytes) {
+    static const bool s_nocrc = std::getenv("CFAOI_RDMA_NOCRC") != nullptr;
+    return s_nocrc ? 0u : crc32_ieee(payload, payload_bytes);
+}
+
 void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_id_hash,
                              const uint8_t* payload, uint32_t payload_bytes,
                              uint32_t width, uint32_t height,
-                             uint16_t slice_index, uint16_t total_slice) {
+                             uint16_t slice_index, uint16_t total_slice,
+                             uint32_t payload_crc32) {
     // 手填 FrameHeader（不用 make_frame_header，因為 frameSeq 需要 uint64）
     FrameHeader h{};
     h.magic        = FRAME_MAGIC;
@@ -74,9 +82,11 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
     h.machineCoordX  = 0;
     h.machineCoordY  = 0;
     h.payloadBytes = payload_bytes;
-    // CFAOI_RDMA_NOCRC=1：跳過送端 app-CRC（RDMA RC 已保證送達；省 ~16ms/幀）。預設仍算 CRC（保守）。
-    static const bool s_nocrc = std::getenv("CFAOI_RDMA_NOCRC") != nullptr;
-    h.crc32        = s_nocrc ? 0u : crc32_ieee(payload, payload_bytes);
+    // ⚠️ CRC 由呼叫端用 crc_of() 在 send_mtx **之外**先算好再傳進來。
+    // 原本在此處算 → 落在 send_mtx 鎖內 → 37 台共用一條 QP 時全部序列化：
+    // 生產幀 40.8MB 的 CRC 實測 ~16ms/幀 → 序列上限僅 ~50 幀/s，而 37 台 @12kHz 需要 88.8 幀/s。
+    // 實測（8160×5000、rdma_nslot_test）：含 CRC 39.2 幀/s vs 關 CRC 90.3 幀/s（2.3×）。
+    h.crc32        = payload_crc32;
 
     if (!connected_) return;
 

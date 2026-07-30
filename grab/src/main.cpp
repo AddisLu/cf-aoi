@@ -200,6 +200,10 @@ int main(int argc, char** argv) {
             slice = (uint16_t)s;
         }
         uint32_t phash = panel_hash.load(std::memory_order_relaxed);  // 不取 state_mtx（見宣告處註解）
+        // app-CRC **必須在 send_mtx 之外算**：它是送端最貴的一步（40.8MB 實測 ~16ms/幀），
+        // 留在鎖內會讓 37 台共用的單一 QP 全部序列化（上限 ~50 幀/s < 需求 88.8 幀/s）。
+        // 此處 data 是本相機 thread 自己的 pylon 緩衝，併發計算彼此無關，安全。
+        const uint32_t crc = RdmaSender::crc_of(data, bytes);
         std::lock_guard<std::mutex> lk(send_mtx);
         // ⚠️ seq 必須在 send_mtx 內指派：送端 buffer(rdma_sender buf_idx=seq%n_buf) 與遠端
         // slot(slot_id=seq%n_slots) 都由 seq 導出，但流量控制是「計數式」(poll_one / posted-recv
@@ -208,7 +212,7 @@ int main(int argc, char** argv) {
         // CRC 損毀，1 台或無背壓皆 0）。
         uint64_t seq = ++frame_seq;  // atomic + send_mtx：全域唯一且單調，順序 == wire 順序
         sender.send_frame(cid, seq, phash, data, bytes, w, h,
-                          slice, (uint16_t)(total > 65535u ? 65535u : total));
+                          slice, (uint16_t)(total > 65535u ? 65535u : total), crc);
     };
 
     // ---- Control 回呼 ----

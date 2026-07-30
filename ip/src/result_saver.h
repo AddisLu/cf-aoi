@@ -64,6 +64,11 @@ struct InspectionResult {
 struct SaveOptions {
     bool save_patches  = true;   // false → 只存 ResultInfo，不存任何缺陷小圖
     bool save_overlay  = true;   // false → 不存 overlay 全圖
+    // 生產（inline）必開：overlay 是 8160×5000×3ch PNG，實測 **406–410ms/幀**，
+    // 是 GPU 檢測(7.3ms)的 56 倍；37 台 @12kHz 需 88.8 幀/s，逐幀存 overlay 只能到 2.4 幀/s。
+    // 0 缺陷的 overlay 只是原圖加空白疊圖、無資訊量（要原圖請用 SaveSourceImage）。
+    // true → 僅當該影像有缺陷時才寫 overlay。調參路徑（offline-file/offline-tcp）維持 false。
+    bool overlay_on_defect_only = false;
     int  max_patches   = -1;     // >=0 → 只存前 N 張缺陷小圖；對應 recipe_saving.max_save_defect_count
     int  threads       = 0;      // 缺陷小圖平行寫入緒數；0 → 自動（hardware_concurrency）
     int  save_width    = 100;    // 缺陷小圖寬（px）；對應 recipe_saving.save_defect_width

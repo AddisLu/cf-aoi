@@ -64,7 +64,8 @@ int main(int argc, char** argv) {
         }
         // panel_id_hash 不重要（IP rdma-process 以 camId+seq 命名）；填固定值
         sender.send_frame((uint16_t)cam, (uint64_t)seq, 0xCFA01CF0u,
-                          buf.data(), (uint32_t)fb, W, H);
+                          buf.data(), (uint32_t)fb, W, H, /*slice*/0, /*total_slice*/1,
+                          RdmaSender::crc_of(buf.data(), (uint32_t)fb));
         ++sent;
         if (sent <= 5 || sent % 20 == 0)
             fprintf(stderr, "[replay] sent cam=%u seq=%llu (#%u)\n", cam, seq, sent);
