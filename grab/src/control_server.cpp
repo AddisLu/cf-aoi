@@ -191,9 +191,11 @@ void ControlServer::handle_client(int fd) {
                 float exp_us  = prms.value("exposure_us", 0.0f);
                 int   gain_raw= prms.value("gain_raw",    256);
 
-                if (cam_id != 0) {
+                // cam_id 的有效性由 handler 對照實際相機清單判定（這裡只擋明顯非法值）；
+                // 舊版寫死 cam_id != 0 → ERR，導致第二台起完全無法調曝光/增益。
+                if (cam_id < 0) {
                     resp["status"] = "ERR";
-                    resp["error"]  = "unknown cam_id " + std::to_string(cam_id);
+                    resp["error"]  = "invalid cam_id " + std::to_string(cam_id);
                 } else if (exp_us < 2.0f || exp_us > 10000.0f) {
                     resp["status"] = "ERR";
                     resp["error"]  = "exposure_us out of range [2.0, 10000.0]";
@@ -228,9 +230,9 @@ void ControlServer::handle_client(int fd) {
                 int cam_id = req.contains("params")
                              ? req["params"].value("cam_id", 0) : 0;
 
-                if (cam_id != 0) {
+                if (cam_id < 0) {
                     resp["status"] = "ERR";
-                    resp["error"]  = "unknown cam_id " + std::to_string(cam_id);
+                    resp["error"]  = "invalid cam_id " + std::to_string(cam_id);
                 } else if (!get_cam_fn_) {
                     resp["status"] = "ERR";
                     resp["error"]  = "no handler";
@@ -261,11 +263,16 @@ void ControlServer::handle_client(int fd) {
                 }
 
             } else if (cmd == "GET_CAM_NODES") {
+                int cam_id = req.contains("params")
+                             ? req["params"].value("cam_id", 0) : 0;
                 if (!get_nodes_fn_) {
                     resp["status"] = "ERR"; resp["error"] = "no handler";
+                } else if (cam_id < 0) {
+                    resp["status"] = "ERR"; resp["error"] = "invalid cam_id " + std::to_string(cam_id);
                 } else {
                     std::string js, err;
-                    if (get_nodes_fn_(js, err)) {
+                    resp["cam_id"] = cam_id;          // 回聲 cam_id，讓呼叫端能確認問到的是哪一台
+                    if (get_nodes_fn_(cam_id, js, err)) {
                         resp["status"] = "OK";
                         try { resp["nodes"] = json::parse(js); }
                         catch (...) { resp["nodes"] = json::object(); }
@@ -279,8 +286,8 @@ void ControlServer::handle_client(int fd) {
                 int   cam_id  = prms.value("cam_id",      0);
                 float exp_us  = prms.value("exposure_us", 0.0f);
                 int   gain_raw= prms.value("gain_raw",    256);
-                if (cam_id != 0) {
-                    resp["status"] = "ERR"; resp["error"] = "unknown cam_id " + std::to_string(cam_id);
+                if (cam_id < 0) {
+                    resp["status"] = "ERR"; resp["error"] = "invalid cam_id " + std::to_string(cam_id);
                 } else if (exp_us < 2.0f || exp_us > 10000.0f) {
                     resp["status"] = "ERR"; resp["error"] = "exposure_us out of range [2.0, 10000.0]";
                 } else if (gain_raw < 256 || gain_raw > 2047) {

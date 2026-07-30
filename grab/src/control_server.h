@@ -48,7 +48,8 @@ public:
                                           float& exp_actual, int& gain_actual,
                                           double& mean, std::string& err)>;
     // GET_CAM_NODES：回 GigE 機器層參數 JSON 物件字串（需開相機）
-    using GetNodesFn = std::function<bool(std::string& json_out, std::string& err)>;
+    // cam_id 必填：舊版簽章沒有它 → 一律回第一台，多相機時「靜默回錯相機」（不是 ERR，更危險）
+    using GetNodesFn = std::function<bool(int cam_id, std::string& json_out, std::string& err)>;
 
     explicit ControlServer(int port);
     ~ControlServer();

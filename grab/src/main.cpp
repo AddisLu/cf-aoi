@@ -161,7 +161,10 @@ int main(int argc, char** argv) {
     bool                grabbing    = false;   // GRAB_START 後為 true（收滿自動停不清，GRAB_STOP 才清）
     bool                armed       = false;   // GRAB_ARM 後為 true（相機開+參數套+RDMA 連）
     std::string         panel_id    = "PANEL";
-    uint32_t            panel_hash  = frame_panel_hash(panel_id);
+    // panel_hash 刻意用 atomic 而非 state_mtx 保護：frame_cb 只讀這一個 uint32，若在回呼裡取
+    // state_mtx，會與「GRAB_STOP 持 state_mtx → stop_all() → thread.join()」形成鎖環而死結
+    // （2026-07-30 實機 gdb 確認：連續模式必死，state_mtx 永久被持有 → 8100 全掛，只能 kill -9）。
+    std::atomic<uint32_t> panel_hash{frame_panel_hash(panel_id)};
     std::atomic<uint64_t> frame_seq{0};
 
     // ---- 每片切片狀態（GRAB_START 時設定；grab threads 啟動前就緒）----
@@ -180,10 +183,14 @@ int main(int argc, char** argv) {
             if (s >= total) return;                   // 收滿後的殘幀不送（自動停前的競態）
             slice = (uint16_t)s;
         }
-        uint64_t seq = ++frame_seq;  // atomic：全域唯一（RDMA slot 定址用）
-        uint32_t phash;
-        { std::lock_guard<std::mutex> lk(state_mtx); phash = panel_hash; }
+        uint32_t phash = panel_hash.load(std::memory_order_relaxed);  // 不取 state_mtx（見宣告處註解）
         std::lock_guard<std::mutex> lk(send_mtx);
+        // ⚠️ seq 必須在 send_mtx 內指派：送端 buffer(rdma_sender buf_idx=seq%n_buf) 與遠端
+        // slot(slot_id=seq%n_slots) 都由 seq 導出，但流量控制是「計數式」(poll_one / posted-recv
+        // credit) → 只有「seq 順序 == wire 順序」時環才安全。若在鎖外指派，多相機 thread 會讓
+        // 兩者成為置換關係 → slot 可能在收端 memcpy 前被重寫（2026-07-30 實機：2 台+背壓 err=9/20
+        // CRC 損毀，1 台或無背壓皆 0）。
+        uint64_t seq = ++frame_seq;  // atomic + send_mtx：全域唯一且單調，順序 == wire 順序
         sender.send_frame(cid, seq, phash, data, bytes, w, h,
                           slice, (uint16_t)(total > 65535u ? 65535u : total));
     };
@@ -191,10 +198,11 @@ int main(int argc, char** argv) {
     // ---- Control 回呼 ----
     ctrl.set_load_recipe([&](const std::string& recipe, const std::string& pid) {
         std::lock_guard<std::mutex> lk(state_mtx);
-        panel_id   = pid.empty() ? recipe : pid;
-        panel_hash = frame_panel_hash(panel_id);
+        panel_id = pid.empty() ? recipe : pid;
+        const uint32_t h = frame_panel_hash(panel_id);
+        panel_hash.store(h, std::memory_order_relaxed);
         printf("[main] LOAD_RECIPE recipe=%s panel_id=%s hash=0x%08x\n",
-               recipe.c_str(), panel_id.c_str(), panel_hash);
+               recipe.c_str(), panel_id.c_str(), h);
     });
 
     // ---- ARM（預熱，冪等）：開陣列 → 套每台曝光/增益 → 連 RDMA。呼叫端須已持 state_mtx。
@@ -255,7 +263,10 @@ int main(int argc, char** argv) {
         const int n_frames = frames_per_panel > 0 ? frames_per_panel : cli_frames;
 
         // 切片狀態就緒後才 start（grab threads 啟動前 slice_seq 已定，無競態）
-        frame_seq.store(0);
+        // ⚠️ 不重置 frame_seq：它是「全域唯一且單調」的，跨片歸零會 ①片界連續兩筆打到同一 slot
+        //   （slot=seq%n_slots）→ 覆寫風險 ②IP 端 rdma-validate 報 seq 跳躍 ③rdma-process 以
+        //   frameSeq 命名 panel 夾 → 下一片與上一片同名，result_saver 清舊檔會抹掉上一片結果。
+        //   片內序號請用 sliceIndex/totalSlice（下面 slice_seq 才是 per-panel 狀態）。
         uint16_t max_id = 0;
         for (auto& e : mgr.entries()) max_id = std::max(max_id, e.cam_id);
         slice_seq.assign((size_t)max_id + 1, 0u);   // 以 cam_id 直接索引（含 --cam-id 自訂值）
@@ -287,6 +298,8 @@ int main(int argc, char** argv) {
                                      std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
         CamPylon* c = mgr.get(cid);
+        // 陣列已開卻找不到該 cam_id → 誠實 ERR（不可默默寫進 cam_config 假裝成功）
+        if (!c && !mgr.empty()) { err = "unknown cam_id " + std::to_string(cid); return false; }
         if (!c || !c->is_open()) {
             save_cam_config(cam_cfg_path, cid, exp_us, gain_raw);
             exp_actual  = exp_us;
@@ -309,6 +322,7 @@ int main(int argc, char** argv) {
                                      std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
         CamPylon* c = mgr.get(cid);
+        if (!c && !mgr.empty()) { err = "unknown cam_id " + std::to_string(cid); return false; }
         if (!c || !c->is_open()) {
             auto cfg = load_cam_config(cam_cfg_path, cid);
             exp_actual  = cfg.exposure_us;
@@ -344,10 +358,12 @@ int main(int argc, char** argv) {
     });
 
     // GET_CAM_NODES：回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包），供 UI 顯示
-    ctrl.set_get_nodes_handler([&](std::string& js, std::string& err) -> bool {
+    ctrl.set_get_nodes_handler([&](int cid, std::string& js, std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
-        CamPylon* c = mgr.get_or_open_primary(serial, pkt_size);
-        if (!c) { err = "開相機失敗"; return false; }
+        // 依 cam_id 路由；陣列未開時退回 primary（單台 legacy 行為不變）
+        CamPylon* c = mgr.get(cid);
+        if (!c && mgr.empty()) c = mgr.get_or_open_primary(serial, pkt_size);
+        if (!c) { err = "unknown cam_id " + std::to_string(cid); return false; }
         MachineParams mp;
         if (!c->read_machine_params(mp, err)) return false;
         json j = {
@@ -373,8 +389,12 @@ int main(int argc, char** argv) {
         std::lock_guard<std::mutex> lk(state_mtx);
         if (grabbing) { err = "取像中，請先 GRAB_STOP 再調參預覽"; return false; }
         CamPylon* c = mgr.get(cid);
-        if (!c) c = mgr.get_or_open_primary(serial, pkt_size);
-        if (!c) { err = "開相機失敗"; return false; }
+        // 陣列已開時不得 fallback 到 primary，否則 cam1 的調參會靜默套到 cam0
+        if (!c && mgr.empty()) c = mgr.get_or_open_primary(serial, pkt_size);
+        if (!c) {
+            err = mgr.empty() ? "開相機失敗" : ("unknown cam_id " + std::to_string(cid));
+            return false;
+        }
         if (!c->set_params(exp_us, gain_raw, ea, ga)) { err = "相機寫入失敗"; return false; }
         save_cam_config(cam_cfg_path, cid, ea, ga);
         return c->grab_one_mean(mean, err);

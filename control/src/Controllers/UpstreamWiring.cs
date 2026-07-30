@@ -34,7 +34,11 @@ public static class UpstreamWiring
                 var saving = svc.RecipeStore.RecipeSaving.BuildRecipeSavingJson();
                 var resp = await svc.Connection.Ip.LoadRecipeAsync(recipe, panelId, xml, recipeSaving: saving);
                 var ipOk = resp?["status"]?.GetValue<string>() == "OK";
-                if (!ipOk) return false;
+                if (!ipOk)
+                {
+                    svc.Log.Warn($"CF_LOAD_RECIPE：IP 拒絕載入配方 '{recipe}' — {resp?["error"]?.GetValue<string>() ?? "無回應"}");
+                    return false;
+                }
 
                 try
                 {
@@ -49,7 +53,14 @@ public static class UpstreamWiring
                 }
                 return true;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                // 原本是 catch { return false; }：例外被整個吞掉，上位機只看到無資訊的
+                // 「load recipe failed」，連「配方檔找不到」還是「IP 連不上」都分不出來。
+                svc.Log.Error($"CF_LOAD_RECIPE 失敗（recipe='{recipe}' panel='{panelId}'）：" +
+                              $"{ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         };
 
         // CF_GRAB_START → Grab GRAB_START（觸發本體；已 ARM 時僅 ms 級）。

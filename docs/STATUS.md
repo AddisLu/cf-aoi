@@ -29,7 +29,7 @@
 | 層      | 平台                           | 角色                 | 整體狀態          |
 | ------- | ------------------------------ | -------------------- | ----------------- |
 | Control | C# / Avalonia（Mac·Win·Linux） | 控制平面 + 操作 UI   | **L1–L3（混合）** |
-| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2 實機驗證）；多相機全陣列 L0（Step 3，待 Switch）** |
+| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2；2026-07-30 改經 HPE 5945 交換機全鏈重驗 20 幀 dropped=0/CRC 全對）；多相機全陣列 L1（Step 3，Switch 已到位，改為待 37 台相機到貨）** |
 | IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L4（DGX Spark GB10 sm_121 實機：編譯+運算正確性+跨架一致性+速度，2026-06-15）** |
 
 ---
@@ -94,7 +94,7 @@
 | 正式 cfaoi_grab 單相機→RDMA→Spark（cam_pylon + rdma_sender + control_server + main） | **L4** | 2026-06-15 Step 2 實機：raL8192-12gm → pylon → FrameHeader(0xA01CF00D)+CRC32 → RDMA 18515 → Spark GB10 pinned memory → CRC 20/20，FAIL=0（見 [Step 2 報告](verification/verification_report_step2_20260615.md)）|
 | 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L1** | **2026-07-18 cam_manager 落地（37 CCD 軟體觸發設計：GRAB_START=觸發，逐台平行 arm，skew 由 IP 玻璃前緣對位吸收）**：`open_all`（--cam-count N\|ALL，fail-fast 不半開）/`start_all` 逐台 arm/收滿 `frames_per_panel` 自動停（cam_pylon `set_max_frames`，= 舊 M_FRAMES_PER_TRIGGER(N) 語意）/GRAB_START params 加 `frames_per_panel`（0=連續 legacy）/**FrameHeader sliceIndex/totalSlice 填真值**（原三處硬編碼 1）/N 相機 thread 共用單 QP 以 send_mtx 序列化/cam_config.json 每台一筆。單台 legacy 路徑保留（--cam-count 1 預設 + --cam-id/--serial 語意不變）。cam_manager/control_server **語法驗證 ✓**（RTX2080 g++ -fsyntax-only）；**完整編譯待 damac**（pylon+rdma dev headers；本日 damac 離線）；**實機多台 = Step 3 待 Switch+相機到貨**。commit `28bf4fb` |
 | rdma_nslot_test（合成幀送器，驗 N-slot ring + 背壓，不需相機） | **L3** | **2026-06-17 damac↔Spark 實機**：120 幀連送 CRC=OK；背壓 20 幀（IP 200ms 延遲）ok=20 err=0；commit `de047a3` |
-| Control↔Grab 8100 完整接線（觸發鏈：CF_→Grab）| **L2（selftest）/ 實機待 Switch** | **2026-07-21 觸發鏈落地（sensor→上位機(與 Control 同機)→CF_GRAB_START=觸發本體）**：grab 新 `GRAB_ARM`（冷啟重活=開陣列/套參數/RDMA connect 提前預熱，冪等重用）/`GRAB_START` 只剩切片歸零+start_all（**ms 級觸發**，未 ARM 自動冷啟相容 nc）/收滿自動停後可直接下一片/status 加 `armed`。Control：`GrabClient` 加 LoadRecipe/GrabArm/GrabStart/GrabStop；`UpstreamWiring` **CF_LOAD_RECIPE→IP+Grab 預熱、CF_GRAB_START→GRAB_START(timeout+frames_per_panel from appsettings Grab.FramesPerPanel)、CF_STOP→GRAB_STOP（#25 收掉）**；Grab 離線自然誠實 ERR（決策 A 精神）。驗：`--selftest grabtrigger` **5/5**（命令序列 LOAD_RECIPE→ARM→START→STOP/參數傳遞 t=12345 fpp=27/離線 ERR）+ `upstream` 回歸 7/7。**觸發延遲實測 = Switch 到貨跑 `scripts/verify_step3_trigger.py`（目標 <100ms）**。commit `9913b5a` |
+| Control↔Grab 8100 完整接線（觸發鏈：CF_→Grab）| **L2（selftest）/ 實機待 Switch** | **2026-07-21 觸發鏈落地（sensor→上位機(與 Control 同機)→CF_GRAB_START=觸發本體）**：grab 新 `GRAB_ARM`（冷啟重活=開陣列/套參數/RDMA connect 提前預熱，冪等重用）/`GRAB_START` 只剩切片歸零+start_all（**ms 級觸發**，未 ARM 自動冷啟相容 nc）/收滿自動停後可直接下一片/status 加 `armed`。Control：`GrabClient` 加 LoadRecipe/GrabArm/GrabStart/GrabStop；`UpstreamWiring` **CF_LOAD_RECIPE→IP+Grab 預熱、CF_GRAB_START→GRAB_START(timeout+frames_per_panel from appsettings Grab.FramesPerPanel)、CF_STOP→GRAB_STOP（#25 收掉）**；Grab 離線自然誠實 ERR（決策 A 精神）。驗：`--selftest grabtrigger` **5/5**（命令序列 LOAD_RECIPE→ARM→START→STOP/參數傳遞 t=12345 fpp=27/離線 ERR）+ `upstream` 回歸 7/7。**觸發延遲 2026-07-30 實機量到（HPE 5945 + 1 台相機）：`scripts/verify_step3_trigger.py` 6/6 全 PASS — GRAB_ARM 冷啟 542ms（重活已移出觸發路徑）/ 冪等重呼 3ms / GRAB_START 往返 **0.3ms**（目標 <100ms，餘裕 300×）/ 收滿自動停對帳 grabbed=5 sent=5 dropped=0 / 第二片不重 ARM 觸發 0.2ms / teardown armed=false。** 單相機 = **L3**；37 台仍待相機到貨。commit `9913b5a` |
 | ⤷ Gap #2：參數控制（SET/GET_CAM_PARAMS）| **L3** | **2026-06-17 damac raL8192-12gm 實機**：Stage 0（ExposureTimeAbs 2~10000µs；GainRaw 256~2047；TLParamsLocked=0）；Stage 1（SET actual 誤差 0%：exp 200/500µs actual 完全一致；gain 256/512 actual 完全一致）；Stage 4（4 ERR 路徑全 PASS）；cam_config.json 持久化。close() 空 QP bug fix：重現 connect 127.0.0.1 route 失敗 → `rdma_destroy_qp(nullptr)` SIGSEGV；修後 `if (id && id->qp)` guard + null-clear，乾淨退出。⚠️ 假設：曝光/增益為機器層（cam_config.json），若日後隨產品調 → 補 recipe-override。|
 | ⤷ Gap #2：光度效果（Stage 2+3 mean gray 單調性）| **L3** | **2026-06-17 damac 加光源後 cam_mean_gray_test 全 PASS**：Stage 2 曝光 exp=70µs mean=3.30 / exp=500µs mean=7.63 → **ratio=2.314（>1.4）PASS**；Stage 3 增益 gain=256 mean=4.65 / gain=1024 mean=10.54 → **ratio=2.267（>1.2）PASS**。證 set_params 確實驅動 sensor 積分（曝光/增益皆單調遞增）。（暗環境基線：mean≈2.5/255 noise floor，ratio≈0.95，加光源後響應正確。）|
 | ⤷ Gap #2：Control UI（相機 tab + SystemSettings TabControl 改版）| **L1（待 Mac 目視）** | TabControl（連線設定/相機）；相機 tab：Grab Ellipse 指示器、ExposureUs NumericUpDown 2~10000µs + actual 回顯行、GainRaw 256~2047 + actual 回顯行、Apply（IsEnabled=IsGrabConnected）/讀取 btn + CamStatus。MVVM `[ObservableProperty]/[RelayCommand]` 對齊現有面板；0 警告 0 錯誤。**連線設定 tab = 原有內容搬入 TabItem，待 Mac 重新目視確認版面無誤**；相機 tab 互動亦待 Addis Mac 目視。**（2026-06-18 此相機 tab 已演進為「相機陣列總覽」，見下兩列。）**|
@@ -142,10 +142,10 @@
 | ---- | ---- |
 | 開發機 RTX 2080 Super（sm_75, CUDA 12.x） | ✅ IP offline 演算法運作中（本盤點實跑） |
 | DGX Spark（GB10 sm_121, CUDA 13） | **RDMA→GPU 收圖路徑 2026-06-11 實機 PASS（L4）**；**AOI 演算法 2026-06-15 GB10 實機驗證 PASS（L4）**：編譯零警告、26 張真實面板跨架一致、~7.4ms/張 → **1 台 Spark 足夠**（餘裕 ~73%）|
-| Basler raL8192-12gm（1 台，pylon 26.05） | ✅ 實機取像 PASS（500 幀零掉幀）；37 台陣列＋Switch 未接（Step 3+）|
+| Basler raL8192-12gm（1 台，pylon 26.05） | ✅ 實機取像 PASS（500 幀零掉幀）；**2026-07-30 改經 HPE 5945 交換機取像 PASS**（8160×3000 Mono8、pkt 8192、20 幀 dropped=0）；37 台陣列未接（Step 3+）|
 | 18× L803K+iPORT（eBUS） | 未接（eBUS SDK 未裝；Step 2+）|
 | Mellanox ConnectX-5（截取中心）/ ConnectX-7（Spark） | ✅ 100G RDMA 鏈路實測 PASS |
-| SN2201 交換器 | 未到貨 / 未確認（明天為 1 台相機直連，無 Switch）|
+| 交換器（實為 **HPE FlexFabric 5945 48SFP28+8QSFP28+2SFP**，非原規劃 SN2201）| ✅ **2026-07-30 到貨並設定完成**（Comware 7.1.070 R6715，sysname `CFAOI-SW1`，`save force` 已存檔）。埠位命名：`WGE1/0/1-24`+`WGE1/0/33-56`=25G SFP28、`HGE1/0/25-32`=100G QSFP28、`GE1/0/57-58`=1G SFP。現接線：`WGE1/0/33`（1000BASE-T RJ45 SFP）→ CCD00 相機；`HGE1/0/25` → damac `enp1s0f1np1`。**關鍵坑：25G SFP28 埠位插 1G 銅纜模組時 auto-negotiation 不會 link up，必須明確 `speed 1000`**（該指令套用範圍 = port-group 33–36）；下完立刻 UP 1000Mbps/F。jumbo 原廠已 `Maximum frame length: 9416`，無需另設。兩埠加 `stp edged-port`。37 台陣列接線待相機到貨。|
 
 ---
 
@@ -221,6 +221,210 @@
 1. `d2a42b0`：`rdma_nslot_test.cpp` FrameHeader include 路徑
 2. `b7b13e3`：`recv_thread_fn` 退出後必須呼叫 `queue_->close()`
 3. `de047a3`：RoCE v2 `WR_FLUSH_ERR` 不保證立即出現 → 新增 CM event 輪詢（`check_cm_disconnect()`）
+
+---
+
+## Switch 到貨日：1 相機經交換機全鏈實機驗證（2026-07-30 → L3）
+
+> 環境：**HPE FlexFabric 5945**（`CFAOI-SW1`，Comware 7.1.070 R6715）｜相機 Basler raL8192-12gm
+> SN25445953 @192.168.5.1 → `WGE1/0/33`（1G RJ45 SFP）→ `HGE1/0/25`（100G）→ `damac` `enp1s0f1np1`
+> → **直連 DAC** `enp1s0f0np0`(192.168.3.2) ↔ `spark-c16f` `enp1s0f1np1`(192.168.3.1) → GB10。
+> commit 基準 `54104c2`（damac/Spark 原停在 6/23 `fe5cc9b`，本日 `pull --ff-only` + 重編）。
+
+**⚠️ 拓樸更正**：相機**不是**接在 damac 內建 1G 網孔，而是經交換機由 **100G 那張 ConnectX-5 的 f1 埠**進來；
+`enp1s0f0np0`(f0) 才是直連 Spark 的 RDMA 路徑。兩者以交換機 MAC table 反查確認（`9803-9b06-cc19` 學在 `HGE1/0/25`），非推測。
+
+| 階段 | 結果 |
+|------|------|
+| 交換機設定 | `WGE1/0/33` **speed 1000**（25G 埠位插 1G 銅纜模組必要，否則 auto-neg 永不 link）+ `stp edged-port` → UP 1000Mbps/F；`HGE1/0/25` UP 100G；jumbo 原廠 9416；`save force` |
+| damac 網路（需 root）| `enp1s0f1np1` **+192.168.5.200/24**（相機同網段，.1–.37 留給 37 CCD）+ **MTU 9000**；`enp1s0f0np0` 亦拉到 9000 對齊 Spark。nmcli 持久化 |
+| 相機可達 | ARP 回覆 `00:30:53:53:19:41`；`ping 192.168.5.1` **3/3 0% loss rtt 0.359ms** |
+| `LIST_CAMERAS` | 1 台：`raL8192-12gm` SN`25445953` ip`192.168.5.1` persistent=true online=true |
+| `GET_CAM_NODES` | `8160×3000` Mono8、`packet_size=8192`、`TriggerMode=Off`（free-run）、`ExposureAuto/GainAuto=Off` |
+| 觸發鏈 `verify_step3_trigger.py` | **6/6 PASS**：ARM 冷啟 542ms／冪等 3ms／**GRAB_START 往返 0.3ms**／收滿自動停 grabbed=5 sent=5 dropped=0／第二片 0.2ms／teardown |
+| RDMA 合成幀（`rdma_nslot_test`）| **ok=20 err=0**，446.8 幀/s、1787 MB/s |
+| **相機→GPU 全鏈**（`rdma-process`）| **20 幀 grabbed=20 sent=20 dropped=0；Spark recv ok=20 err=0 CRC 全對**；`proc avg/max=5.7/19.3ms`、佇列峰值 `0/8`、**背壓幀=0**；**3.45 fps / 84.5 MB/s (0.68 Gbps)** |
+| 結果落地 | `/<yyyyMMdd>/<panel>_<recipe>/` 三層結構產生 `ResultInfo.json`+`.xml`+`_result.png` overlay + `Defect_CCD00_Slice00_Roi00_Run..._X..._Y..._Dr...png`；`_diag/20260730.jsonl` session+recipe 留痕 |
+
+**吞吐結論**：瓶頸在**相機端 1GbE + sensor 行速率**，不在 IP。24.48MB/幀 × 3.45fps = 84.5MB/s
+（≈10,350 行/s，逼近 raL8192 的 12kHz 上限）；IP 端 proc 僅 5.7ms/幀、佇列峰值 0、背壓 0 → **單台 Spark 餘裕極大**（與 §跨機 7.4ms 投影一致）。
+
+**本日踩到的坑（供 37 台複製時直接避開）：**
+1. **25G SFP28 埠位 + 1G 銅纜模組必須 `speed 1000`**：只插模組 link 永遠 DOWN，`display transceiver` 看得到模組但 `Input 0 packets`。
+2. **Comware `speed` 有 port-group**（33–36 連動）且會跳 `[Y/N]` 確認 —— 腳本化下指令要處理提示，否則後續指令會被當成答案吃掉。
+3. **相機網段不符時完全靜默**：Basler 收到跨網段 GVCP 探索不回應、連 ARP 都不發 → 交換機 `Input = 0 packets`，看起來像壞線。補上同網段 IP 後立刻正常。
+4. **`pkill -f cfaoi_grab` 會殺掉 ssh 自己**（remote command line 也含該字串）→ 用 `pkill -x`。
+5. **`TUNE_MEAN` 的曝光會留在相機上**：測完 2000µs 沒改回，線掃 3000 行 × 2000µs = 6s/幀，吞吐掉到 0.11 fps，誤判成傳輸問題。調參後務必 `SET_CAM_PARAMS` 復原。
+6. **暗場**：無光源時 `mean_gray≈2.6`（noise floor），三種曝光皆然 —— 機制正常，非故障；要看灰階變化必須打光。
+
+**新發現的缺陷（未修，待裁示）：**
+- **`grab/src/main.cpp:258` 每次 `GRAB_START` 都 `frame_seq.store(0)`**，與同檔 `:183` 註解「atomic：全域唯一（RDMA slot 定址用）」自相矛盾。後果：連續兩片時 IP `rdma-validate` 報 `ERR seq 跳躍：expected=6 got=1`（本日實測 ok=10 err=1，10 幀 CRC 全對、僅 seq 檢查失敗）。且 `slot_id = frame_seq % n_slots`，跨片歸零會讓 slot 定址與收端 ring 推進錯位（本次因上一片已自動停完才開下一片而未爆）。**選項**：(a) 改為跨片單調遞增（保 slot ring 不變式）；(b) 保留歸零但 IP 端改以 `sliceIndex/totalSlice` 判片界。→ 待 Addis 裁示。
+
+### 追加：架設光源後複驗（2026-07-30 同日，光度 → L3）
+
+| 曝光 µs @gain256 | 70 | 200 | 500 | 1000 | 2000 |
+|---|---|---|---|---|---|
+| `mean_gray` | 3.08 | 3.94 | 5.95 | 9.21 | **15.83** |
+
+| gain @exp500 | 256 | 512 | 1024 | 2047 |
+|---|---|---|---|---|
+| `mean_gray` | 5.77 | 8.78 | 13.38 | **24.59** |
+
+- **單調性 PASS**：扣暗場底線 ~2.5 後對曝光幾乎完全線性（2000/1000 = **1.99**）。
+  判準比（沿用 Gap #2 Stage 2/3）：曝光 70→500 = **1.93**（門檻 >1.4）、增益 256→1024 = **2.32**（門檻 >1.2）。
+- **工作點**：`exp=2000µs gain=2047` → `mean_gray=90.4`。（exp 5000/10000µs 回 ERR = `TUNE_MEAN` 自適應逾時上限 15s
+  被 3000 行 × 5000µs 撞到，非故障。）
+- **全鏈實拍 PASS**：3 幀 grabbed=3 sent=3 dropped=0、Spark recv **ok=3 err=0 CRC 全對**、`proc avg/max=9.2/17.9ms`、
+  佇列峰值 0/8、背壓 0。存出的 `_result.png` 統計 **mean=89.9 / 110.7 / 108.1，min 25–47，max 144–255**。
+- **灰階端到端一致**：damac 端 pylon 量到 `mean_gray=90.44` vs Spark 經 RDMA 後寫出的 PNG `mean=89.9`
+  → 相機→RDMA→GPU→存檔全鏈**灰階無失真**（CRC 已證 payload 位元級正確，此為語意層佐證）。
+- **缺陷數 0（三幀皆是）**：暗場那次 `GPU 過濾前 total=10000 觸頂`+`defect_flood` incident，打光後平滑場**完全不觸發**
+  → 證實先前的爆量是暗噪 × pitch 33×17 對不上，非演算法問題。
+- **1:1 裁切目視**：雜訊低、可見 line-scan 感測器逐 column 固定圖案（PRNU/shading），無週期性結構。
+
+**⚠️ 光量結論（重要）**：光源有效，但**強度離產線行速還差 25–30 倍**。產線行速 70µs/行（≈14.3kHz，逼近 raL8192 的
+12kHz 上限）時即使 gain 拉滿 2047，`mean_gray` 只有 **5.81**；要達 mean≈90 需 `exp=2000µs`，代價是 3000 行 × 2000µs
+= **6s/幀（0.16 fps）**，完全無法生產。→ **需加強光源亮度或改用更大光圈鏡頭**，否則 Step 4/5 無法進行。
+
+**⚠️ 順帶發現：`cam_config.json` 路徑相對 CWD** —— `--cam-config` 預設值是相對路徑 `cam_config.json`，從 `grab/build/`
+啟動 cfaoi_grab 時實際讀寫的是 `grab/build/cam_config.json`，**不是**文件與 `.gitignore` 所指的 `grab/cam_config.json`
+（兩份內容已實測不同步）。且 `SET_CAM_PARAMS` 會 `save_cam_config` 回寫、`GRAB_ARM` 每次重套 → 調參會靜默改變下一次
+ARM 的起始條件。建議改為相對 repo 根或啟動時印出實際採用的絕對路徑。
+
+### 追加：第二台相機（port 35）+ 同步觸發 + inter-packet delay 實測（2026-07-30 同日 → 觸發同步 L3）
+
+> 第二台 Basler 接 `WGE1/0/35`（借用機，解析度不同）。**port 35 無需再設定即通** —— 前面對 `WGE1/0/33` 下的
+> `speed 1000` 是 **port-group 33–36 連動**，35 已連帶生效。（尚缺 description + `stp edged-port`，非阻塞。）
+
+**發現流程（第二台一開始列舉不到）**：`LIST_CAMERAS` 只回 1 台、tcpdump 零封包 → 用 GVCP 原始廣播
+（`DISCOVERY_CMD` flag=0x11 允許廣播 ack，**須 `SO_BINDTODEVICE` 綁 `enp1s0f1np1`**，否則 `255.255.255.255`
+會被送到預設路由的 USB 網卡）找到它在 **192.168.30.50/24**。damac 加掛 `192.168.30.200/24` 後即列舉到（不動借來的相機）。
+
+| SN | 型號 | 解析度 | 幀大小 | IP | packet_size | GevSCPD |
+|---|---|---|---|---|---|---|
+| 21421505 | raL4096-24gm | 4096×3000 | 12.29 MB | 192.168.30.50 | 8192 | 0 |
+| 25445953 | raL8192-12gm | 8160×3000 | 24.48 MB | 192.168.5.1 | 8192 | 0 |
+
+**同步觸發 = OK（tcpdump 對 GVSP 首封包打時間戳，非推測）**。兩輪各 5 幀，`--cam-count ALL`：
+
+| | 幀1 | 幀2 | 幀3 | 幀4 | 幀5 |
+|---|---|---|---|---|---|
+| 第一輪 skew | +1.45 ms | +1.47 ms | +1.46 ms | +1.46 ms | +1.45 ms |
+| 第二輪 skew | +1.66 ms | +1.72 ms | +1.65 ms | +1.68 ms | +1.64 ms |
+
+- **skew 1.45–1.72 ms**，逐幀穩定、兩輪可重現 → 遠低於 40mm/張窗口（417ms @96mm/s），**餘裕 ~250×**。
+- **ARM/START 拆分確實有效**：pylon 開串流的封包大小測試（burst0，8 pkt/0.04MB）兩台相差 **442.8ms**
+  ——這是 `open_all` 逐台開相機的序列成本，**落在 GRAB_ARM、不在觸發路徑**；`GRAB_START` 命令往返 **0.3ms**。
+- 對帳：`grabbed=10 sent_frames=10 dropped=0`（5 張×2 台）；IP 端兩輪皆 **ok=10 err=0，CRC 全對**。
+- 解析度不同可共存：12.29MB 與 24.48MB 混流，IP slot 40.8MB 足夠，逐幀 `hdr.width/height` 正確。
+- ⚠️ 分析陷阱：**首封包不能直接取**——GVCP 控制埠 3956 的封包會混進來（兩台同時回應同一廣播 → 時間戳完全相同
+  → 假的「skew=0.000ms」）。必須 `not src port 3956` 只留 GVSP 串流埠。
+
+**inter-packet delay（GevSCPD）結論：不需要開，維持 0。** 實測依據：
+
+| 量測 | 值 | 意義 |
+|---|---|---|
+| 單台傳輸速率 | camA 123.7 MB/s、camB 123.6 MB/s | = **989 Mbps，GigE wire rate 跑滿** |
+| 封包間隔中位數 | 66.0 µs | = 8192B @1Gbps 的理論值（65.5µs）→ 背靠背無延遲 |
+| 封包間隔 p99 | 78–80 µs | 幾乎零抖動，無 stall/重傳徵兆 |
+| `dropped`（BlockID 缺口） | 0 | 無不完整幀 |
+| IP 端 CRC | ok=10 err=0（×2 輪） | 無位元錯誤 |
+
+- **頻寬帳**：每台峰值 123.6 MB/s ⇒ 37 台 = 4573 MB/s = **36.6 Gbps**，對 100G 上行 = **37% 使用率，無超訂**。
+- GevSCPD 的典型適用場景是「N 台匯進 1G/10G NIC」；本拓樸**每台獨立 1G access port + 100G 上行**，前提不成立。
+  開了只會壓低單台吞吐（而單台 GigE 已經是全鏈瓶頸）。
+- 程式現況：`cam_pylon.cpp:260` 只在 `GET_CAM_NODES` **讀** GevSCPD，**沒有設定路徑** → 要開得先寫 code。依上述數據不建議。
+- ⚠️ **37 台時真正的風險不在交換機，而在 damac 主機端**：36.6 Gbps UDP 進 pylon 的 CPU/中斷/NIC ring buffer。
+  GevSCPD 解不了這個（平均速率不變）；要調的是 NIC ring size / RSS 佇列 / CPU affinity。→ 37 台到貨時實測。
+
+**多相機才踩得到的新缺陷（未修，待裁示）：**
+1. **`GET_CAM_NODES` 忽略 `cam_id` → 靜默回錯相機**：`main.cpp:347-349` 的 handler 簽章根本沒有 cam_id，
+   一律 `mgr.get_or_open_primary()`。實測兩台都回 `width=4096`（正確應為 4096 / 8160，單台模式分別開驗證過）。
+   **不是回 ERR 而是回錯值**，最危險。修法：handler 加 cam_id + `mgr.get(cid)`。
+2. **`SET_CAM_PARAMS`/`GET_CAM_PARAMS`/`TUNE_MEAN` 被 `if (cam_id != 0) → ERR` 擋死**（`control_server.cpp`），
+   但 `main.cpp:375` 的 tune_mean handler 其實已用 `mgr.get(cid)` 支援多台 → **只需拿掉 control_server 的守門**
+   （改為對照實際相機清單驗證 cam_id）。現況：第二台完全無法調曝光/增益。
+3. **Gap #21 的 cam_id↔MAC 不穩定已實際發生**：加入第二台後列舉順序改變 →
+   raL4096 變 `cam_id 0`、raL8192 變 `cam_id 1`（原本 raL8192 是 0）。`cam_config.json` 的 `cam_id 0`
+   條目（曝光/增益）因此**套到了不同的實體相機**。37 台前必須改 MAC keying。
+
+### 追加：2 相機全面驗證電池（2026-07-30 同日）— 6 項通過、**2 個嚴重缺陷**
+
+| # | 項目 | 結果 |
+|---|---|---|
+| A | `LIST_CAMERAS` 與取像並存（STATUS 明列 deferred，RDMA 就緒後補測）| **PASS**：串流中連呼 6 次全回 2 台、不崩不卡（但 teardown 撞到 ★1 死結）|
+| B | `verify_step3_trigger.py`（2 台，expect_cams=2）| **6/6 PASS**：ARM 冷啟 1257ms／冪等 5ms／觸發 0.4ms／收滿自動停 grabbed=10 dropped=0／第二片 0.3ms／teardown |
+| C | 2 台 rdma-process 全鏈 + **`sliceIndex`/`totalSlice` 真值** | **PASS（L1→L3）**：`totalSlice=5>1` 正確啟動逐 slice 路徑，`camId` 正確分辨 cam0/cam1（各自獨立判前/尾緣）；輸出 CCD00×5 + CCD01×5 夾；無玻璃→正確報 `Align Fail`+`傳送異常`+落 incident |
+| D | 背壓鏈（2 台）| **✗ 發現 ★2 資料損毀**（見下）|
+| E | 失敗路徑（8100）| **10/10 PASS**：壞 JSON／缺 cmd／未知命令／曝光增益越界／不存在 cam_id 全誠實 ERR，行程存活 |
+| F | DefectSort 遠端命令（Mac→Spark 跨機）| **PASS**：LIST_FOLDERS／LIST_PATCHES(座標型別解析)／GET_BATCH(base64 PNG 4088B)／SAVE_CLASSIFICATION／SORT_DEFECTS 全 OK |
+| G | 上位機模擬器 → 真 Control → 真 IP | **5/5 PASS**，`CF_GET_RESULT` 回真實 CCD00/CCD01 夾+缺陷數；CHECK/SET_ALIGN 誠實 ERR |
+
+> ARM 冷啟 542ms(1台) → 1257ms(2台) ≈ 線性 → **外推 37 台約 23s**。務必確認產線時序讓 ARM 遠早於觸發。
+
+#### ★1【嚴重／生產阻斷】`GRAB_STOP` 鎖順序死結 — 連續模式必死
+
+**證據（gdb backtrace，damac 實機）**：
+- Thread 2：`ControlServer::handle_client` → grab_stop lambda → `CamManager::stop_all()` → `CamPylon::stop()` → `std::thread::join()`
+- Thread 9/10（相機 grab thread）：卡在 `frame_cb` 的 `pthread_mutex_lock`，兩條等**同一把** mutex
+
+**根因**：`frame_cb` 在 [main.cpp:185](../grab/src/main.cpp#L185) 取 `state_mtx` 讀 `panel_hash`；
+`set_grab_stop` 在 [main.cpp:273](../grab/src/main.cpp#L273) **先持 `state_mtx`** 再 `stop_all()` →
+[cam_pylon.cpp:128](../grab/src/cam_pylon.cpp#L128) `thread_.join()`。互等，永不解開。
+`state_mtx` 被永久持有 → **之後所有碰 state_mtx 的 8100 命令全部一起卡死，只能 `kill -9`**。
+
+**觸發條件**：`frames_per_panel=0`（連續，= `--frames-per-panel` 預設）→ 回呼永遠在飛 → **必死**。
+`frames_per_panel>0` 時因相機已自動停、回呼不在飛，才僥倖不觸發（先前所有測試都是這種）。
+**單台同樣重現** → 非多相機專屬。
+
+**⚠️ 這是 8/M 上線的直接阻斷**：`appsettings.json` 無 `Grab` 區段 →
+`GrabConfig.FramesPerPanel` 走 C# 預設 **0** ([SystemConfigModel.cs:28](../control/src/Models/SystemConfigModel.cs#L28))
+→ `CF_GRAB_START` 走連續模式 → **第一次 `CF_STOP` 就掛掉**。
+實測（模擬器→真 Control 8787→真 Grab）：`CF_GRAB_START` OK(14ms) → **`CF_STOP` 30s 無回應**，
+gdb 確認同一死結簽章。
+
+**建議修法（最小）**：`panel_hash` 改 `std::atomic<uint32_t>`，`frame_cb` 不再取 `state_mtx`
+（它只讀一個 uint32）→ 鎖環直接消失。次選：`grab_stop` 先取快照、放鎖、再 `stop_all()`。
+
+#### ★2【嚴重／靜默資料損毀】多相機 + 背壓 → RDMA slot 覆寫、CRC 損毀
+
+**2×2 對照（queue=2, `--test-consumer-delay-ms 1200`，皆 10 幀/台）**：
+
+| | 無背壓 | 有背壓 |
+|---|---|---|
+| **1 台** | ok=20 err=0 ✓ | **ok=10 err=0 ✓**（push=755ms）|
+| **2 台** | ok=10 err=0 ✓ | **ok=11 err=9 ✗**（push=829ms，9 筆 `CRC 不符`）|
+
+兩次獨立重跑結果完全相同（err=9）。**Grab 端全程自認正常**：`dropped=0 sent_frames=20`。
+
+**根因**：`seq` 在 [main.cpp:183](../grab/src/main.cpp#L183) 由 `++frame_seq` 指派，**在 `send_mtx` 之外**；
+真正的 RDMA write 在 [main.cpp:186](../grab/src/main.cpp#L186) 鎖內。兩條相機 thread →
+thread B 可能拿到較大的 seq 卻先搶到鎖 → **wire 順序成為 seq 順序的置換**。
+而兩個環的索引都由 seq 導出（送端 buffer [rdma_sender.cpp:86](../grab/src/rdma_sender.cpp#L86)、
+遠端 slot [rdma_sender.cpp:105](../grab/src/rdma_sender.cpp#L105)），流量控制卻是**計數式**
+（poll_one／posted-recv credit）—— 只有在「索引順序 == 完成順序」時才安全。順序被置換 →
+slot 可能在收端 memcpy 出來之前就被重寫。無背壓時收端排空太快、窗口幾乎為零所以看不到；
+背壓下 slot 被持有 ~800ms → 幾乎必中。
+
+**建議修法（最小）**：把 `++frame_seq` 移進 `send_mtx` critical section，使 seq 順序 == wire 順序。
+（`slice_seq[cid]++` 是 per-camera 狀態，維持在外。）與先前 ★`frame_seq.store(0)` 那條同源 ——
+建議一併把「seq 單調且順序 == wire 順序」寫成明示不變式。
+
+#### 其他發現（非阻斷）
+- **IP/Grab 的 ControlServer 都是單客戶端序列處理**（[ip/control_server.cpp:386-392](../ip/src/control_server.cpp#L386)
+  accept 後同 thread `handle_client`）→ Control 佔住連線時，任何第二個工具（診斷腳本）只會排隊逾時，
+  不是回錯誤。多開一個診斷通道會踩到。
+- **`rdma-validate`/`rdma-process` 模式不開 8200**（`ControlServer` 只在 offline-tcp 分支建立，
+  [ip/main.cpp:696](../ip/src/main.cpp#L696)）→ 相機串流期間 **Control 連不上 IP、心跳燈會紅**。
+  Step 4/5 需要「同時有 RDMA 收圖 + Control 控制」時必須解決（現以兩個 IP 行程並行迴避）。
+- **`CF_LOAD_RECIPE` 回 ERR "load recipe failed"（2ms）**：跨 Tailscale 不可能這麼快 → 本地例外；
+  但 [UpstreamWiring.cs:52](../control/src/Controllers/UpstreamWiring.cs#L52) 的 `catch { return false; }`
+  把例外整個吞掉，只剩一句無資訊的訊息。**吞例外本身需修**（至少 Log.Warn 出 ex.Message）才查得下去。
+  註：`~/cf-aoi/recipes/DEFAULT/IP0/RecipeInfo.xml` 存在且是 DIV，非 DIV-only 守門所致。
+
+**尚未驗（誠實標註）：** 37 台同時（相機未到貨）／`edge_check` 逐 slice 真玻璃邊（本次無玻璃、`enabled=0`）／
+**真面板缺陷正確性**（現為 free-run 無 encoder 觸發、無相對運動 → 線掃的 Y 軸是「時間」不是「位置」，
+拍到的是同一條線的時間紀錄，非真實 2D 面板影像；需接 encoder 行觸發或讓工件移動）／上位機 8787 經交換機端到端。
 
 ---
 
