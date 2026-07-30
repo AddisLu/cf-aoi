@@ -6,10 +6,14 @@
 // 對位（edge_check + per-CCD 對位）吸收，前提是前緣落在第一張（5000 條 = 40mm 窗口）內。
 // 每台收滿 frames_per_panel 張自動停（CamPylon::set_max_frames）。
 //
-// cam_id 暫依列舉順序派 0..N-1（#21 MAC 穩定映射未做前的過渡；同 CamInfo.cam_id 語意）。
+// cam_id 來源（Gap #21，2026-07-30 落地）：
+//   有 cam_map.json → **MAC 穩定映射**（權威）。列舉到但未列於映射的相機一律拒開，
+//     不默默佔用槽位（docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）。
+//   無 cam_map.json → 退回列舉順序暫派 0..N-1 並印 WARN（舊行為；重插拔後 cam_id 會變）。
 
 #include "cam_pylon.h"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -19,14 +23,39 @@ public:
     struct Entry {
         std::unique_ptr<CamPylon> cam;
         uint16_t    cam_id = 0;
-        std::string serial;   // 開機時鎖定的序號（列舉快照；重插拔後 cam_id 可能變 → #21）
+        std::string serial;   // 開機時鎖定的序號
+        std::string mac;      // 列舉快照的 MAC（cam_map.json 的比對鍵）
+        std::string ccd_id;   // 顯示標籤（例 CCD00）；未綁定或無映射時為空
+    };
+
+    // cam_map.json 的一筆綁定
+    struct MacBinding {
+        uint16_t    cam_id = 0;
+        std::string ccd_id;
     };
 
     ~CamManager() { stop_all(); }
 
+    // ---- Gap #21：MAC ↔ cam_id 穩定映射 -------------------------------------
+    // 載入映射檔。檔案不存在 → 回 true 且 has_map()==false（退回舊行為，warn 帶提示）。
+    // 檔案存在但格式錯/cam_id 重複/MAC 重複 → 回 false（err 說明；**不可**默默當成沒映射，
+    // 否則等於在生產機上悄悄退回不穩定的列舉順序）。
+    bool load_map(const std::string& path, std::string& err, std::string& warn);
+    bool has_map() const { return !mac_map_.empty(); }
+    size_t map_size() const { return mac_map_.size(); }
+
+    // 依映射把 cam_id/ccd_id/bound 填進列舉結果（LIST_CAMERAS 用；不開相機）。
+    // 無映射時：cam_id 維持列舉 index、bound=false（誠實表示「未綁定」）。
+    void annotate(std::vector<CamInfo>& infos) const;
+
+    // MAC 正規化：去除 ':' '-' '.' 空白後轉大寫（"00:30:53:..." 與 "003053..." 視為同一個）
+    static std::string normalize_mac(const std::string& s);
+
     // 開 want 台（want<=0 = ALL 列舉到的）。任一台開失敗 → 全關、回 false（fail-fast 不半開）。
-    // want==1 沿用舊單台語意：cli_serial（auto = 第一台 / 指定序號）。
-    // want>1：列舉後依序取前 want 台，各依序號開（不可兩台都 "auto"）。
+    // 有映射（has_map()）：列舉 → 依 MAC 查 cam_id → **依 cam_id 由小到大**取前 want 台。
+    //   未列於映射的相機 → 直接報錯（不默默佔槽）。cli_serial 若非 "auto" 仍可指定單台。
+    // 無映射：want==1 沿用舊單台語意（不列舉，直接依 cli_serial 開）；
+    //   want>1 列舉後依序取前 want 台並印 WARN（cam_id 不穩定）。
     bool open_all(int want, const std::string& cli_serial, int64_t pkt_size, std::string& err);
 
     // 平行啟動全部（每台自帶 grab thread）；max_frames_per_cam=0 → 連續（legacy）。
@@ -51,4 +80,5 @@ public:
 
 private:
     std::vector<Entry> cams_;
+    std::map<std::string, MacBinding> mac_map_;   // key = normalize_mac(mac)
 };

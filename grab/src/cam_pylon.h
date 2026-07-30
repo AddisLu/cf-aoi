@@ -18,7 +18,11 @@ using FrameCb = std::function<void(uint16_t cam_id,
 // 相機列舉結果（CTlFactory::EnumerateDevices 後讀 CDeviceInfo，不需開相機）。
 // 只用 std 型別，不洩漏 pylon header 給非 pylon 檔。供 LIST_CAMERAS 用。
 struct CamInfo {
-    int         cam_id      = 0;     // 暫以列舉 index 派；MAC 穩定映射 = Gap #21
+    // cam_id/ccd_id/bound 由 CamManager::annotate() 依 cam_map.json 填入（Gap #21）。
+    // CamPylon::enumerate_cameras() 本身只填列舉 index + bound=false（它不認識映射）。
+    int         cam_id      = 0;     // 有映射 = 綁定的槽位；無映射 = 列舉 index（不穩定）
+    std::string ccd_id;              // 顯示標籤（例 CCD00）；未綁定為空
+    bool        bound      = false;  // 是否在 cam_map.json 中找到綁定（未綁定不得當成已就位）
     std::string model;               // GetModelName 例 raL8192-12gm
     std::string serial;              // GetSerialNumber
     std::string device_class;        // GetDeviceClass 例 BaslerGigE

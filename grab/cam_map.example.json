@@ -1,0 +1,15 @@
+{
+  "_comment": "MAC ↔ cam_id（CCD 槽位）穩定映射 — Gap #21。本機請複製成 cam_map.json 後填實際 MAC（不版控，比照 cam_config.json）。",
+  "_why": "舊版 cam_id 依 pylon 列舉順序暫派 0..N-1，加減/重插相機時順序會變 → cam_config.json 的曝光/增益、FrameHeader.camId、IP 端輸出夾 CCD{camId} 全部對到別台。2026-07-30 實測：接上第二台後 raL8192 由 cam_id 0 變成 1。",
+  "_behavior": [
+    "有本檔（且至少一筆）→ 嚴格模式：列舉到但未列於本檔的相機一律拒開並報錯，不默默佔用槽位（docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）。",
+    "無本檔 → 退回列舉順序暫派並印 WARN（舊行為；重插拔後 cam_id 會變）。",
+    "mac 大小寫、有無冒號/連字號皆可，內部正規化後比對。",
+    "cam_id 不可重複；ccd_id 僅為顯示標籤（UI/log），實際索引以 cam_id 為準。"
+  ],
+  "_note_recipe_partition": "ccd_id 與配方分區（RecipeInfo.xml 的 IpName，如 IP0）是兩件事，見 docs/CLAUDE.md 約束①；本檔不涉及配方路徑。",
+  "cameras": [
+    { "mac": "00:30:53:53:19:41", "cam_id": 0, "ccd_id": "CCD00" },
+    { "mac": "00:30:53:15:B0:C1", "cam_id": 1, "ccd_id": "CCD01" }
+  ]
+}

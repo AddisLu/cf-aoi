@@ -26,6 +26,8 @@
 //   --pkt-size    N          GevSCPSPacketSize（預設 8192）
 //   --ctrl-port   N          等 Control 連入的 port（預設 8100）
 //   --cam-config  PATH       相機參數 JSON（預設 cam_config.json；每台一筆 cam_id 條目）
+//   --cam-map     PATH       MAC↔cam_id 穩定映射（預設 cam_map.json；Gap #21）
+//                            有此檔 → 嚴格模式（未列於映射的相機拒開）；無 → 列舉順序暫派 + WARN
 // =============================================================================
 
 #include "cam_manager.h"
@@ -122,6 +124,7 @@ int main(int argc, char** argv) {
     int64_t     pkt_size    = 8192;
     int         ctrl_port   = 8100;
     std::string cam_cfg_path= "cam_config.json";
+    std::string cam_map_path= "cam_map.json";
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -137,6 +140,7 @@ int main(int argc, char** argv) {
         else if (a == "--pkt-size")    pkt_size     = atoll(next());
         else if (a == "--ctrl-port")   ctrl_port    = atoi(next());
         else if (a == "--cam-config")  cam_cfg_path = next();
+        else if (a == "--cam-map")     cam_map_path = next();
         else { fprintf(stderr, "未知參數：%s\n", a.c_str()); return 1; }
     }
 
@@ -155,6 +159,18 @@ int main(int argc, char** argv) {
     CamManager    mgr;
     RdmaSender    sender;
     ControlServer ctrl(ctrl_port);
+
+    // ---- Gap #21：MAC↔cam_id 穩定映射（越早載越好，LIST_CAMERAS/ARM 都要用）----
+    // 檔案不存在 = 合法的舊行為（warn 提示）；檔案存在但格式錯 = 直接中止，
+    // 不可默默退回不穩定的列舉順序（那會讓生產機在無人察覺下把槽位對錯台）。
+    {
+        std::string map_err, map_warn;
+        if (!mgr.load_map(cam_map_path, map_err, map_warn)) {
+            fprintf(stderr, "[main] cam_map 載入失敗：%s\n", map_err.c_str());
+            return 1;
+        }
+        if (!map_warn.empty()) fprintf(stderr, "[main] ⚠ %s\n", map_warn.c_str());
+    }
 
     // ---- 狀態（mutex 保護，跨 ControlServer thread 與 N 個 cam grab thread）----
     std::mutex          state_mtx;
@@ -339,10 +355,13 @@ int main(int argc, char** argv) {
     // 相機陣列總覽：LIST_CAMERAS（唯讀列舉，不開相機、不改相機）
     ctrl.set_list_cameras_handler([&]() -> std::string {
         auto cams = CamPylon::enumerate_cameras();
+        mgr.annotate(cams);   // 依 cam_map.json 填 cam_id/ccd_id/bound（Gap #21）
         json arr = json::array();
         for (const auto& c : cams) {
             arr.push_back({
                 {"cam_id",       c.cam_id},
+                {"ccd_id",       c.ccd_id},   // 未綁定為空字串
+                {"bound",        c.bound},    // false = 未列於 cam_map（不得當成已就位）
                 {"mac",          c.mac},
                 {"model",        c.model},
                 {"serial",       c.serial},
@@ -353,7 +372,10 @@ int main(int argc, char** argv) {
                 {"device_class", c.device_class}
             });
         }
-        printf("[main] LIST_CAMERAS → %zu 台\n", cams.size());
+        size_t nbound = 0;
+        for (const auto& c : cams) nbound += c.bound ? 1 : 0;
+        printf("[main] LIST_CAMERAS → %zu 台（已綁定 %zu / 未綁定 %zu；cam_map %zu 筆）\n",
+               cams.size(), nbound, cams.size() - nbound, mgr.map_size());
         return arr.dump();
     });
 

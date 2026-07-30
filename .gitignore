@@ -41,6 +41,7 @@ test_images/*.bmp
 
 # ===== 機器/相機相關（每機本地，不版控；用 *.example.json 當模板）=====
 grab/cam_config.json
+grab/cam_map.json
 control/src/config/array_topology.json
 
 # ===== Misc =====
