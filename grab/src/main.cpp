@@ -25,8 +25,9 @@
 //   --serial      STRING     pylon 序號；auto = 第一台（僅單台模式，預設 auto）
 //   --pkt-size    N          GevSCPSPacketSize（預設 8192）
 //   --ctrl-port   N          等 Control 連入的 port（預設 8100）
-//   --cam-config  PATH       相機參數 JSON（預設 cam_config.json；每台一筆 cam_id 條目）
-//   --cam-map     PATH       MAC↔cam_id 穩定映射（預設 cam_map.json；Gap #21）
+//   --cam-config  PATH       相機參數 JSON（預設 <exe上一層>/cam_config.json = grab/，
+//                            不隨 CWD 漂移；每台一筆 cam_id 條目）
+//   --cam-map     PATH       MAC↔cam_id 穩定映射（預設 <exe上一層>/cam_map.json；Gap #21）
 //                            有此檔 → 嚴格模式（未列於映射的相機拒開）；無 → 列舉順序暫派 + WARN
 // =============================================================================
 
@@ -47,6 +48,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <limits.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
@@ -105,6 +110,40 @@ static void save_cam_config(const std::string& path, int cam_id, float exp_us, i
 static std::atomic<bool> g_shutdown{false};
 static void sig_handler(int) { g_shutdown = true; }
 
+// ---- 設定檔路徑錨定（cam_config.json / cam_map.json 勿依賴 CWD）----
+// 預設路徑錨定在「執行檔所在目錄的上一層」（二進位固定產出於 grab/build/ → 上一層 = grab/，
+// 與 .gitignore 及文件所指位置一致）。從任何 CWD 啟動都讀寫同一份，SET_CAM_PARAMS 回寫、
+// GRAB_ARM 重套、SET_CAM_MAP 綁定才不會依啟動位置漂移（2026-07-30 實測 grab/ 與
+// grab/build/ 兩份 cam_config 已不同步；cam_map 換 CWD 啟動更會被當成「不存在」而
+// 靜默丟失 MAC 綁定）。明確傳 --cam-config/--cam-map 時維持一般 CLI 語意（相對 CWD）。
+
+static std::string exe_dir() {
+    char buf[PATH_MAX];
+    ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return ".";                     // 取不到（極罕見）→ 退回 CWD
+    buf[n] = '\0';
+    std::string p(buf);
+    auto slash = p.rfind('/');
+    return (slash == std::string::npos) ? "." : p.substr(0, slash);
+}
+
+// 轉絕對路徑；檔案尚不存在（首次啟動）時正規化其目錄再接檔名
+static std::string abs_path(const std::string& p) {
+    char buf[PATH_MAX];
+    if (::realpath(p.c_str(), buf)) return buf;
+    auto slash = p.rfind('/');
+    std::string dir  = (slash == std::string::npos) ? "." : p.substr(0, slash);
+    std::string base = (slash == std::string::npos) ? p   : p.substr(slash + 1);
+    if (::realpath(dir.c_str(), buf)) return std::string(buf) + "/" + base;
+    return p;
+}
+
+static bool same_file(const std::string& a, const std::string& b) {
+    struct stat sa{}, sb{};
+    if (::stat(a.c_str(), &sa) != 0 || ::stat(b.c_str(), &sb) != 0) return false;
+    return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+}
+
 // ---- 從 "IP:PORT" 字串切開 ----
 static bool parse_host_port(const std::string& s, std::string& host, std::string& port) {
     auto colon = s.rfind(':');
@@ -123,8 +162,8 @@ int main(int argc, char** argv) {
     std::string serial      = "auto";
     int64_t     pkt_size    = 8192;
     int         ctrl_port   = 8100;
-    std::string cam_cfg_path= "cam_config.json";
-    std::string cam_map_path= "cam_map.json";
+    std::string cam_cfg_path;                  // 空 = 預設 exe 上一層/cam_config.json
+    std::string cam_map_path;                  // 空 = 預設 exe 上一層/cam_map.json
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -150,6 +189,27 @@ int main(int argc, char** argv) {
     std::string rdma_host, rdma_port;
     if (!parse_host_port(rdma_dest, rdma_host, rdma_port)) {
         fprintf(stderr, "--rdma-dest 格式錯誤，應為 IP:PORT\n"); return 1;
+    }
+
+    // ---- 設定檔路徑解析（見 exe_dir 註解；一律印絕對路徑，漂移可直接從 log 看出）----
+    {
+        const std::string cfg_root = exe_dir() + "/..";
+        if (cam_cfg_path.empty()) cam_cfg_path = cfg_root + "/cam_config.json";
+        if (cam_map_path.empty()) cam_map_path = cfg_root + "/cam_map.json";
+        cam_cfg_path = abs_path(cam_cfg_path);
+        cam_map_path = abs_path(cam_map_path);
+        printf("[main] cam_config → %s\n", cam_cfg_path.c_str());
+        printf("[main] cam_map    → %s\n", cam_map_path.c_str());
+        // 遷移守衛：CWD 下有同名檔但不是採用的那份（多半是舊版從該目錄啟動所留的副本）
+        struct { const char* name; const std::string& used; } files[] = {
+            {"cam_config.json", cam_cfg_path}, {"cam_map.json", cam_map_path}};
+        for (auto& f : files) {
+            struct stat st{};
+            if (::stat(f.name, &st) == 0 && !same_file(f.name, f.used))
+                fprintf(stderr, "[main] ⚠ 目前目錄下的 %s 不會被使用（採用 %s）；"
+                        "若為舊版殘留，請人工併值後刪除，避免誤判生效中的參數\n",
+                        f.name, f.used.c_str());
+        }
     }
 
     ::signal(SIGINT,  sig_handler);
