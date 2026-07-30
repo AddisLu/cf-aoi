@@ -554,6 +554,46 @@ GPU 端 `gpu_ms` median **7.30ms**（P99 8.34，`--mode bench` 8160×5000）→ 
    （相機預計 8/M 到貨，屆時才驗得了。）
 3. 以上皆為**單一 Spark**；若補強後仍不足，架構本就允許水平擴充運算單元。
 
+### 收圖遺失 → `panel_incomplete` 標記（2026-07-30 **已修並驗證 L3**）：消除靜默漏檢
+
+**問題**：CRC/magic/尺寸驗證失敗的幀會被丟棄（**丟棄是對的** —— 絕不能拿壞資料判缺陷），
+但丟棄後沒有任何地方記錄。線掃一片面板切成多張 slice，**少一張 = 那一段根本沒檢查過**，
+上位機卻拿到一個看似正常的 PASS = **靜默漏檢**。
+
+**為何在此時處理**：實測確認**管線兩端都沒有系統級 ECC** —— Spark 為
+`Error Correction Type: None`（LPDDR5 128GB，`Total Width == Data Width == 32 bits` 無 ECC 位元，
+EDAC 未註冊記憶體控制器）；正式截取中心 i9-14900K + Q670 亦不支援 ECC UDIMM
+（Intel 消費級需 W680；DDR5 的 on-die ECC 只保護 DRAM 陣列內部、不保護匯流排、也不回報 OS）。
+app-CRC 因此是傳輸段唯一的交叉檢查，**必須保留**（硬體 CRC 後僅 1.9ms/幀，幾乎免費），
+且其偵測結果必須讓下游知道。
+
+**作法**：
+- `InspectionResult` 加 `FrameLossInfo{lost_frames, lost_slices, unattributed}`
+- `ResultInfo.json` 加 `frame_loss` 欄位；**無遺失時整個欄位省略** → 舊收端無感知。
+  **XML 刻意不動**，保 `CF_GET_RESULT` 上位機鏈相容（沿用 `edge_check` 既有慣例）
+- `rdma_source` 三個丟棄點都記錄 `LostFrame`；CRC 失敗時 header 已通過 magic/尺寸/`byte_len`
+  驗證（256B header vs 40.8MB payload）→ 標 `header_ok=true`，可歸屬到 cam/slice
+- `rdma-process`：per-cam 累計本片遺失（slice0 抵達＝新片歸零）；header 不可信時**保守**
+  把所有進行中的片標為不完整（AOI 寧可誤報也不能漏檢，誤報只是多一次人工複核）
+- **seq 跳號備援**：`frame_seq` 已保證全域單調 → 跳號代表有幀未達消費端，
+  抓得到「收端根本沒記錄到」的遺失
+- 落 flight recorder incident `frame_loss` + 總結行明確警告「**DefectCnt=0 不等於乾淨**」
+
+**驗證（注入式，`CFAOI_TEST_CORRUPT_EVERY=4`，3 台相機 × 10 slice = 30 幀）**：
+
+| 測項 | 結果 |
+|---|---|
+| 偵測與歸屬 | 6 幀損毀**全部抓到並正確歸屬**：`cam0/1/2` 各 `slice3`、`slice7`；`recv ok=24 err=6` |
+| ResultInfo.json | 24 個結果中 15 個帶標記；範例 `CCD00_000015`：**`DefectCnt=0` 但 `frame_loss={panel_incomplete:true, lost_slices:[3], unattributed:false}`** ← 正是原本會靜默 PASS 的情境 |
+| XML 相容性 | `frame_loss` 在 XML 中出現 **0 次**（`CF_GET_RESULT` 鏈不受影響）|
+| 舊收端無感知 | 遺失發生前的 slice0–2 結果**無此欄位** |
+| 零誤報 | 乾淨跑 30 幀 → 30 個結果夾、帶 `frame_loss` **0 個**、遺失警告 **0** |
+| 吞吐不退步 | 8 緒 / 生產幀 / 含硬體 CRC **97.9 幀/s**（改動前 98.6，同水位）|
+
+**未做（需協議決策，不宜單方面決定）**：真上位機目前讀 XML，看不到 `frame_loss`。
+要讓上位機知道「這片不完整」，得新增 `CF_` 欄位或約定 —— 屬協議變更，需與上位機方確認。
+現階段警告經 JSON / incident / log 呈現，供 Control 與人工複核使用。
+
 ### Gap #21：cam_id ↔ MAC 穩定映射（2026-07-30 **已修並驗證 L3**）
 
 **問題**：cam_id 依 pylon 列舉順序暫派 0..N-1。實測接上第二台後 raL8192 由 `cam_id 0` 變成 `1`
