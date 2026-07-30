@@ -925,7 +925,10 @@ int main(int argc, char** argv) {
             last_seq = hdr.frameSeq;
 
             // 二次驗 CRC（rdma_source 已驗過一次；此處再驗確認 payload copy 正確）
-            uint32_t crc2 = crc32_ieee(payload.data(), hdr.payloadBytes);
+            // ⚠️ CFAOI_RDMA_NOCRC=1 時送端把 crc32 填 0（不是「CRC 剛好是 0」），此處必須一併跳過，
+            // 否則每一幀都會誤報二次 CRC 失敗（實測 ok=0 err=160，看起來像資料全壞，其實是誤報）。
+            static const bool s_nocrc = std::getenv("CFAOI_RDMA_NOCRC") != nullptr;
+            uint32_t crc2 = s_nocrc ? hdr.crc32 : crc32_ieee(payload.data(), hdr.payloadBytes);
             if (crc2 != hdr.crc32) {
                 fprintf(stderr, "[rdma-validate] ERR 二次 CRC 失敗 seq=%llu"
                         " slot=%llu（got=0x%08x want=0x%08x）\n",

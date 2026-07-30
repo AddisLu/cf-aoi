@@ -217,8 +217,14 @@ void RdmaImageSource::recv_thread_fn() {
         // 不再依賴這裡的複製速度。仍先複製出來的理由：後續 CRC/push 只碰自己的副本，
         // 讓 slot 能在 push_blocking 前就邏輯上「用完」，語意單純。
         auto _tm0 = std::chrono::steady_clock::now();
-        std::vector<uint8_t> payload(h.payloadBytes);
-        memcpy(payload.data(), slot + sizeof(FrameHeader), h.payloadBytes);
+        // ⚠️ 用 range constructor（配置 + 複製一趟完成），**不可**寫成
+        //   std::vector<uint8_t> payload(n); memcpy(...);
+        // 後者是「配置 → 全 n bytes 歸零初始化 → 再 memcpy」＝三趟 40.8MB。
+        // 實測：純 memcpy 本身只要 1.69ms（24GB/s，Portable|Mapped 與一般 malloc 幾無差別），
+        // 但舊寫法整段量到 10.6–12.3ms —— 多出來的全是 vector 歸零 + 新頁 page fault。
+        // 這是 37 台 @12kHz 的關鍵：收端 recv_thread 是單執行緒，每幀預算只有 11.3ms。
+        const uint8_t* src = slot + sizeof(FrameHeader);
+        std::vector<uint8_t> payload(src, src + h.payloadBytes);
         sum_cpy_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tm0).count();
 
         // CRC 驗證（對**已複製出來的 payload**做，不再碰 slot）
