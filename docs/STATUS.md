@@ -415,7 +415,7 @@ slot 可能在收端 memcpy 出來之前就被重寫。無背壓時收端排空�
 | # | 項目 | 狀態 | 驗證數據 |
 |---|---|---|---|
 | ★1 | `GRAB_STOP` 死結 | **✅ 已修並驗證** | 同條件（連續模式 `frames_per_panel=0` + GRAB_STOP）：**OK 341ms**（修正前 30s 逾時後永久死結）；行程存活、`armed=false grabbing=false` 乾淨 teardown。`verify_list_during_grab.py` **4/4 PASS（含先前必卡死的 GRAB_STOP）**，Spark 端 43 幀 err=0。**生產路徑實測**：模擬器→真 Control 8787→真 Grab，`CF_GRAB_START` OK(32ms) → **`CF_STOP` OK(568ms)**。修法：`panel_hash` 改 `std::atomic<uint32_t>`，`frame_cb` 不再取 `state_mtx`。|
-| ★2 | 多相機+背壓 CRC 損毀 | **⚠️ 改善但未根治（不得視為已修）** | 見下方專節 |
+| ★2 | 多相機+背壓 CRC 損毀 | **✅ 已根治並驗證**（改 SEND/RECV） | 見下方專節 |
 | ★3 | `frame_seq` 跨片歸零 | **✅ 已修並驗證** | 3 片 × 3 張 × 2 台 = 18 幀：**seq 跳躍 0 筆**（修正前每個片界 1 筆）、18 個輸出夾 `CCD00_000002`…`CCD01_000017` **全不同名**（修正前第 2/3 片會覆蓋第 1 片結果）、dropped=0。|
 | ★4 | `GET_CAM_NODES` 回錯相機 | **✅ 已修並驗證** | `cam_id=0 → width 4096`、`cam_id=1 → width 8160`（各自真值；修正前兩台都回 4096）、`cam_id=99 → ERR unknown cam_id`、回應加回聲 `cam_id`。|
 | ★5 | `cam_id!=0` 守門擋死第二台 | **✅ 已修並驗證** | `SET_CAM_PARAMS` `cam_id=0/1` 皆 **OK**（actual 正確回讀）、`cam_id=99 → ERR unknown`、`cam_id=-1 → ERR invalid`。並移除 TUNE_MEAN 在陣列已開時 fallback 到 primary 的靜默錯套。失敗路徑回歸 10/10（腳本中唯一「FAIL」是它在斷言舊 bug 行為 `cam_id=1→ERR`）。|
@@ -423,7 +423,48 @@ slot 可能在收端 memcpy 出來之前就被重寫。無背壓時收端排空�
 
 回歸：`verify_step3_trigger.py`（2 台）**6/6 全 PASS**；正常負載 43 幀 **err=0**。
 
-#### ★2 專節：為何「未根治」（誠實記錄，勿當成已修）
+#### ★2 專節：已根治 — 資料路徑 `RDMA_WRITE_WITH_IMM` → `SEND/RECV`
+
+**最終驗證（同一組最嚴苛條件，2 台相機 + 背壓 `--max-queue-size 2 --test-consumer-delay-ms 1200`）**：
+
+| `rdma_slots` | 舊 `WRITE_WITH_IMM` | 新 `SEND/RECV` |
+|---|---|---|
+| 2 | err=**11**/20 | **ok=20 err=0** ✅ |
+| 4（預設）| err=**10**/20 | **ok=20 err=0** ✅ |
+| 16 | err=0/20 | **ok=20 err=0** ✅ |
+
+三種深度背壓皆確認生效（`push≈997ms`/幀、吞吐由消費端節奏決定 0.62 / 0.88 / 3.31 fps）。
+**ring 深度現在只影響吞吐（pipeline 深度），不再影響正確性** —— 這才是應有的行為。
+
+**修法（為何是 by construction 正確，不是縮小窗口）**：`SEND` 的資料落點由**收端的 recv WQE** 決定，
+送端不再指定遠端位址。IP 端 N 個 `post_recv` 各指向一個 slot（`wr_id` = slot 編號），
+**處理完該 slot 才重掛它的 WQE**；沒有 WQE 時 RNR 發生在「放置資料之前」→
+slot 不可能在 IP 讀取期間被覆寫。舊 `WRITE` 由送端自算位址，RNR 只擋 immediate、payload 照樣落地，
+且 RNR 期間持續重試、每次重寫該 slot ⇒ 縮短收端讀取窗口只能降低命中率，消不掉（見下方失敗紀錄）。
+
+配套改動：收端 `slot_id` 改由 `wc.wr_id` 取得（不再 `seq % n_slots` 推算）；`seq` 改從 payload 內
+`FrameHeader.frameSeq` 取（SEND 無 imm，且 uint64 不再受 imm 的 32-bit 截斷）；新增 `wc.byte_len`
+與 header 宣告長度對帳（WRITE 路徑拿不到此資訊）。背壓鏈行為不變。
+⚠️ `rdma_common.h` 有 `grab/src/` 與 `ip/src/image_source/` **兩份同源副本**，`post_recv` 的 `wr_id`
+參數兩份都要加（只改一份會編不過／行為分歧）。
+
+**完整回歸（SEND 版）**：`verify_step3_trigger`（2 台）**6/6 PASS**；連續模式 `GRAB_STOP` **OK 350ms**；
+正常負載 20 幀 err=0；**最終整合：4 片 × 3 張 × 2 台 = 24 幀 → CRC 不符 0、seq 跳躍 0、
+recv ok=24 err=0、24 個輸出夾全不同名、dropped=0**（`rdma-process` 真 GPU 檢測鏈）。
+
+<details><summary>失敗紀錄：前兩次嘗試為何不夠（保留，避免日後重蹈）</summary>
+
+1. **把 `++frame_seq` 移進 `send_mtx`**（假設是 seq 順序 ≠ wire 順序）→ **完全無效，仍 err=10/20**。
+2. **收端 memcpy 上移、CRC 改對副本**（把持有期 885ms → 5ms）→ err 10→**7**，改善但仍損毀。
+   證明「縮短收端讀取窗口」治不了：送端的 write 一旦 post 出去就持續 RNR 重試、每次重寫該 slot，
+   是一場針對該 slot 的持續覆寫風暴，不是一次性競態。
+
+**定位方法（值得複用）**：不改程式碼、只改 `--rdma-slots`（2/4/16 → err 11/10/0）做決定性實驗，
+把原因鎖在「slot 重用」而非「相機台數」；再看「seq 1–4（初始 credit）全對、seq 5（第一個重用 slot 的幀）
+開始壞」定位到重用邊界。
+</details>
+
+#### ★2 舊分析（已被上方取代，保留脈絡）
 
 **決定性實驗（原始碼未改，只改 `--rdma-slots`）**：slots=2 → err=11/20；slots=4 → err=10/20；slots=16 → **err=0/20**。
 → 損毀率純由 ring 深度決定 ⇒ 確認是 **slot 重用競態**，與相機台數無直接因果（台數只是抬高幀率、壓縮時間預算）。
@@ -445,9 +486,7 @@ slot 可能在收端 memcpy 出來之前就被重寫。無背壓時收端排空�
 小訊息告知「slot k 已釋放」，送端維護 slot 空閒表、**只對確定空閒的 slot post write**。
 （收端已有小訊息 SEND 路徑：`rx_mr_`/`rx_small_` 與 MrInfoEx，可沿用。）這是兩端的 wire 協議變更，須自帶驗證循環。
 
-**在那之前的暫時緩解（明確標示為緩解、非修正）**：加大 `--rdma-slots`（16 於本測試 err=0）只是把時間預算
-從 `n_slots × 幀週期` 撐大，**不構成正確性保證**；37 台時幀率更高、預算更緊，不可依賴。
-⚠️ **在 ★2 真正修好前，勿在生產負載下讓 IP 端出現長時間背壓**（慢碟存圖、GPU 塞車、`push_blocking` 久等）。
+（以上「暫時緩解 / 勿讓 IP 端長時間背壓」的告誡已隨資料路徑改 SEND 而解除 —— 背壓現在只影響吞吐，不影響正確性。）
 
 #### 其他發現（非阻斷）
 - **IP/Grab 的 ControlServer 都是單客戶端序列處理**（[ip/control_server.cpp:386-392](../ip/src/control_server.cpp#L386)
