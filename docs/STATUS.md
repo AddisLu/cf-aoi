@@ -501,13 +501,32 @@ recv ok=24 err=0、24 個輸出夾全不同名、dropped=0**（`rdma-process` �
 | 起點（單執行緒量測）| 39.2 | 90.3 | — |
 | ① CRC 移出 `send_mtx`（8 緒基準）| 41.5 | 65.8 | 送端不再是瓶頸；瓶頸轉到收端 |
 | ② `vector` 歸零初始化修正 | 41.8 | 92.1 | `vector<uint8_t> p(n)` 會歸零 n bytes → 每幀跑三趟 40.8MB |
-| ③ payload 緩衝池 | **58.5** | **139.3** | memcpy 11.6ms → **1.8ms**（= 原始 memcpy 1.69ms，page fault 已消除）|
+| ③ payload 緩衝池 | 58.5 | **139.3** | memcpy 11.6ms → **1.8ms**（= 原始 memcpy 1.69ms，page fault 已消除）|
+| ④ ARM64 硬體 CRC32 | **98.6** | （139.3）| 收端 CRC 16.4ms → **1.9ms**（10.6× 加速）|
 
-**結論：關 app-CRC 時 139.3 幀/s vs 需求 88.8 → 餘裕 57%，12kHz 跑得動。**
-GPU 端 `gpu_ms` median **7.30ms**（P99 8.34，`--mode bench` 8160×5000）→ 137 幀/s，
-與傳輸鏈的 139.3 相當 → **系統在 ~137 幀/s 達成平衡，約為需求的 1.54×**。
-含 app-CRC 則只有 58.5 幀/s（收端 CRC 16.4ms 單執行緒成為最後瓶頸）→ 若要保留 app-CRC，
-必須把它移出 recv_thread（平行化或交給消費端），此項**未做**。
+**結論：保留完整 app-CRC 的情況下 98.6 幀/s vs 需求 88.8 → 餘裕 11%，12kHz 跑得動。**
+（關 CRC 可達 139.3，但已無必要——CRC 現在幾乎不花錢。）
+GPU 端 `gpu_ms` median **7.30ms**（P99 8.34，`--mode bench` 8160×5000）→ 137 幀/s。
+
+**④ ARM64 硬體 CRC32**：ARMv8 的 `crc32b/w/x` 指令用的正是 IEEE 802.3 多項式
+（0x04C11DB7 反射 = 0xEDB88320），與表格版位元級等價。加 aarch64 硬體路徑 +
+`getauxval(AT_HWCAP)` 執行期偵測 + `__attribute__((target("+crc")))`，不需改編譯旗標、
+無硬體時自動退回表格版。x86 的 SSE4.2 `_mm_crc32_*` 是 **Castagnoli 多項式（不同！）不可用**；
+送端 CRC 已按相機 thread 平行化，不是瓶頸，x86 維持表格版。
+
+⚠️ **wire 相容性是這項的主要風險**（damac x86 表格版送 → Spark ARM 硬體版收，
+不一致就會變成「每幀 CRC 失敗」的假故障，而且單機自測一定過、看不出來）。
+`ip/src/crc_verify.cpp`（新增，`ip/build/crc_verify`）**2163 個比對點 ALL PASS**：
+① 標準測試向量 `"123456789"` = `0xCBF43926`（外部基準）② 逐長度 0..2048 交叉比對，不一致 0
+③ 非對齊起始位址 offset 0..15 × 7 種長度，不一致 0 ④ 生產幀 hw/table 同為 `0xEF1F39A4`；
+效能 15.90ms → 1.50ms（2.57 → **27.14 GB/s**）。
+**跨平台端到端實測**：x86 送 → ARM 收，160 幀 `ok=160 err=0`（recv_thread 與 rdma-validate
+二次驗證皆通過）；小幀 257×129（非 8 倍數，驗硬體 CRC 尾端路徑）100 幀 `ok=100 err=0`。
+
+**下一個瓶頸已轉移到送端**：98.6 幀/s 時收端 recv_thread 僅 1.9+1.9=3.8ms/幀（理論 263 幀/s），
+限制來自 damac（Ryzen 7700 八核）跑 8 緒 x86 表格版 CRC（2.5 GB/s）+ memcpy 的記憶體頻寬。
+正式截取中心為 **i9-14900K + DDR5 32G×4（Q670）**，24 核／頻寬更高，預期改善；
+若仍不足，x86 可再上 PCLMULQDQ 快速 CRC（**未做**）。
 
 **量測導向的教訓（避免重蹈）**：一開始判斷收端 memcpy 慢是 `cudaHostAllocMapped` 的記憶體屬性造成，
 差點做零複製大重構。實測（40.8MB）打臉：`Portable|Mapped` **24.08 GB/s** / `Portable` 23.96 / 一般 malloc 27.18
@@ -524,10 +543,15 @@ GPU 端 `gpu_ms` median **7.30ms**（P99 8.34，`--mode bench` 8160×5000）→ 
 `--overlay-always` 可還原；offline-file/offline-tcp 調參路徑不受影響）。
 實機驗證：2 台相機 8 幀 0 缺陷 → `[跳過 overlay：0 缺陷]`、`_result.png` 產出 0 個、ResultInfo 仍照常 8 個。
 
-**⚠️ 仍未量到、會影響上線結論的三件事**：
-1. **damac 主機端收 29 Gbps GigE Vision UDP 進 pylon 的 CPU 負荷完全未測**（今日僅 2 台 = 196 MB/s）。
+**⚠️ 仍未量到、會影響上線結論的兩件事**：
+1. **截取中心收 29 Gbps GigE Vision UDP 進 pylon 的 CPU 負荷完全未測**（今日僅 2 台 = 196 MB/s）。
    很可能是比 RDMA 更硬的牆，且 GevSCPD 解不了（見前節）。
+   ⚠️ **今日數據是在 damac（Ryzen 7700 八核，暫代機）上量的**；正式截取中心為
+   **i9-14900K + DDR5 32G×4 UDIMM（Q670）**，24 核（8P+16E）→ 對 37 條 pylon 收流 thread 有利。
+   到貨時要注意兩點：**pylon 收流 thread 若被排到 E-core 會拖累**（需設 CPU affinity 釘 P-core）；
+   **雙埠 100G NIC 必須插在 CPU 直連的 x16 槽**（Q670 的 PCIe 通道配置要確認）。
 2. **12kHz 目前光學上達不到**：70µs 曝光 + gain 2047 實測 `mean_gray` 僅 5.81，光量差 25–30 倍。
+   （相機預計 8/M 到貨，屆時才驗得了。）
 3. 以上皆為**單一 Spark**；若補強後仍不足，架構本就允許水平擴充運算單元。
 
 ### Gap #21：cam_id ↔ MAC 穩定映射（2026-07-30 **已修並驗證 L3**）
