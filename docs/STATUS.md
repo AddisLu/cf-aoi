@@ -621,8 +621,34 @@ app-CRC 因此是傳輸段唯一的交叉檢查，**必須保留**（硬體 CRC 
 `raL8192(SN25445953)=CCD00`（對應交換機 `WGE1/0/33` 描述）、`raL4096(SN21421505)=CCD01`，
 實體 CCD 編號請以產線實際位置為準。37 台時每台都要補一筆。
 
-**尚未做（本次不含）**：Control 端陣列總覽尚未消費新的 `ccd_id`/`bound` 欄位（UI 仍顯示舊邏輯）；
-`array_topology.json` 的 `expected_mac` 與 Grab 的 `cam_map.json` 目前是兩份獨立宣告，未做一致性校驗。
+**Control 端（2026-07-30 同日補完，L2 selftest / L1 版面待目視）**：
+
+- **解掉一個語意衝突**：`CameraInfoModel.Status` 原本用 `Persistent`（有固定 IP）推斷「已綁定」——
+  那是 IP 設定方式，與「綁到哪個 CCD 槽位」是兩件事。改用 grab 的 `bound` 欄位；
+  `Persistent` 降為獨立顯示（「IP 模式：固定/自動」）。
+  **回歸守門**：selftest 特意讓某台 `persistent=true` 但 `bound=false` → 必須答「待綁定」
+  （舊邏輯會答「已綁定」），防止日後回退。
+- **宣告 × 偵測的真實 join**（`SystemSettingsViewModel.RecomputeBindings`）：
+  `bound==true` 的相機才依 `ccd_id` 對到宣告槽；**`bound==false` 者永不指派任何槽**（約束②底線）。
+  新增 VM 層 `SlotBinding` 型別承載 join 結果，`CcdSlotModel` 維持純宣告（移除原寫死的 `SlotStatusLabel`）。
+- **四種槽狀態**：已綁定·就位（綠）／⚠ MAC 不符（紅，`expected_mac` 與實際不符 = **相機插錯槽位**）／
+  離線（灰，該就位卻沒出現）／已宣告·未綁（琥珀，`expected_mac` 未填）。
+- **KPI 語意修正**：已綁定 = **有相機就位的槽數**（原為「有固定 IP 的相機數」）；
+  待綁定 = 不在 cam_map 的**相機數**；**離線 = `expected_mac` 有值卻沒相機的槽數**（原恆為 0）。
+  離線刻意只算「該就位卻沒出現」，開發期 `expected_mac` 全 null → 顯示 0，不吵。
+- **MAC 正規化**：新增 `Models/MacUtil.cs`，行為對齊 grab 的 `CamManager::normalize_mac`
+  （去 `:`/`-`/`.`/空白後轉大寫）。不正規化就比對 = 每台都誤判「MAC 不符」。
+- **`expected_mac` 定位**：只做交叉檢查告警，**Control 不寫任何設定檔**；`cam_map.json` 維持唯一權威。
+
+**驗證（`dotnet build` 0 警告 0 錯誤）**：
+`--selftest camera` **7/7 PASS**（含新欄位解析 + 語意守門）；
+`--selftest topology` **14/14 PASS**——join 四態、MAC 正規化（拓樸填 `003053 2a-0b11` vs 相機回
+`00:30:53:2A:0B:11` 視為同台）、插錯槽位告警指出 CCD12、未綁相機不指派、
+**舊版 grab 格式（無 `ccd_id`/`bound`）相容**（退回全未綁、不崩）。
+回歸 `store`/`settings`/`singleccd`/`upstream`/`grabtrigger`/`recipemgmt`/`sort`/`patches` **全 PASS**。
+
+**仍未做**：在 Control 上「指派某相機到某槽」的綁定動作——需把映射推回 grab 的 `cam_map.json`，
+屬新的 8100 協議，需另行設計。版面目視待 Addis。
 
 #### 其他發現（非阻斷）
 - **IP/Grab 的 ControlServer 都是單客戶端序列處理**（[ip/control_server.cpp:386-392](../ip/src/control_server.cpp#L386)

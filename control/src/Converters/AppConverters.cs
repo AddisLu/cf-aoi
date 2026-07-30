@@ -92,6 +92,33 @@ public sealed class CamStatusToBrushConverter : IValueConverter
     public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
 }
 
+/// <summary>
+/// 宣告槽的 live 狀態 → 色碼（Gap #21 join 結果）。沿用相機那組色系再加一個紅色告警：
+///   已綁定·就位 綠 / MAC 不符 紅（插錯槽位）/ 離線 灰 / 已宣告·未綁 琥珀。
+/// </summary>
+public sealed class SlotBindToBrushConverter : IValueConverter
+{
+    public static readonly SlotBindToBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c) =>
+        new SolidColorBrush(v switch
+        {
+            ViewModels.SlotBindKind.Bound       => Color.Parse("#2ecc71"),   // 綠：就位
+            ViewModels.SlotBindKind.MacMismatch => Color.Parse("#d1342f"),   // 紅：插錯槽位
+            ViewModels.SlotBindKind.Offline     => Color.Parse("#9AA6B3"),   // 灰：該在卻不在
+            _                                   => Color.Parse("#E2A03B"),   // 琥珀：已宣告·未綁
+        });
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
+/// <summary>字串非空 → true。用於「有告警才顯示該列」的 IsVisible。</summary>
+public sealed class NotEmptyToBoolConverter : IValueConverter
+{
+    public static readonly NotEmptyToBoolConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c)
+        => !string.IsNullOrWhiteSpace(v as string);
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
 /// <summary>bool 反相（true→false）。用於 IsVisible 切換。</summary>
 public sealed class InverseBoolConverter : IValueConverter
 {

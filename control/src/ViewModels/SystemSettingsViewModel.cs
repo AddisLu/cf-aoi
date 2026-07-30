@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -34,15 +35,18 @@ public partial class SystemSettingsViewModel : ViewModelBase
         LoadTopology();   // 塊1：開機載入機台層宣告槽（config/array_topology.json，缺則回退 .example）
     }
 
-    // ── 塊1：多 CCD 陣列「宣告」拓樸（topology 驅動，與下方「偵測到的相機」分開；綁定=#21）──
-    // 約束②：宣告槽來自 array_topology.json，全部「已宣告·未綁」，未綁前不得標線上；
-    //         絕不把 LIST_CAMERAS 列舉到的相機 merge 進任何槽（填槽=綁定=#21，本輪不做）。
+    // ── 多 CCD 陣列：宣告拓樸 × 偵測相機的 join（Gap #21）─────────────────────
+    // 約束②（宣告≠綁定）依然成立，但意義已變：
+    //   grab 端 cam_map.json 落地後，LIST_CAMERAS 會回 bound/ccd_id = **真實綁定憑據**，
+    //   據此 join 不是「假 merge」。底線不變：bound==false 的相機**永不**指派到任何槽。
     public ArrayTopologyModel Topology { get; private set; } = new();
     /// <summary>依運算單元分群的宣告槽（運算單元帶）。</summary>
     public ObservableCollection<ComputeUnitGroup> ComputeUnits { get; } = new();
     [ObservableProperty] private int declaredSlotCount;
     [ObservableProperty] private string topologyStatus = "";
     [ObservableProperty] private CcdSlotModel? selectedSlot;
+    /// <summary>MAC 不符（相機插錯槽位）的告警文字；無告警時為空字串。</summary>
+    [ObservableProperty] private string bindingWarning = "";
 
     private void LoadTopology() => ApplyTopology(ArrayTopologyModel.Load());
 
@@ -54,7 +58,7 @@ public partial class SystemSettingsViewModel : ViewModelBase
         foreach (var u in topo.ComputeUnits)
         {
             var g = new ComputeUnitGroup { Unit = u };
-            foreach (var s in topo.Slots.Where(s => s.ComputeUnit == u.Id)) g.Slots.Add(s);
+            foreach (var s in topo.Slots.Where(s => s.ComputeUnit == u.Id)) g.Slots.Add(new SlotBinding(s));
             ComputeUnits.Add(g);
         }
         // 防呆：宣告了 compute_unit 但 compute_units[] 沒列到的槽 → 歸「(未指派)」群，不靜默吞掉
@@ -62,12 +66,60 @@ public partial class SystemSettingsViewModel : ViewModelBase
         if (orphan.Count > 0)
         {
             var g = new ComputeUnitGroup { Unit = new ComputeUnitModel { Id = "(未指派運算單元)" } };
-            foreach (var s in orphan) g.Slots.Add(s);
+            foreach (var s in orphan) g.Slots.Add(new SlotBinding(s));
             ComputeUnits.Add(g);
         }
         DeclaredSlotCount = topo.Slots.Count;
-        TopologyStatus = $"宣告 {DeclaredSlotCount} 槽 / {topo.ComputeUnits.Count} 運算單元 · 全部未綁（綁定動作 = #21）";
         RefreshUnitConnectivity();
+        RecomputeBindings();   // 拓樸換了 → 重算 join（此時可能還沒列舉相機，全部未綁）
+    }
+
+    /// <summary>
+    /// 宣告槽 × 偵測相機的 join（Gap #21）。ApplyTopology 與 LoadCameras 之後都必須呼叫。
+    /// 規則：
+    ///   1. 只有 <c>Bound==true</c> 的相機才可能對到槽（未綁的絕不指派 → 約束②底線）。
+    ///   2. 對應鍵是相機的 <c>CcdId</c>（來自 grab cam_map.json），不是 cam_id。
+    ///   3. expected_mac 有填值時做交叉檢查：不符 = 相機插錯槽位 → 告警（不阻擋，只標紅）。
+    ///   4. 「離線」只算「expected_mac 有值但沒相機對到」的槽 —— 該就位卻沒出現，指向明確；
+    ///      expected_mac 為 null 的槽只是「還沒宣告要哪台」，不算離線（開發期不吵）。
+    /// </summary>
+    private void RecomputeBindings()
+    {
+        var bound = Cameras.Where(c => c.Bound && !string.IsNullOrEmpty(c.CcdId)).ToList();
+        int boundSlots = 0, offlineSlots = 0;
+        var mismatches = new List<string>();
+
+        foreach (var g in ComputeUnits)
+            foreach (var sb in g.Slots)
+            {
+                var cam = bound.FirstOrDefault(c => c.CcdId == sb.Slot.CcdId);
+                sb.Camera = cam;
+
+                if (cam is not null)
+                {
+                    boundSlots++;
+                    // 交叉檢查：宣告的 expected_mac vs 實際就位相機的 MAC（正規化後比對）
+                    if (sb.Slot.HasExpectedMac && !MacUtil.Same(sb.Slot.ExpectedMac, cam.Mac))
+                        mismatches.Add($"{sb.Slot.CcdId}（預期 {sb.Slot.ExpectedMacDisplay} / 實際 {cam.MacDisplay}）");
+                }
+                else if (sb.Slot.HasExpectedMac)
+                {
+                    offlineSlots++;   // 該就位卻沒出現
+                }
+                sb.Refresh();
+            }
+
+        BoundCount   = boundSlots;
+        OfflineCount = offlineSlots;
+        UnboundCount = Cameras.Count(c => !c.Bound);
+
+        BindingWarning = mismatches.Count == 0
+            ? ""
+            : $"⚠ MAC 不符（相機可能插錯槽位）：{string.Join("、", mismatches)}";
+
+        TopologyStatus = DeclaredSlotCount == 0
+            ? "未載入拓樸"
+            : $"宣告 {DeclaredSlotCount} 槽 / {Topology.ComputeUnits.Count} 運算單元 · 已就位 {boundSlots}";
     }
 
     // 連線(真)：Control 現只連單一 ActiveIpNode → 以該 node + IsIpConnected 套 UnitConnected 規則。
@@ -80,7 +132,17 @@ public partial class SystemSettingsViewModel : ViewModelBase
             g.IsConnected = ComputeUnitGroup.UnitConnected(g.Unit.Node, connectedNode, ipUp);
     }
 
-    [RelayCommand] private void SelectSlot(CcdSlotModel? s) { if (s is not null) SelectedSlot = s; }
+    // View 傳進來的是 SlotBinding（chip 的 DataContext）；下游 SingleCcdSetupViewModel.LoadSlot
+    // 吃的仍是純宣告的 CcdSlotModel，故此處解包 .Slot（維持宣告模型純淨）。
+    [RelayCommand] private void SelectSlot(object? s)
+    {
+        SelectedSlot = s switch
+        {
+            SlotBinding sb  => sb.Slot,
+            CcdSlotModel cs => cs,     // 相容：直接傳宣告槽也接受（selftest 用）
+            _               => SelectedSlot,
+        };
+    }
 
     // ── 連線設定 tab ──────────────────────────────────────────────
     [ObservableProperty] private string ipHost = "";
@@ -158,13 +220,19 @@ public partial class SystemSettingsViewModel : ViewModelBase
                     default:                    OfflineCameras.Add(c); break;
                 }
             }
-            OnlineCount     = Cameras.Count(c => c.Online);
-            BoundCount      = BoundCameras.Count;
-            UnboundCount    = UnboundCameras.Count;
-            OfflineCount    = OfflineCameras.Count;          // 0（無 config 映射，不假造離線台）
-            SelectedCamera  = Cameras.FirstOrDefault();
-            // 約束②：列舉到的相機獨立呈現，未 merge 進任何宣告槽（對映=綁定=#21）。
-            DetectedCamerasNote = $"偵測到 {Cameras.Count} 台 · 尚未對映到宣告槽（綁定 = #21）";
+            OnlineCount    = Cameras.Count(c => c.Online);
+            SelectedCamera = Cameras.FirstOrDefault();
+
+            // 已綁定/待綁定/離線三個 KPI 由 join 算（見 RecomputeBindings 的規則說明）：
+            //   已綁定 = 有相機就位的**槽數**（非「有固定 IP 的相機數」——那是舊版的語意錯誤）
+            //   待綁定 = 偵測到但不在 cam_map.json 的**相機數**
+            //   離線   = expected_mac 有值但沒相機對到的**槽數**
+            RecomputeBindings();
+
+            int unboundCams = Cameras.Count(c => !c.Bound);
+            DetectedCamerasNote = unboundCams == 0
+                ? $"偵測到 {Cameras.Count} 台 · 全數已綁定到宣告槽"
+                : $"偵測到 {Cameras.Count} 台 · 其中 {unboundCams} 台未列於 cam_map.json（不指派槽位）";
             CamStatus = $"列舉到 {Cameras.Count} 台";
         }
         catch (Exception ex) { CamStatus = $"ERR：{ex.Message}"; }
@@ -279,11 +347,68 @@ public partial class SystemSettingsViewModel : ViewModelBase
     }
 }
 
+/// <summary>宣告槽的 live 狀態（宣告 × 偵測的 join 結果，Gap #21）。四種互斥狀態。</summary>
+public enum SlotBindKind
+{
+    Declared,     // 已宣告 · 未綁（expected_mac 為 null，還沒說要哪台）— 黃
+    Bound,        // 已綁定 · 就位（有相機且 MAC 相符/未指定）— 綠
+    MacMismatch,  // 已就位但 MAC 與 expected_mac 不符 → 可能插錯槽位 — 紅告警
+    Offline,      // expected_mac 有值但沒相機對到 → 該就位卻沒出現 — 灰
+}
+
+/// <summary>
+/// 一個宣告槽 + join 到的實體相機。**宣告資料仍在 Slot 裡**（CcdSlotModel 保持純宣告），
+/// 本型別只承載 runtime 的 join 結果，符合約束②「宣告與偵測分離」。
+/// </summary>
+public sealed partial class SlotBinding : ObservableObject
+{
+    public SlotBinding(CcdSlotModel slot) { Slot = slot; }
+
+    public CcdSlotModel Slot { get; }
+    /// <summary>就位的相機；null = 沒有相機綁到這個槽。由 RecomputeBindings 指派。</summary>
+    public CameraInfoModel? Camera { get; set; }
+
+    public string CcdId => Slot.CcdId;
+
+    public SlotBindKind Kind =>
+        Camera is null
+            ? (Slot.HasExpectedMac ? SlotBindKind.Offline : SlotBindKind.Declared)
+            : (Slot.HasExpectedMac && !MacUtil.Same(Slot.ExpectedMac, Camera.Mac)
+                ? SlotBindKind.MacMismatch
+                : SlotBindKind.Bound);
+
+    public string StatusLabel => Kind switch
+    {
+        SlotBindKind.Bound       => "已綁定 · 就位",
+        SlotBindKind.MacMismatch => "⚠ MAC 不符",
+        SlotBindKind.Offline     => "離線（該就位卻沒出現）",
+        _                        => "已宣告 · 未綁",
+    };
+
+    /// <summary>chip 的 ToolTip：一眼看出這個槽現在是誰、為什麼是這個狀態。</summary>
+    public string Tooltip => Kind switch
+    {
+        SlotBindKind.Bound       => $"{CcdId}：{Camera!.Model} SN={Camera.Serial}\nMAC {Camera.MacDisplay} · {Camera.IpDisplay}",
+        SlotBindKind.MacMismatch => $"{CcdId}：MAC 不符\n預期 {Slot.ExpectedMacDisplay}\n實際 {Camera!.MacDisplay}（{Camera.Model} SN={Camera.Serial}）",
+        SlotBindKind.Offline     => $"{CcdId}：預期 {Slot.ExpectedMacDisplay} 應就位，但未偵測到",
+        _                        => $"{CcdId}：尚未指定相機（expected_mac = TBD）",
+    };
+
+    /// <summary>Camera 指派後由 VM 呼叫，通知所有衍生屬性刷新（Camera 非 ObservableProperty）。</summary>
+    public void Refresh()
+    {
+        OnPropertyChanged(nameof(Camera));
+        OnPropertyChanged(nameof(Kind));
+        OnPropertyChanged(nameof(StatusLabel));
+        OnPropertyChanged(nameof(Tooltip));
+    }
+}
+
 /// <summary>運算單元帶的一張卡：連線(真) + 處理 N 顆 CCD(真) + 負載%(估算容量投影)。</summary>
 public sealed partial class ComputeUnitGroup : ObservableObject
 {
     public ComputeUnitModel Unit { get; init; } = new();
-    public ObservableCollection<CcdSlotModel> Slots { get; } = new();
+    public ObservableCollection<SlotBinding> Slots { get; } = new();
     public string Title => Unit.Id;
     public string SubTitle => string.IsNullOrEmpty(Unit.Node) ? Unit.Role : $"node={Unit.Node} · {Unit.Role}";
 

@@ -169,6 +169,10 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
                     Persistent  = n["persistent"]?.GetValue<bool>()   ?? false,
                     IpConfig    = n["ip_config"]?.GetValue<string>()  ?? "",
                     DeviceClass = n["device_class"]?.GetValue<string>() ?? "",
+                    // Gap #21（grab cam_map.json 綁定）。舊版 grab 不回這兩欄 →
+                    // 預設 ""/false，行為自動退回「全部未綁」的舊樣子，不可拋例外。
+                    CcdId       = n["ccd_id"]?.GetValue<string>()     ?? "",
+                    Bound       = n["bound"]?.GetValue<bool>()        ?? false,
                 });
             }
         }

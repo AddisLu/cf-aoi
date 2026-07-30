@@ -20,18 +20,21 @@ public sealed class ComputeUnitModel
     public string Role { get; init; } = "aoi";   // "aoi" / 未來 "ai"
 }
 
-/// <summary>一個 CCD 宣告槽。塊1：未綁前一律「已宣告 · 未綁」，不得標線上（約束②）。</summary>
+/// <summary>
+/// 一個 CCD 宣告槽（**純宣告**）。約束②：本型別不得帶任何 live 狀態。
+/// 「這個槽現在有沒有相機就位」= 宣告 × 偵測的 join，屬 runtime，
+/// 由 ViewModels/SystemSettingsViewModel.cs 的 <c>SlotBinding</c> 計算。
+/// （原本此處有寫死的 SlotStatusLabel = "已宣告 · 未綁"，在 grab 提供 bound/ccd_id 後已無意義，故移除。）
+/// </summary>
 public sealed class CcdSlotModel
 {
     public string CcdId { get; init; } = "";           // "CCD00" — UI 名（約束①）
     public string ComputeUnit { get; init; } = "";     // → ComputeUnitModel.Id（這顆由哪台算）
-    public string? ExpectedMac { get; init; }           // 可 null = TBD（實際綁定 = #21/Phase 2）
+    public string? ExpectedMac { get; init; }           // 可 null = TBD；有值時用於交叉檢查「插錯槽位」
     public string RecipePartition { get; init; } = ""; // "IP0" — 儲存鍵（約束①）→ {recipe}/{IpName}/RecipeInfo.xml
 
     public bool HasExpectedMac => !string.IsNullOrWhiteSpace(ExpectedMac);
     public string ExpectedMacDisplay => HasExpectedMac ? ExpectedMac! : "TBD";
-    // 塊1 固定「已宣告 · 未綁」：live 綁定/線上/離線 = #21 + 後續塊，未綁前不得標線上（約束②）。
-    public string SlotStatusLabel => "已宣告 · 未綁";
 }
 
 /// <summary>機台層陣列拓樸（所有配方共用）。</summary>

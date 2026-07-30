@@ -22,6 +22,8 @@
         <conv:CanSortToBrushConverter x:Key="CanSortToBrush"/>
         <conv:ClassToBorderBrushConverter x:Key="ClassToBorderBrush"/>
         <conv:CamStatusToBrushConverter x:Key="CamStatusToBrush"/>
+        <conv:SlotBindToBrushConverter x:Key="SlotBindToBrush"/>
+        <conv:NotEmptyToBoolConverter x:Key="NotEmptyToBool"/>
         <conv:InverseBoolConverter x:Key="InverseBool"/>
 
         <!-- 舊版 WinForms 顏色慣例（規格書實際 RGB），集中於此供 1:1 重建 -->

@@ -71,7 +71,7 @@
         <ScrollViewer Margin="0,12,0,0">
         <StackPanel Spacing="12">
 
-          <!-- 塊1：運算單元帶（宣告陣列，array_topology.json 驅動；全部未綁，綁定=#21） -->
+          <!-- 運算單元帶（宣告陣列 array_topology.json × 偵測相機的 join；綁定依據 = grab cam_map.json） -->
           <Border Classes="card">
             <StackPanel Spacing="10">
               <Grid ColumnDefinitions="*,Auto">
@@ -97,11 +97,12 @@
                         <ItemsControl ItemsSource="{Binding Slots}">
                           <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                           <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="m:CcdSlotModel">
+                            <DataTemplate x:DataType="vm:SlotBinding">
                               <Border Classes="chip" Cursor="Hand" Tapped="OnSlotTapped"
-                                      ToolTip.Tip="{Binding SlotStatusLabel}　(點進單 CCD 設定)">
+                                      ToolTip.Tip="{Binding Tooltip}">
                                 <StackPanel HorizontalAlignment="Center" Spacing="3">
-                                  <Ellipse Width="14" Height="14" HorizontalAlignment="Center" Fill="{DynamicResource Warn}"/>
+                                  <Ellipse Width="14" Height="14" HorizontalAlignment="Center"
+                                           Fill="{Binding Kind, Converter={StaticResource SlotBindToBrush}}"/>
                                   <TextBlock Text="{Binding CcdId}" FontSize="10" FontFamily="{DynamicResource MonoFont}"
                                              HorizontalAlignment="Center" Foreground="{DynamicResource Txt}"/>
                                 </StackPanel>
@@ -114,12 +115,18 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
+              <!-- MAC 不符（相機插錯槽位）告警：無告警時整列隱藏 -->
+              <Border Background="#33d1342f" BorderBrush="#d1342f" BorderThickness="1" CornerRadius="4"
+                      Padding="10,7" IsVisible="{Binding BindingWarning, Converter={StaticResource NotEmptyToBool}}">
+                <TextBlock Text="{Binding BindingWarning}" TextWrapping="Wrap" FontSize="11.5"
+                           Foreground="#ff9b96" FontWeight="SemiBold"/>
+              </Border>
               <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
-                         Text="宣告槽全部「已宣告·未綁」（黃點）。實際 MAC↔CCD 綁定、線上/離線判定 = #21（Phase 2），不在此把列舉相機填進槽。"/>
+                         Text="槽位色碼：綠=已綁定就位 · 琥珀=已宣告未綁(expected_mac 未填) · 灰=該就位卻沒出現 · 紅=MAC 不符(可能插錯槽位)。綁定依據為 grab 的 cam_map.json；未列於其中的相機不指派任何槽（約束②）。"/>
             </StackPanel>
           </Border>
 
-          <!-- 偵測到的相機（runtime；與上方宣告槽分開、未對映 = #21） -->
+          <!-- 偵測到的相機（runtime；bound=false 者不指派任何槽，見上方色碼說明） -->
           <Border Classes="card">
           <StackPanel Spacing="12">
           <Grid ColumnDefinitions="Auto,*,Auto">
@@ -189,15 +196,20 @@
                   <TextBlock Text="{Binding CcdLabel}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
                   <TextBlock Text="{Binding StatusLabel}" VerticalAlignment="Center" Foreground="{DynamicResource Txt3}"/>
                 </StackPanel>
-                <Grid ColumnDefinitions="64,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                <Grid ColumnDefinitions="64,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
                   <TextBlock Grid.Row="0" Text="型號" Foreground="{DynamicResource Txt3}"/>
                   <TextBlock Grid.Row="0" Grid.Column="1" Classes="mono" Text="{Binding Model}"/>
-                  <TextBlock Grid.Row="1" Text="MAC" Foreground="{DynamicResource Txt3}"/>
-                  <TextBlock Grid.Row="1" Grid.Column="1" Classes="mono" Text="{Binding MacDisplay}"/>
-                  <TextBlock Grid.Row="2" Text="IP" Foreground="{DynamicResource Txt3}"/>
-                  <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="{Binding IpDisplay}"/>
-                  <TextBlock Grid.Row="3" Text="IP 設定" Foreground="{DynamicResource Txt3}"/>
-                  <TextBlock Grid.Row="3" Grid.Column="1" Classes="mono dim" Text="{Binding IpConfig}"/>
+                  <TextBlock Grid.Row="1" Text="序號" Foreground="{DynamicResource Txt3}"/>
+                  <TextBlock Grid.Row="1" Grid.Column="1" Classes="mono" Text="{Binding Serial}"/>
+                  <TextBlock Grid.Row="2" Text="MAC" Foreground="{DynamicResource Txt3}"/>
+                  <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="{Binding MacDisplay}"/>
+                  <TextBlock Grid.Row="3" Text="IP" Foreground="{DynamicResource Txt3}"/>
+                  <TextBlock Grid.Row="3" Grid.Column="1" Classes="mono" Text="{Binding IpDisplay}"/>
+                  <!-- IP 設定方式與「綁定」無關，分行呈現避免混淆（舊版曾用 persistent 推斷綁定） -->
+                  <TextBlock Grid.Row="4" Text="IP 模式" Foreground="{DynamicResource Txt3}"/>
+                  <TextBlock Grid.Row="4" Grid.Column="1" Classes="mono dim" Text="{Binding IpModeText}"/>
+                  <TextBlock Grid.Row="5" Text="綁定" Foreground="{DynamicResource Txt3}"/>
+                  <TextBlock Grid.Row="5" Grid.Column="1" Classes="mono dim" Text="{Binding BindSourceText}" TextWrapping="Wrap"/>
                 </Grid>
 
                 <Border Height="1" Background="{DynamicResource Line}"/>
@@ -226,7 +238,7 @@
                   </StackPanel>
                   <TextBlock Classes="mono dim" FontSize="11" Text="{Binding MachineParamsText}" TextWrapping="Wrap"/>
                   <TextBlock FontSize="11" Foreground="{DynamicResource Warn}" TextWrapping="Wrap"
-                             Text="⚠ 綁定動作（指派 IP / 位置映射）= Gap #21，本版僅顯示狀態、不執行。"/>
+                             Text="綁定由 grab 的 cam_map.json 決定（MAC↔CCD 槽位）。此處僅顯示綁定結果與交叉檢查，不在 Control 修改映射。"/>
                 </StackPanel>
               </StackPanel>
             </Border>

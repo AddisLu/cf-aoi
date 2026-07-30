@@ -142,9 +142,12 @@ public static class SelfTest
                 var seq = (int?)req["seq"] ?? 0;
                 string resp;
                 if (cmd == "LIST_CAMERAS")
+                    // cam0：bound=true → 綁到 CCD00（example 拓樸有此槽）
+                    // cam1：**persistent=true 但 bound=false** —— 這是語意衝突的關鍵回歸守門：
+                    //       舊版用 persistent 推斷「已綁定」會誤判成已綁；正確答案是「待綁定」。
                     resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"cameras\":[" +
-                           "{\"cam_id\":0,\"mac\":\"00:30:53:2A:0B:03\",\"model\":\"raL8192-12gm\",\"serial\":\"25445953\",\"ip\":\"192.168.5.10\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\"}," +
-                           "{\"cam_id\":1,\"mac\":\"00:30:53:2B:12:10\",\"model\":\"raL8192-12gm\",\"serial\":\"25445999\",\"ip\":\"169.254.20.5\",\"online\":true,\"persistent\":false,\"ip_config\":\"AutoIP\",\"device_class\":\"BaslerGigE\"}]}";
+                           "{\"cam_id\":0,\"mac\":\"00:30:53:2A:0B:03\",\"model\":\"raL8192-12gm\",\"serial\":\"25445953\",\"ip\":\"192.168.5.10\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"CCD00\",\"bound\":true}," +
+                           "{\"cam_id\":1,\"mac\":\"00:30:53:2B:12:10\",\"model\":\"raL8192-12gm\",\"serial\":\"25445999\",\"ip\":\"192.168.5.11\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"\",\"bound\":false}]}";
                 else resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
                 await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
                 await ns.FlushAsync();
@@ -166,6 +169,13 @@ public static class SelfTest
                         && vm.OfflineCameras.Count == 0;
         bool selected = vm.SelectedCamera is { CamId: 0 } && vm.HasSelection;
         bool fields   = vm.Cameras[1].Mac == "00:30:53:2B:12:10" && vm.Cameras[1].StatusLabel == "待綁定";
+        // 新欄位解析（舊版 grab 不回時預設 ""/false，見 GrabClient）
+        bool newFields = vm.Cameras[0].Bound && vm.Cameras[0].CcdId == "CCD00"
+                         && !vm.Cameras[1].Bound && vm.Cameras[1].CcdId == "";
+        // ★ 語意衝突回歸守門：cam1 persistent=true 但 bound=false → 必須是「待綁定」。
+        //   舊版（用 persistent 推斷）會答「已綁定」，此斷言即防止回退。
+        bool semantics = vm.Cameras[1].Persistent && !vm.Cameras[1].Bound
+                         && vm.Cameras[1].Status == Models.CamStatusKind.Unbound;
 
         Console.WriteLine($"  列舉 2 台: {(count ? "PASS" : "FAIL")}");
         Console.WriteLine($"  KPI(偵測) 上線=2 已綁定=1 待綁定=1 離線=0: {(kpi ? "PASS" : "FAIL")} " +
@@ -173,11 +183,13 @@ public static class SelfTest
         Console.WriteLine($"  分群 bound[CCD00]/unbound[CCD01]/offline[空]: {(grouping ? "PASS" : "FAIL")}");
         Console.WriteLine($"  預選第一台 + HasSelection: {(selected ? "PASS" : "FAIL")}");
         Console.WriteLine($"  欄位解析 (MAC/狀態標籤): {(fields ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  新欄位 ccd_id/bound 解析: {(newFields ? "PASS" : "FAIL")} (cam0 bound={vm.Cameras[0].Bound} ccd={vm.Cameras[0].CcdId})");
+        Console.WriteLine($"  ★語意守門 persistent=true 但 bound=false → 待綁定: {(semantics ? "PASS" : "FAIL")} (實得 {vm.Cameras[1].StatusLabel})");
 
         svc.Connection.Grab.Disconnect();
         listener.Stop();
-        bool ok = count && kpi && grouping && selected && fields;
-        Console.WriteLine(ok ? "✓ 相機總覽：LIST_CAMERAS 解析 + 分群 + KPI 正確（離線維持 0，不假造）"
+        bool ok = count && kpi && grouping && selected && fields && newFields && semantics;
+        Console.WriteLine(ok ? "✓ 相機總覽：LIST_CAMERAS 解析(含 ccd_id/bound) + 分群 + KPI + 綁定語意不回退"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }
@@ -214,10 +226,15 @@ public static class SelfTest
         var g2 = vm.ComputeUnits.FirstOrDefault(g => g.Unit.Id == "Spark2");
         bool group = vm.ComputeUnits.Count == 2 && vm.DeclaredSlotCount == 3
                      && g1 is { } && g1.Slots.Count == 2 && g2 is { } && g2.Slots.Count == 1;
-        // 約束②：全部宣告槽「已宣告·未綁」，無人標線上
-        bool noOnline = vm.ComputeUnits.SelectMany(g => g.Slots).All(s => s.SlotStatusLabel == "已宣告 · 未綁");
+        // 約束②：尚未列舉相機 → 不得有任何槽被標成「就位」。
+        // 注意 fixture 的 CCD01 有 expected_mac 卻沒相機 → 正確判為「離線(該就位卻沒出現)」，
+        // 這**不是**線上，仍符合「未綁不標線上」；CCD00/CCD02 無 expected_mac → 「已宣告·未綁」。
+        bool noOnline = vm.ComputeUnits.SelectMany(g => g.Slots)
+                          .All(s => s.Kind is ViewModels.SlotBindKind.Declared or ViewModels.SlotBindKind.Offline)
+                        && vm.ComputeUnits.SelectMany(g => g.Slots).Count(s => s.Kind == ViewModels.SlotBindKind.Offline) == 1;
 
-        // 假 LIST_CAMERAS：1 台 → 偵測側單獨呈現，且宣告槽不因列舉而改變（未 merge）
+        // 假 LIST_CAMERAS：**舊版 grab 格式（不含 ccd_id/bound）** → 向後相容案例：
+        // 應退回今日行為（全部未綁、不崩），不可因缺欄位拋例外。
         var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
         listener.Start();
         int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
@@ -242,10 +259,16 @@ public static class SelfTest
 
         bool detectedSeparate = vm.Cameras.Count == 1                                  // 偵測側有 1 台
             && vm.ComputeUnits.SelectMany(g => g.Slots).Count() == 3                    // 宣告槽數不因列舉而變
-            && vm.ComputeUnits.SelectMany(g => g.Slots).All(s => s.SlotStatusLabel == "已宣告 · 未綁");  // 列舉後槽仍未綁（未 merge）
+            && vm.ComputeUnits.SelectMany(g => g.Slots).All(s => s.Camera is null)      // 舊格式無 bound → 沒有任何槽被填
+            && vm.Cameras[0].Bound == false && vm.Cameras[0].CcdId == "";               // 缺欄位 → 預設未綁（不崩）
         // 案②：fixture 3 槽 + 假列舉 1 台(unbound) → 配置=宣告數3；偵測類 KPI 反映該 1 台(連線1/待綁1/已綁0/離線0)。
         bool kpiCase2 = vm.DeclaredSlotCount == 3
-                        && vm.OnlineCount == 1 && vm.UnboundCount == 1 && vm.BoundCount == 0 && vm.OfflineCount == 0;
+                        && vm.OnlineCount == 1 && vm.UnboundCount == 1 && vm.BoundCount == 0
+                        && vm.OfflineCount == 1;   // CCD01 有 expected_mac 卻沒相機 = 該就位沒出現
+        // 快照 phase A/B 的實得值（後面還會換拓樸+換相機，直接印 vm.* 會是 phase C 的值）
+        var snapA = $"配置={vm.DeclaredSlotCount} on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount}";
+        var snapGroup = $"units={vm.ComputeUnits.Count} declared={vm.DeclaredSlotCount}";
+        int snapCams = vm.Cameras.Count;
 
         // ── 塊2：運算單元卡三項 ──
         var sp1 = vm.ComputeUnits.First(g => g.Unit.Id == "Spark1");
@@ -268,19 +291,93 @@ public static class SelfTest
         svc.Connection.Grab.Disconnect();
         listener.Stop();
 
+        // ══ Gap #21：宣告槽 × 偵測相機的真實 join（grab 回 bound/ccd_id 後才可能）══
+        // 新拓樸涵蓋四種槽狀態，一次驗完：
+        //   CCD10 expected_mac=null  + 有相機綁到        → 已綁定·就位
+        //   CCD11 expected_mac 相符   + 有相機綁到        → 已綁定·就位（且 MAC 以**非正規化格式**填，驗正規化）
+        //   CCD12 expected_mac 不符   + 有相機綁到        → ⚠ MAC 不符（插錯槽位）
+        //   CCD13 expected_mac 有值   + 沒有相機          → 離線（該就位卻沒出現）
+        //   CCD14 expected_mac=null  + 沒有相機          → 已宣告·未綁（**不算離線**，開發期不吵）
+        // 另有一台 bound=false 的相機 → 絕不可被指派到任何槽（約束②底線）。
+        var json2 = """
+        { "ccd_total_count": 5,
+          "compute_units": [ {"id":"Spark1","node":"IpOffline","role":"aoi"} ],
+          "slots": [
+            {"ccd_id":"CCD10","compute_unit":"Spark1","expected_mac":null,"recipe_partition":"IP10"},
+            {"ccd_id":"CCD11","compute_unit":"Spark1","expected_mac":"003053 2a-0b11","recipe_partition":"IP11"},
+            {"ccd_id":"CCD12","compute_unit":"Spark1","expected_mac":"00:30:53:AA:AA:AA","recipe_partition":"IP12"},
+            {"ccd_id":"CCD13","compute_unit":"Spark1","expected_mac":"00:30:53:BB:BB:BB","recipe_partition":"IP13"},
+            {"ccd_id":"CCD14","compute_unit":"Spark1","expected_mac":null,"recipe_partition":"IP14"} ] }
+        """;
+        vm.ApplyTopology(Models.ArrayTopologyModel.Parse(json2));
+
+        var l2 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        l2.Start();
+        int port2 = ((System.Net.IPEndPoint)l2.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await l2.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            // CCD11 的相機 MAC 用標準冒號格式，拓樸用 "003053 2a-0b11" → 必須被正規化視為同一台
+            const string cams =
+                "[{\"cam_id\":0,\"mac\":\"00:30:53:2A:0B:10\",\"model\":\"raL8192-12gm\",\"serial\":\"S10\",\"ip\":\"192.168.5.10\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"CCD10\",\"bound\":true}," +
+                "{\"cam_id\":1,\"mac\":\"00:30:53:2A:0B:11\",\"model\":\"raL8192-12gm\",\"serial\":\"S11\",\"ip\":\"192.168.5.11\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"CCD11\",\"bound\":true}," +
+                "{\"cam_id\":2,\"mac\":\"00:30:53:CC:CC:CC\",\"model\":\"raL4096-24gm\",\"serial\":\"S12\",\"ip\":\"192.168.5.12\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"CCD12\",\"bound\":true}," +
+                "{\"cam_id\":9,\"mac\":\"00:30:53:FF:FF:FF\",\"model\":\"raL4096-24gm\",\"serial\":\"S99\",\"ip\":\"169.254.9.9\",\"online\":true,\"persistent\":false,\"ip_config\":\"AutoIP\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"\",\"bound\":false}]";
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var seq = (int?)req["seq"] ?? 0;
+                string resp = req["cmd"]!.GetValue<string>() == "LIST_CAMERAS"
+                    ? $"{{\"seq\":{seq},\"status\":\"OK\",\"cameras\":{cams}}}"
+                    : $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", port2);
+        await vm.LoadCamerasCommand.ExecuteAsync(null);
+
+        var slots2 = vm.ComputeUnits.SelectMany(g => g.Slots).ToDictionary(s => s.CcdId);
+        bool bindJoin     = slots2["CCD10"].Kind == ViewModels.SlotBindKind.Bound
+                            && slots2["CCD10"].Camera?.Serial == "S10";
+        bool bindMacNorm  = slots2["CCD11"].Kind == ViewModels.SlotBindKind.Bound;   // 格式不同但同一台
+        bool bindMismatch = slots2["CCD12"].Kind == ViewModels.SlotBindKind.MacMismatch;
+        bool bindOffline  = slots2["CCD13"].Kind == ViewModels.SlotBindKind.Offline;
+        bool bindDeclared = slots2["CCD14"].Kind == ViewModels.SlotBindKind.Declared;  // null mac 無相機 ≠ 離線
+        // 約束②底線：bound=false 的相機不得出現在任何槽
+        bool unboundNotAssigned = slots2.Values.All(s => s.Camera?.Serial != "S99");
+        // KPI：已綁定=有相機的槽數(3，含 MAC 不符仍算就位) / 待綁定=未綁相機數(1) / 離線=該就位沒出現(1)
+        bool kpiJoin = vm.BoundCount == 3 && vm.UnboundCount == 1 && vm.OfflineCount == 1
+                       && vm.DeclaredSlotCount == 5 && vm.OnlineCount == 4;
+        bool warnText = vm.BindingWarning.Contains("CCD12");   // 告警要指出是哪個槽
+
+        svc.Connection.Grab.Disconnect();
+        l2.Stop();
+
+        bool join = bindJoin && bindMacNorm && bindMismatch && bindOffline && bindDeclared
+                    && unboundNotAssigned && kpiJoin && warnText;
+
         Console.WriteLine($"  ① 載入 3 槽/2 運算單元 + 欄位(ccd_id/recipe_partition/expected_mac): {(load && keys ? "PASS" : "FAIL")}");
-        Console.WriteLine($"  ② 依 compute_unit 分群 Spark1[2]/Spark2[1] + DeclaredSlotCount=3: {(group ? "PASS" : "FAIL")} (實得 units={vm.ComputeUnits.Count} declared={vm.DeclaredSlotCount})");
-        Console.WriteLine($"  ③ 全部宣告槽「已宣告·未綁」無人線上: {(noOnline ? "PASS" : "FAIL")}");
-        Console.WriteLine($"  ④ 列舉相機獨立呈現({vm.Cameras.Count} 台)且未 merge 進宣告槽: {(detectedSeparate ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  ② 依 compute_unit 分群 Spark1[2]/Spark2[1] + DeclaredSlotCount=3: {(group ? "PASS" : "FAIL")} (實得 {snapGroup})");
+        Console.WriteLine($"  ③ 未列舉前無槽標「就位」(CCD01 有 expected_mac→離線, 其餘未綁): {(noOnline ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  ④ 舊版 grab 格式(無 ccd_id/bound)相容：{snapCams} 台皆未綁、不填任何槽: {(detectedSeparate ? "PASS" : "FAIL")}");
         Console.WriteLine($"  KPI案① 37槽+0列舉 → 配置=37 偵測KPI全0: {(kpiCase1 ? "PASS" : "FAIL")} (實得 配置={declaredAtBoot} 偵測 on/b/u/off=0)");
-        Console.WriteLine($"  KPI案② 3宣告槽+假列舉1台 → 配置=3 連線=1 待綁=1 已綁=0 離線=0: {(kpiCase2 ? "PASS" : "FAIL")} " +
-            $"(實得 配置={vm.DeclaredSlotCount} on={vm.OnlineCount} b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount})");
+        Console.WriteLine($"  KPI案② 3宣告槽+舊格式1台 → 配置=3 連線=1 待綁=1 已綁=0 離線=1(CCD01該在沒在): {(kpiCase2 ? "PASS" : "FAIL")} " +
+            $"(實得 {snapA})");
         Console.WriteLine($"  塊2-a 處理 N(真)=槽數 Spark1=2/Spark2=1: {(procN ? "PASS" : "FAIL")} (實得 {sp1.SlotCount}/{sp2.SlotCount})");
         Console.WriteLine($"  塊2-b 負載%(估算,公式非寫死)+標旗標: {(loadCalc ? "PASS" : "FAIL")} (Spark1 EstLoadPct={sp1.EstLoadPct} 期望={expect1}; LoadText=\"{sp1.LoadText}\")");
         Console.WriteLine($"  塊2-c 連線(真): 預設未連不假綠={connDefault} + 規則(active才綠/非active灰/未連灰)={connRule}: {(connDefault && connRule ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  #21-a join：CCD10 綁到 S10={bindJoin} · CCD11 MAC 正規化視為同台={bindMacNorm}: {(bindJoin && bindMacNorm ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  #21-b MAC 不符(插錯槽位) CCD12 標告警: {(bindMismatch && warnText ? "PASS" : "FAIL")} (警語=\"{vm.BindingWarning}\")");
+        Console.WriteLine($"  #21-c 離線=該就位卻沒出現 CCD13={bindOffline} · null-mac 無相機 CCD14 不算離線={bindDeclared}: {(bindOffline && bindDeclared ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  #21-d 未綁相機(S99)不得指派任何槽: {(unboundNotAssigned ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  #21-e KPI 已綁3(槽)/待綁1(相機)/離線1(槽)/宣告5/連線4: {(kpiJoin ? "PASS" : "FAIL")} " +
+            $"(實得 b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount} d={vm.DeclaredSlotCount} on={vm.OnlineCount})");
         bool block2 = procN && loadCalc && connDefault && connRule;
-        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2 && block2;
-        Console.WriteLine(ok ? "✓ 塊1+2：拓樸/分群/配置=宣告數/偵測runtime-only/不假merge + 處理N真/負載估算公式/連線真不假綠"
+        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2 && block2 && join;
+        Console.WriteLine(ok ? "✓ 塊1+2 + Gap#21 綁定：拓樸/分群/舊格式相容不假merge + 處理N真/負載估算/連線真 + join四態/MAC正規化/插錯槽告警/未綁不指派"
                              : "✗ 不符");
         return ok ? 0 : 1;
     }

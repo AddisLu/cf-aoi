@@ -12,8 +12,10 @@ public partial class SystemSettingsView : UserControl
     // 純導覽選取，不改宣告/偵測 section 語意、不 merge（約束②）。
     private void OnSlotTapped(object? sender, TappedEventArgs e)
     {
-        if (sender is Control { DataContext: Models.CcdSlotModel slot }
+        // chip 的 DataContext 現在是 SlotBinding（宣告槽 + join 到的相機）；
+        // VM 的 SelectSlotCommand 會解包出純宣告的 CcdSlotModel 給下游。
+        if (sender is Control { DataContext: ViewModels.SlotBinding sb }
             && DataContext is ViewModels.SystemSettingsViewModel vm)
-            vm.SelectSlotCommand.Execute(slot);
+            vm.SelectSlotCommand.Execute(sb);
     }
 }
