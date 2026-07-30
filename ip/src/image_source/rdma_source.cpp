@@ -193,13 +193,28 @@ void RdmaImageSource::recv_thread_fn() {
             continue;
         }
 
-        // CRC 驗證（payload 在 pinned memory 中，CPU 直接讀）
+        // ── ★ 釘點 1 [1]：memcpy slot → payload（**必須是碰到 slot 的第一件事**）──────
+        // 2026-07-30 實機教訓：原本順序是 CRC(讀 slot) → memcpy → push_blocking → post_recv，
+        // 且註解宣稱「post_recv 在 push 之後 → slot 不會被覆蓋」。**該假設是錯的**：
+        // RNR / recv-WQE credit 只擋 WRITE_WITH_IMM 的 immediate 遞送，擋不住 payload 落地——
+        // 送端一取得前一筆的 send completion 就會 post 下一筆 write，payload 照樣寫進 slot。
+        // 真正的安全條件是「收端持有 slot 的時間 < n_slots × 幀週期」。原順序把 push_blocking
+        // （背壓時可達 1200ms）算在持有期內 → 2 台相機(幀週期 136ms)、n_slots=4 時預算僅 544ms → 必爆。
+        // 實測：slots=2 → err=11/20、slots=4 → err=10/20、slots=16 → err=0/20（純粹是時間預算）。
+        // 修法：先把資料複製出來，持有期縮到「只有 memcpy」(~3-6ms ≪ 136ms，餘裕 >20×)，
+        // 之後的 CRC/push 全部只碰自己的副本。post_recv 位置不動（仍在 push 後 → 背壓鏈不變）。
+        auto _tm0 = std::chrono::steady_clock::now();
+        std::vector<uint8_t> payload(h.payloadBytes);
+        memcpy(payload.data(), slot + sizeof(FrameHeader), h.payloadBytes);
+        sum_cpy_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tm0).count();
+
+        // CRC 驗證（對**已複製出來的 payload**做，不再碰 slot）
         // CFAOI_RDMA_NOCRC=1：跳過收端 app-CRC 複驗（RDMA RC 已保證有序無損送達；省 ~16ms/幀）。
         //   預設關閉(=做 CRC，較保守)；可信 fabric 求吞吐時開啟。資料若真損壞，下游缺陷結果會偏離 golden→仍可抓。
         static const bool s_nocrc = std::getenv("CFAOI_RDMA_NOCRC") != nullptr;
         if (!s_nocrc) {
             auto _tc0 = std::chrono::steady_clock::now();
-            uint32_t crc = crc32_ieee(slot + sizeof(FrameHeader), h.payloadBytes);
+            uint32_t crc = crc32_ieee(payload.data(), h.payloadBytes);
             sum_crc_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tc0).count();
             if (crc != h.crc32) {
                 fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u CRC 不符"
@@ -213,14 +228,7 @@ void RdmaImageSource::recv_thread_fn() {
             }
         }
 
-        // ── ★ 釘點 1 [1]：memcpy slot → payload（slot data 安全複製出來）──────
-        // 此 memcpy 完成後，slot 的資料已在 payload 中；無論 Grab 是否覆蓋 slot，
-        // payload 的內容不受影響。
-        auto _tm0 = std::chrono::steady_clock::now();
-        std::vector<uint8_t> payload(h.payloadBytes);
-        memcpy(payload.data(), slot + sizeof(FrameHeader), h.payloadBytes);
-        sum_cpy_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tm0).count();
-
+        // （memcpy 已上移到碰 slot 的第一步；此後不再讀 slot）
         // panel_id：RDMA 模式以 "rdma_seq_NNN" 合成（FrameHeader 只帶 hash，不帶字串）
         std::string panel = "rdma_seq_" + std::to_string(seq);
 
