@@ -51,14 +51,23 @@ int main(int argc, char** argv) {
 
     auto t0 = std::chrono::steady_clock::now();
 
+    // 測試注入：CFAOI_TEST_CORRUPT_EVERY=N → 每 N 幀故意送錯 CRC，驗收端「丟棄 + 標記不完整」。
+    // 只存在於測試送器，生產路徑（cfaoi_grab）沒有這條。
+    const char* ce = std::getenv("CFAOI_TEST_CORRUPT_EVERY");
+    const uint32_t corrupt_every = ce ? (uint32_t)atoi(ce) : 0;
+    if (corrupt_every)
+        printf("[nslot_test] ⚠ 測試注入：每 %u 幀故意送錯 CRC\n", corrupt_every);
+
     // 每條 thread 有自己的 payload 緩衝（比照每台相機有自己的 pylon 緩衝）
+    // 每條 thread = 一台相機送一片：slice 0..my_frames-1，totalSlice=my_frames
     auto worker = [&](int tid, uint32_t my_frames) {
         std::vector<uint8_t> payload(max_payload);
         for (uint32_t i = 0; i < my_frames; ++i) {
             memset(payload.data(), (uint8_t)((tid * 37 + i) & 0xFF), max_payload);
 
             // ⚠️ 與 main.cpp frame_cb 同構：CRC 在 send_mtx **之外**算（各 thread 併發）
-            const uint32_t crc = RdmaSender::crc_of(payload.data(), (uint32_t)max_payload);
+            uint32_t crc = RdmaSender::crc_of(payload.data(), (uint32_t)max_payload);
+            if (corrupt_every && ((i + 1) % corrupt_every == 0)) crc ^= 0x1u;   // 故意送錯
 
             uint64_t seq;
             {
@@ -66,7 +75,8 @@ int main(int argc, char** argv) {
                 seq = ++frame_seq;      // 與 main.cpp 同：seq 在鎖內指派，順序 == wire 順序
                 sender.send_frame((uint16_t)tid, seq, 0xDEADBEEFu,
                                   payload.data(), (uint32_t)max_payload,
-                                  width, height, /*slice*/0, /*total_slice*/1, crc);
+                                  width, height,
+                                  (uint16_t)i, (uint16_t)my_frames, crc);
             }
             ++ok;
             if (delay > 0)
