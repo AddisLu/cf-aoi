@@ -79,6 +79,11 @@ target_link_libraries(cfaoi_ip PRIVATE
 
 set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 
+# ── crc_verify（純 CPU；驗 ARM64 硬體 CRC32 與表格版位元級等價 = wire 相容守門）──
+add_executable(crc_verify src/crc_verify.cpp)
+target_include_directories(crc_verify PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_options(crc_verify PRIVATE -std=c++17 -O2)
+
 # ── align_verify（純 OpenCV，不需 CUDA；Gap #1 精度驗證）──────────────────
 add_executable(align_verify
     src/align_verify.cpp

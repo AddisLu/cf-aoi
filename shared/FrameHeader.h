@@ -87,7 +87,42 @@ struct Crc32Table {
 };
 inline const Crc32Table& crc32_tbl() { static const Crc32Table T; return T; }
 
+// ---------------------------------------------------------------------------
+// ARM64 硬體 CRC32（Spark/GB10 用）
+// ARMv8 的 crc32b/w/x 指令用的正是 **IEEE 802.3 多項式（0x04C11DB7 反射 = 0xEDB88320）**，
+// 與下方表格版位元級等價 → 兩端（x86 送端用表格版、ARM 收端用硬體版）算出的值必須一致。
+// ⚠️ 這是 wire 上的值，不可只靠推論：`ip/src/crc_verify.cpp` 對兩版做逐長度比對驗證。
+// x86 的 SSE4.2 `_mm_crc32_*` 是 Castagnoli 多項式（不同！），**不可**拿來用；
+// 送端 CRC 已按相機 thread 平行化（見 rdma_sender::crc_of），不是瓶頸，故 x86 維持表格版。
+// 動機：收端 recv_thread 是單執行緒，表格版 40.8MB 要 16.4ms（2.49 GB/s），
+//       成為 37 台 @12kHz 的最後瓶頸（每幀預算僅 11.3ms）。
+// ---------------------------------------------------------------------------
+#if defined(__aarch64__)
+#include <arm_acle.h>
+#include <sys/auxv.h>
+#ifndef HWCAP_CRC32
+#define HWCAP_CRC32 (1 << 7)
+#endif
+inline bool crc32_hw_available() {
+    static const bool ok = (getauxval(AT_HWCAP) & HWCAP_CRC32) != 0;
+    return ok;
+}
+__attribute__((target("+crc")))
+inline uint32_t crc32_ieee_hw(const void* data, uint64_t len, uint32_t crc) {
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+    for (; len >= 8; len -= 8, p += 8) {
+        uint64_t v; __builtin_memcpy(&v, p, 8);   // 兩端皆 little-endian
+        crc = __crc32d(crc, v);
+    }
+    for (; len; --len, ++p) crc = __crc32b(crc, *p);
+    return crc ^ 0xFFFFFFFFu;
+}
+#endif  // __aarch64__
+
 inline uint32_t crc32_ieee(const void* data, uint64_t len, uint32_t crc = 0xFFFFFFFFu) {
+#if defined(__aarch64__)
+    if (crc32_hw_available()) return crc32_ieee_hw(data, len, crc);
+#endif
     const auto& T = crc32_tbl();
     const uint8_t* p = static_cast<const uint8_t*>(data);
     for (; len >= 8; len -= 8, p += 8) {
