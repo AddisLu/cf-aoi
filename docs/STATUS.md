@@ -47,7 +47,7 @@
 | 配方單一資料來源 RecipeStore | **L2** | `--selftest store`：三處同步 + 存檔 XML 含改後值。(草稿 L2 ✓) |
 | ShareSetting（全域，appsettings.json） | **L2** | `--selftest settings`：JSON round-trip + 只覆寫該節點 + AiRootPath 預設空。(草稿 L2 ✓) |
 | RecipeSetting 面板（per-recipe XML 編輯/存讀） | **L2** | `--selftest settings`：per-recipe XML round-trip + 不存在回預設 + MaxDefectCountPass 預設 10000。(草稿 L2 ✓) |
-| 連線心跳偵測（CHECK_HEALTH） | **L2** | `--selftest heartbeat` 存在但為**手動 harness**（需起停 IP 觀察綠↔紅，無自動斷言）。重連/IsBusy 邏輯寫好；綠↔紅曾於 Linux 本機觀察。**(原草稿 L3→L2：非自動 unit test，且非跨機定論)** |
+| 連線心跳偵測（CHECK_HEALTH） | **L2（舊邏輯）/最新版 L1** | `--selftest heartbeat` 存在但為**手動 harness**（需起停 IP 觀察綠↔紅，無自動斷言）。重連/IsBusy 邏輯寫好；綠↔紅曾於 Linux 本機觀察。**(原草稿 L3→L2：非自動 unit test，且非跨機定論)** **2026-07-30 改判定邏輯：5s 逾時 × 連續 2 次失敗才斷線（commit `2423b6b`，修法未驗 → 見 Switch 章節 ★8）** |
 | DefectSort（看小圖人工分類 TrueDefect/Particle） | **L2** | `--selftest patches`（filter/即時持久化/統計/UTF-8）+ `--selftest sort` 通過。使用者 Mac 跑過（中文亂碼、1122 重複等 bug 已修）。**(原草稿 L3→L2：Control 分類 UI 的 selftest 為假 IP server；filter/即時存最新版待 Mac 複測。IP 側遠端命令另計為 L3，見 IP 表)** |
 | SystemSettings 相機陣列（運算單元帶 / 宣告陣列 / 偵測相機）| **L2(selftest)/L1(目視)** | `--selftest topology`+`camera` PASS（拓樸載入/依 compute_unit 分群/處理 N 真/負載估算公式/連線規則；LIST_CAMERAS 分群+KPI、離線不假造）。塊1/2；版面待 Mac 目視。宣告(config) 與 偵測(runtime) 分開、不假 merge（約束②）。|
 | RoiImageView（影像/ROI 共用控制項，塊3-3a）| **L1** | 從 Step1View 抽出，行為一致（StyledProperty 介面，EditZone 可注入/AllZones 畫全部 ROI）；`--selftest singleccd` 驗 EditZone 連動。縮放/平移/框選/導航/量 Pitch **互動待 Mac 目視**。|
@@ -92,7 +92,7 @@
 | 模組 | 級別 | 驗證方式 / 缺什麼 |
 | ---- | ---- | ----------------- |
 | 正式 cfaoi_grab 單相機→RDMA→Spark（cam_pylon + rdma_sender + control_server + main） | **L4** | 2026-06-15 Step 2 實機：raL8192-12gm → pylon → FrameHeader(0xA01CF00D)+CRC32 → RDMA 18515 → Spark GB10 pinned memory → CRC 20/20，FAIL=0（見 [Step 2 報告](verification/verification_report_step2_20260615.md)）|
-| 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L1** | **2026-07-18 cam_manager 落地（37 CCD 軟體觸發設計：GRAB_START=觸發，逐台平行 arm，skew 由 IP 玻璃前緣對位吸收）**：`open_all`（--cam-count N\|ALL，fail-fast 不半開）/`start_all` 逐台 arm/收滿 `frames_per_panel` 自動停（cam_pylon `set_max_frames`，= 舊 M_FRAMES_PER_TRIGGER(N) 語意）/GRAB_START params 加 `frames_per_panel`（0=連續 legacy）/**FrameHeader sliceIndex/totalSlice 填真值**（原三處硬編碼 1）/N 相機 thread 共用單 QP 以 send_mtx 序列化/cam_config.json 每台一筆。單台 legacy 路徑保留（--cam-count 1 預設 + --cam-id/--serial 語意不變）。cam_manager/control_server **語法驗證 ✓**（RTX2080 g++ -fsyntax-only）；**完整編譯待 damac**（pylon+rdma dev headers；本日 damac 離線）；**實機多台 = Step 3 待 Switch+相機到貨**。commit `28bf4fb` |
+| 多相機全陣列（cam_manager / --cam-count ALL / N-slot ring buffer） | **L1** | **2026-07-18 cam_manager 落地（37 CCD 軟體觸發設計：GRAB_START=觸發，逐台平行 arm，skew 由 IP 玻璃前緣對位吸收）**：`open_all`（--cam-count N\|ALL，fail-fast 不半開）/`start_all` 逐台 arm/收滿 `frames_per_panel` 自動停（cam_pylon `set_max_frames`，= 舊 M_FRAMES_PER_TRIGGER(N) 語意）/GRAB_START params 加 `frames_per_panel`（0=連續 legacy）/**FrameHeader sliceIndex/totalSlice 填真值**（原三處硬編碼 1）/N 相機 thread 共用單 QP 以 send_mtx 序列化/cam_config.json 每台一筆。單台 legacy 路徑保留（--cam-count 1 預設 + --cam-id/--serial 語意不變）。cam_manager/control_server **語法驗證 ✓**（RTX2080 g++ -fsyntax-only）；**完整編譯待 damac**（pylon+rdma dev headers；本日 damac 離線）；**實機多台 = Step 3 待 Switch+相機到貨**。commit `28bf4fb`。**2026-07-30 fix：ARM(ALL) 靜默少台（idle 調參開的單台被 `open_all` 當成整個陣列，commit `fc00b87`，修法未驗 → 見 Switch 章節 ★7）** |
 | rdma_nslot_test（合成幀送器，驗 N-slot ring + 背壓，不需相機） | **L3** | **2026-06-17 damac↔Spark 實機**：120 幀連送 CRC=OK；背壓 20 幀（IP 200ms 延遲）ok=20 err=0；commit `de047a3` |
 | Control↔Grab 8100 完整接線（觸發鏈：CF_→Grab）| **L2（selftest）/ 實機待 Switch** | **2026-07-21 觸發鏈落地（sensor→上位機(與 Control 同機)→CF_GRAB_START=觸發本體）**：grab 新 `GRAB_ARM`（冷啟重活=開陣列/套參數/RDMA connect 提前預熱，冪等重用）/`GRAB_START` 只剩切片歸零+start_all（**ms 級觸發**，未 ARM 自動冷啟相容 nc）/收滿自動停後可直接下一片/status 加 `armed`。Control：`GrabClient` 加 LoadRecipe/GrabArm/GrabStart/GrabStop；`UpstreamWiring` **CF_LOAD_RECIPE→IP+Grab 預熱、CF_GRAB_START→GRAB_START(timeout+frames_per_panel from appsettings Grab.FramesPerPanel)、CF_STOP→GRAB_STOP（#25 收掉）**；Grab 離線自然誠實 ERR（決策 A 精神）。驗：`--selftest grabtrigger` **5/5**（命令序列 LOAD_RECIPE→ARM→START→STOP/參數傳遞 t=12345 fpp=27/離線 ERR）+ `upstream` 回歸 7/7。**觸發延遲 2026-07-30 實機量到（HPE 5945 + 1 台相機）：`scripts/verify_step3_trigger.py` 6/6 全 PASS — GRAB_ARM 冷啟 542ms（重活已移出觸發路徑）/ 冪等重呼 3ms / GRAB_START 往返 **0.3ms**（目標 <100ms，餘裕 300×）/ 收滿自動停對帳 grabbed=5 sent=5 dropped=0 / 第二片不重 ARM 觸發 0.2ms / teardown armed=false。** 單相機 = **L3**；37 台仍待相機到貨。commit `9913b5a` |
 | ⤷ Gap #2：參數控制（SET/GET_CAM_PARAMS）| **L3** | **2026-06-17 damac raL8192-12gm 實機**：Stage 0（ExposureTimeAbs 2~10000µs；GainRaw 256~2047；TLParamsLocked=0）；Stage 1（SET actual 誤差 0%：exp 200/500µs actual 完全一致；gain 256/512 actual 完全一致）；Stage 4（4 ERR 路徑全 PASS）；cam_config.json 持久化。close() 空 QP bug fix：重現 connect 127.0.0.1 route 失敗 → `rdma_destroy_qp(nullptr)` SIGSEGV；修後 `if (id && id->qp)` guard + null-clear，乾淨退出。⚠️ 假設：曝光/增益為機器層（cam_config.json），若日後隨產品調 → 補 recipe-override。|
@@ -693,6 +693,35 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 **尚未驗（誠實標註）：** 37 台同時（相機未到貨）／`edge_check` 逐 slice 真玻璃邊（本次無玻璃、`enabled=0`）／
 **真面板缺陷正確性**（現為 free-run 無 encoder 觸發、無相對運動 → 線掃的 Y 軸是「時間」不是「位置」，
 拍到的是同一條線的時間紀錄，非真實 2D 面板影像；需接 encoder 行觸發或讓工件移動）／上位機 8787 經交換機端到端。
+
+### 追加：當日尾聲兩筆修正（2026-07-30 18:16／18:27）— 缺陷實機抓到，**修法皆無驗證紀錄 → L1**
+
+> 補帳於 2026-07-31。兩筆 commit 訊息只含「缺陷發現」的實機證據，**查無修後的編譯/復測數據** →
+> 依 §8「沒有驗證就不算完成」，修法標 **L1**，補驗步驟明列如下。
+
+#### ★7【靜默漏檢級】ARM(ALL) 靜默少台：idle 調參開的單台被當成整個陣列（grab，commit `fc00b87`）
+
+- **缺陷重現＝實機（2 台）**：先呼叫 `GET_CAM_NODES`（idle 調參路徑）再 `GRAB_ARM(ALL)` → ARM 回 OK、
+  `armed=true`，但 `CHECK_HEALTH` 顯示 **cams=1**——只有一台在取像且**無任何錯誤訊息**。
+  37 台時等於整片面板少 36 顆 CCD 而系統回報一切正常。
+- **根因**：`get_or_open_primary`（idle 路徑）把「一台」塞進 `cams_`；`open_all` 在 `want<=0`（ALL）時
+  **無條件重用** `cams_` → 單台被當成整個陣列。
+- **修法**：`CamManager` 加 `primary_only_` 旗標——`get_or_open_primary` 開的標 true、`stop_all`/正式
+  `open_all` 清 false；`open_all` 見此旗標一律 `stop_all()` 重開。正常 ARM 冪等重用（連續多片零冷啟）不受影響。
+- **修法 L1（未驗）**，補驗步驟：damac 編譯 → 重現序列 `GET_CAM_NODES` → `GRAB_ARM(ALL)` →
+  `CHECK_HEALTH` 應回 **cams=2** → 回歸 `verify_step3_trigger`（2 台）6/6 + ARM 冪等重呼仍 ms 級（不誤傷零冷啟）。
+
+#### ★8【誤報級】Control 心跳單次逾時即斷線 → 改 5s 逾時 × 連續 2 次失敗（control，commit `2423b6b`）
+
+- **現象＝實機（Mac）**：IP 燈每 ~4s 紅一次、log 反覆「連線中斷/已重新連線」，IP 程式實際一直正常。
+- **診斷數據（從 Mac 直接量，排除 Control 嫌疑）**：Tailscale→Spark **12.5% 封包遺失、RTT avg 285ms/max 987ms**；
+  對照 damac 0% 遺失 avg 136ms（∴只有 IP 斷、Grab 不斷）；`CHECK_HEALTH` 往返多數 26–250ms、尖峰 3862ms；
+  當時全系統跑**手機熱點**（172.20.10.x）。主因是網路（實驗室臨時環境，正式 LAN 不會），但舊心跳太敏感
+  （2s 逾時＋**單次失敗即 Disconnect**）把抖動放大成斷線，且反覆重建連線 churn IP 的單客戶端 server。
+- **修法**：逾時 2s→5s、connect 逾時 2s→4s、需**連續 2 次失敗**才判斷線（未達門檻維持原狀態，不翻燈不記 log）；
+  最慢約 12.5s 判定真斷線。
+- **修法 L1（未驗）**，補驗步驟：`dotnet build` 0 警告 → Mac 於抖動網路（熱點）跑 ≥10 分鐘**不再誤翻紅** →
+  真停掉 IP 時 **~12.5s 內翻紅**、IP 回來後自動重連（既有重連邏輯不被門檻改動破壞）。
 
 ---
 
