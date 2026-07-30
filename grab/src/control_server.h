@@ -50,6 +50,11 @@ public:
     // GET_CAM_NODES：回 GigE 機器層參數 JSON 物件字串（需開相機）
     // cam_id 必填：舊版簽章沒有它 → 一律回第一台，多相機時「靜默回錯相機」（不是 ERR，更危險）
     using GetNodesFn = std::function<bool(int cam_id, std::string& json_out, std::string& err)>;
+    // SET_CAM_MAP：寫入 MAC↔cam_id 映射（Gap #21 綁定動作）。entries = JSON 陣列字串。
+    // 取像中必須拒絕（改映射 = 改相機身分）。回 written = 寫入筆數、path = 實際檔案路徑。
+    using SetCamMapFn = std::function<bool(const std::string& entries_json,
+                                           int& written, std::string& path,
+                                           std::string& err)>;
 
     explicit ControlServer(int port);
     ~ControlServer();
@@ -64,6 +69,7 @@ public:
     void set_list_cameras_handler(ListCamFn fn) { list_cam_fn_ = std::move(fn); }
     void set_tune_mean_handler(TuneMeanFn fn) { tune_mean_fn_ = std::move(fn); }
     void set_get_nodes_handler(GetNodesFn fn) { get_nodes_fn_ = std::move(fn); }
+    void set_cam_map_handler(SetCamMapFn fn) { set_map_fn_ = std::move(fn); }
 
     bool start();   // 建立 listener，開接受 thread
     void stop();    // 關閉 listener，join thread
@@ -87,4 +93,5 @@ private:
     ListCamFn    list_cam_fn_;
     TuneMeanFn   tune_mean_fn_;
     GetNodesFn   get_nodes_fn_;
+    SetCamMapFn  set_map_fn_;
 };

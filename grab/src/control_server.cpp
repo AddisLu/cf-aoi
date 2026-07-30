@@ -281,6 +281,28 @@ void ControlServer::handle_client(int fd) {
                     }
                 }
 
+            } else if (cmd == "SET_CAM_MAP") {
+                // Gap #21 綁定動作：Control 送完整映射表 → 寫 cam_map.json 並重載。
+                // 刻意要求「完整表」而非增量：增量語意（改一筆、刪一筆）在兩端各自維護狀態時
+                // 極易分歧；一次覆蓋全表，Control 畫面上看到什麼就是檔案裡的什麼。
+                if (!set_map_fn_) {
+                    resp["status"] = "ERR"; resp["error"] = "no handler";
+                } else if (!req.contains("params") || !req["params"].contains("entries")
+                           || !req["params"]["entries"].is_array()) {
+                    resp["status"] = "ERR"; resp["error"] = "params.entries 必須是陣列";
+                } else {
+                    int written = 0; std::string path, err;
+                    if (set_map_fn_(req["params"]["entries"].dump(), written, path, err)) {
+                        resp["status"]  = "OK";
+                        resp["written"] = written;
+                        resp["path"]    = path;
+                    } else {
+                        resp["status"] = "ERR"; resp["error"] = err;
+                    }
+                    printf("[ctrl] SET_CAM_MAP %d 筆 → %s\n", written,
+                           resp["status"].get<std::string>().c_str());
+                }
+
             } else if (cmd == "TUNE_MEAN") {
                 auto& prms    = req["params"];
                 int   cam_id  = prms.value("cam_id",      0);

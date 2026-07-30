@@ -408,6 +408,23 @@ int main(int argc, char** argv) {
         return true;
     });
 
+    // Gap #21 綁定動作：SET_CAM_MAP（Control 送完整映射表 → 寫 cam_map.json 並重載）
+    ctrl.set_cam_map_handler([&](const std::string& entries_json,
+                                 int& written, std::string& path, std::string& err) -> bool {
+        std::lock_guard<std::mutex> lk(state_mtx);
+        // ⚠️ 取像中一律拒絕：cam_id 決定 FrameHeader.camId 與 IP 端輸出夾，
+        // 途中換映射等於同一片面板前後半段的影像被歸給不同 CCD → 資料對錯台。
+        if (grabbing || armed) {
+            err = "取像中/已 ARM，無法變更相機映射；請先 GRAB_STOP";
+            return false;
+        }
+        path = cam_map_path;
+        if (!mgr.write_map(cam_map_path, entries_json, err)) return false;
+        written = (int)mgr.map_size();
+        printf("[main] SET_CAM_MAP → %s（%d 筆），已重載\n", cam_map_path.c_str(), written);
+        return true;
+    });
+
     // 調參效果確認：TUNE_MEAN（開相機免 RDMA → 設曝光/增益 → 抓 1 幀回 mean gray）
     ctrl.set_tune_mean_handler([&](int cid, float exp_us, int gain_raw,
                                    float& ea, int& ga, double& mean,

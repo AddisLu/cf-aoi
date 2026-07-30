@@ -44,6 +44,13 @@ public:
     bool has_map() const { return !mac_map_.empty(); }
     size_t map_size() const { return mac_map_.size(); }
 
+    // 寫入映射檔並立即重載（SET_CAM_MAP）。entries 需為 {mac, cam_id, ccd_id} 的 JSON 陣列字串。
+    // 驗證規則**與 load_map 完全共用**（先寫暫存檔→試 load→過了才 rename），
+    // 避免出現「寫得進去但下次開機載不起來」的兩套標準。
+    // ⚠️ 呼叫端必須確保**非取像中**：改映射 = 改相機身分，取像途中換等於資料對錯台。
+    bool write_map(const std::string& path, const std::string& entries_json,
+                   std::string& err);
+
     // 依映射把 cam_id/ccd_id/bound 填進列舉結果（LIST_CAMERAS 用；不開相機）。
     // 無映射時：cam_id 維持列舉 index、bound=false（誠實表示「未綁定」）。
     void annotate(std::vector<CamInfo>& infos) const;

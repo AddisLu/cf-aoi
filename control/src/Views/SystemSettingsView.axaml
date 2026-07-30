@@ -237,6 +237,19 @@
                     <Button Classes="primary" Content="套用" Command="{Binding ApplyCamParamsCommand}" IsEnabled="{Binding IsGrabConnected}"/>
                   </StackPanel>
                   <TextBlock Classes="mono dim" FontSize="11" Text="{Binding MachineParamsText}" TextWrapping="Wrap"/>
+                  <Border Height="1" Background="{DynamicResource Line}"/>
+                  <TextBlock Text="槽位綁定（寫入 grab cam_map.json）" FontWeight="SemiBold" Foreground="{DynamicResource Txt}"/>
+                  <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
+                             Text="先在上方點一個 CCD 槽、下方點一台相機，再按綁定。取像中 Grab 會拒絕（改映射=改相機身分）。"/>
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <Button Classes="primary" Content="綁定到選中槽" Command="{Binding BindSelectedCommand}"
+                            IsEnabled="{Binding CanBind}"
+                            ToolTip.Tip="把選中的相機綁到選中的宣告槽；該槽已被別台佔用時會拒絕。"/>
+                    <Button Classes="ghost" Content="解除綁定" Command="{Binding UnbindSelectedCommand}"
+                            IsEnabled="{Binding IsGrabConnected}"/>
+                  </StackPanel>
+                  <TextBlock Classes="mono" FontSize="11" TextWrapping="Wrap"
+                             Text="{Binding BindActionStatus}" Foreground="{DynamicResource Accent}"/>
                   <TextBlock FontSize="11" Foreground="{DynamicResource Warn}" TextWrapping="Wrap"
                              Text="綁定由 grab 的 cam_map.json 決定（MAC↔CCD 槽位）。此處僅顯示綁定結果與交叉檢查，不在 Control 修改映射。"/>
                 </StackPanel>

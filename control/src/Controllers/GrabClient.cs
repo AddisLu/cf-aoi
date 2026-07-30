@@ -179,6 +179,27 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
         return list;
     }
 
+    /// <summary>
+    /// Gap #21 綁定動作：送**完整**映射表給 Grab 寫入 cam_map.json 並重載。
+    /// 刻意送完整表而非增量——增量語意在兩端各自維護狀態時極易分歧；
+    /// 一次覆蓋全表，Control 畫面上看到什麼就是檔案裡的什麼。
+    /// entries 每筆 {mac, cam_id, ccd_id}。取像中 Grab 會回 ERR（改映射=改相機身分）。
+    /// </summary>
+    public async Task<JsonNode?> SetCamMapAsync(
+        System.Collections.Generic.IEnumerable<(string Mac, int CamId, string CcdId)> entries,
+        CancellationToken ct = default)
+    {
+        var arr = new JsonArray();
+        foreach (var e in entries)
+            arr.Add(new JsonObject
+            {
+                ["mac"]    = e.Mac,
+                ["cam_id"] = e.CamId,
+                ["ccd_id"] = e.CcdId,
+            });
+        return await SendCommandAsync("SET_CAM_MAP", new JsonObject { ["entries"] = arr }, ct);
+    }
+
     public async Task<JsonNode?> SendCommandAsync(string cmd, JsonObject? prms, CancellationToken ct = default)
     {
         await _lock.WaitAsync(ct);

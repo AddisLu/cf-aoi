@@ -358,6 +358,66 @@ public static class SelfTest
 
         bool join = bindJoin && bindMacNorm && bindMismatch && bindOffline && bindDeclared
                     && unboundNotAssigned && kpiJoin && warnText;
+        // 快照 phase C 實得值（下面的綁定動作測試會再換相機清單，直接印 vm.* 會是之後的狀態）
+        var snapWarn = vm.BindingWarning;
+        var snapKpiC = $"b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount} d={vm.DeclaredSlotCount} on={vm.OnlineCount}";
+
+        // ══ Gap #21 綁定動作（SET_CAM_MAP）：Control 送**完整**映射表 ══
+        // 假 Grab 記下收到的 entries；先驗「拒絕搶槽」，再驗正常綁定送出的內容正確。
+        var l3 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        l3.Start();
+        int port3 = ((System.Net.IPEndPoint)l3.LocalEndpoint).Port;
+        System.Text.Json.Nodes.JsonNode? lastMap = null;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await l3.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            const string cams =
+                "[{\"cam_id\":0,\"mac\":\"00:30:53:2A:0B:10\",\"model\":\"raL8192-12gm\",\"serial\":\"S10\",\"ip\":\"192.168.5.10\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"CCD10\",\"bound\":true}," +
+                "{\"cam_id\":9,\"mac\":\"00:30:53:FF:FF:FF\",\"model\":\"raL4096-24gm\",\"serial\":\"S99\",\"ip\":\"169.254.9.9\",\"online\":true,\"persistent\":false,\"ip_config\":\"AutoIP\",\"device_class\":\"BaslerGigE\",\"ccd_id\":\"\",\"bound\":false}]";
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var seq = (int?)req["seq"] ?? 0;
+                var c = req["cmd"]!.GetValue<string>();
+                string resp;
+                if (c == "LIST_CAMERAS") resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"cameras\":{cams}}}";
+                else if (c == "SET_CAM_MAP")
+                {
+                    lastMap = req["params"]?["entries"];
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"written\":{lastMap?.AsArray().Count ?? 0},\"path\":\"/tmp/cam_map.json\"}}";
+                }
+                else resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", port3);
+        await vm.LoadCamerasCommand.ExecuteAsync(null);
+
+        // ① 拒絕搶槽：把「未綁的 S99」綁到已被 S10 佔用的 CCD10 → 必須擋下且不送出命令
+        vm.SelectCameraCommand.Execute(vm.Cameras.First(c => c.Serial == "S99"));
+        vm.SelectSlotCommand.Execute(vm.ComputeUnits.SelectMany(g => g.Slots).First(x => x.CcdId == "CCD10"));
+        lastMap = null;
+        await vm.BindSelectedCommand.ExecuteAsync(null);
+        bool refuseSteal = lastMap is null && vm.BindActionStatus.Contains("已綁");
+
+        // ② 正常綁定：S99 → CCD14（空槽）。送出的完整表須含「原本的 S10」+「新的 S99」
+        vm.SelectSlotCommand.Execute(vm.ComputeUnits.SelectMany(g => g.Slots).First(x => x.CcdId == "CCD14"));
+        lastMap = null;
+        await vm.BindSelectedCommand.ExecuteAsync(null);
+        var sent = lastMap?.AsArray();
+        bool bindSent = sent is { Count: 2 }
+            && sent.Any(e => e!["mac"]!.GetValue<string>() == "00:30:53:2A:0B:10"
+                             && e["ccd_id"]!.GetValue<string>() == "CCD10")
+            && sent.Any(e => e!["mac"]!.GetValue<string>() == "00:30:53:FF:FF:FF"
+                             && e["ccd_id"]!.GetValue<string>() == "CCD14"
+                             && e["cam_id"]!.GetValue<int>() == 4);   // CCD14 在 5 槽 fixture 的索引 = 4
+
+        svc.Connection.Grab.Disconnect();
+        l3.Stop();
+        bool bindAct = refuseSteal && bindSent;
 
         Console.WriteLine($"  ① 載入 3 槽/2 運算單元 + 欄位(ccd_id/recipe_partition/expected_mac): {(load && keys ? "PASS" : "FAIL")}");
         Console.WriteLine($"  ② 依 compute_unit 分群 Spark1[2]/Spark2[1] + DeclaredSlotCount=3: {(group ? "PASS" : "FAIL")} (實得 {snapGroup})");
@@ -370,13 +430,14 @@ public static class SelfTest
         Console.WriteLine($"  塊2-b 負載%(估算,公式非寫死)+標旗標: {(loadCalc ? "PASS" : "FAIL")} (Spark1 EstLoadPct={sp1.EstLoadPct} 期望={expect1}; LoadText=\"{sp1.LoadText}\")");
         Console.WriteLine($"  塊2-c 連線(真): 預設未連不假綠={connDefault} + 規則(active才綠/非active灰/未連灰)={connRule}: {(connDefault && connRule ? "PASS" : "FAIL")}");
         Console.WriteLine($"  #21-a join：CCD10 綁到 S10={bindJoin} · CCD11 MAC 正規化視為同台={bindMacNorm}: {(bindJoin && bindMacNorm ? "PASS" : "FAIL")}");
-        Console.WriteLine($"  #21-b MAC 不符(插錯槽位) CCD12 標告警: {(bindMismatch && warnText ? "PASS" : "FAIL")} (警語=\"{vm.BindingWarning}\")");
+        Console.WriteLine($"  #21-b MAC 不符(插錯槽位) CCD12 標告警: {(bindMismatch && warnText ? "PASS" : "FAIL")} (警語=\"{snapWarn}\")");
         Console.WriteLine($"  #21-c 離線=該就位卻沒出現 CCD13={bindOffline} · null-mac 無相機 CCD14 不算離線={bindDeclared}: {(bindOffline && bindDeclared ? "PASS" : "FAIL")}");
         Console.WriteLine($"  #21-d 未綁相機(S99)不得指派任何槽: {(unboundNotAssigned ? "PASS" : "FAIL")}");
         Console.WriteLine($"  #21-e KPI 已綁3(槽)/待綁1(相機)/離線1(槽)/宣告5/連線4: {(kpiJoin ? "PASS" : "FAIL")} " +
-            $"(實得 b={vm.BoundCount} u={vm.UnboundCount} off={vm.OfflineCount} d={vm.DeclaredSlotCount} on={vm.OnlineCount})");
+            $"(實得 {snapKpiC})");
         bool block2 = procN && loadCalc && connDefault && connRule;
-        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2 && block2 && join;
+        Console.WriteLine($"  #21-f 綁定動作：拒絕搶已佔用的槽={refuseSteal} · 送出完整表(舊綁+新綁,cam_id=槽索引)={bindSent}: {(bindAct ? "PASS" : "FAIL")}");
+        bool ok = load && keys && group && noOnline && detectedSeparate && kpiCase1 && kpiCase2 && block2 && join && bindAct;
         Console.WriteLine(ok ? "✓ 塊1+2 + Gap#21 綁定：拓樸/分群/舊格式相容不假merge + 處理N真/負載估算/連線真 + join四態/MAC正規化/插錯槽告警/未綁不指派"
                              : "✗ 不符");
         return ok ? 0 : 1;

@@ -194,6 +194,7 @@ public partial class SystemSettingsViewModel : ViewModelBase
     partial void OnSelectedCameraChanged(CameraInfoModel? value)
     {
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(CanBind));
         // 選中相機 → 拉該台目前曝光/增益填明細（連線時才打）
         if (value is not null && IsGrabConnected) _ = RefreshCamParams();
     }
@@ -243,6 +244,90 @@ public partial class SystemSettingsViewModel : ViewModelBase
     private void SelectCamera(CameraInfoModel? c)
     {
         if (c is not null) SelectedCamera = c;
+    }
+
+    // ── Gap #21 綁定動作：把選中的相機綁到選中的宣告槽 ────────────────────────
+    [ObservableProperty] private string bindActionStatus = "";
+
+    /// <summary>可否執行綁定：需連線 + 選了相機 + 選了槽。</summary>
+    public bool CanBind => IsGrabConnected && SelectedCamera is not null && SelectedSlot is not null;
+
+    partial void OnSelectedSlotChanged(CcdSlotModel? value) => OnPropertyChanged(nameof(CanBind));
+
+    /// <summary>
+    /// cam_id 取該槽在拓樸中的索引：拓樸固定時它唯一且穩定，且對 CCD00..CCD36 / IP0..IP36
+    /// 的既有慣例剛好等於 CCD 編號。**不可**用列舉順序（那正是 #21 要修掉的東西）。
+    /// </summary>
+    private int CamIdForSlot(CcdSlotModel slot)
+    {
+        int idx = Topology.Slots.FindIndex(s => s.CcdId == slot.CcdId);
+        return idx >= 0 ? idx : 0;
+    }
+
+    /// <summary>
+    /// 送出**完整**映射表（現有綁定 + 本次異動）。送完整表而非增量：
+    /// 增量語意在兩端各自維護狀態時極易分歧，一次覆蓋全表則「畫面所見 = 檔案內容」。
+    /// </summary>
+    private async Task<bool> PushMapAsync(List<(string Mac, int CamId, string CcdId)> entries, string what)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var resp = await _svc.Connection.Grab.SetCamMapAsync(entries, cts.Token);
+            if (resp?["status"]?.GetValue<string>() != "OK")
+            {
+                BindActionStatus = $"❌ {what}失敗：{resp?["error"]?.GetValue<string>() ?? "無回應"}";
+                return false;
+            }
+            BindActionStatus = $"✓ {what}成功（{resp["written"]?.GetValue<int>() ?? entries.Count} 筆）";
+            await LoadCameras();   // 重新列舉 → join 依 Grab 回的新 bound/ccd_id 刷新（不自行假設結果）
+            return true;
+        }
+        catch (Exception ex) { BindActionStatus = $"❌ {what}失敗：{ex.Message}"; return false; }
+    }
+
+    /// <summary>把選中的相機綁到選中的宣告槽。</summary>
+    [RelayCommand]
+    private async Task BindSelected()
+    {
+        var cam = SelectedCamera; var slot = SelectedSlot;
+        if (cam is null || slot is null) { BindActionStatus = "請先選一台相機與一個槽"; return; }
+        if (string.IsNullOrWhiteSpace(cam.Mac)) { BindActionStatus = "❌ 此相機無 MAC，無法綁定"; return; }
+
+        // 該槽已被「別台」佔用 → 拒絕（不默默搶槽；要換請先解除原本那台）
+        var occupied = Cameras.FirstOrDefault(c => c.Bound && c.CcdId == slot.CcdId);
+        if (occupied is not null && !MacUtil.Same(occupied.Mac, cam.Mac))
+        {
+            BindActionStatus = $"❌ {slot.CcdId} 已綁 {occupied.Model} SN={occupied.Serial}，請先解除";
+            return;
+        }
+
+        // 完整表 = 其他已綁的維持原樣 + 本台改綁到目標槽
+        var entries = Cameras
+            .Where(c => c.Bound && !MacUtil.Same(c.Mac, cam.Mac) && !string.IsNullOrEmpty(c.CcdId))
+            .Select(c => (c.Mac, c.CamId, c.CcdId))
+            .ToList();
+        entries.Add((cam.Mac, CamIdForSlot(slot), slot.CcdId));
+        await PushMapAsync(entries, $"綁定 {slot.CcdId}");
+    }
+
+    /// <summary>解除選中相機的綁定（從映射表移除該筆）。</summary>
+    [RelayCommand]
+    private async Task UnbindSelected()
+    {
+        var cam = SelectedCamera;
+        if (cam is null || !cam.Bound) { BindActionStatus = "請先選一台「已綁定」的相機"; return; }
+        var entries = Cameras
+            .Where(c => c.Bound && !MacUtil.Same(c.Mac, cam.Mac) && !string.IsNullOrEmpty(c.CcdId))
+            .Select(c => (c.Mac, c.CamId, c.CcdId))
+            .ToList();
+        if (entries.Count == 0)
+        {
+            // Grab 端不接受空表（空表語意等同停用映射，應直接刪檔而非用此路徑）
+            BindActionStatus = "❌ 這是最後一筆綁定；若要停用映射請直接刪除 grab 的 cam_map.json";
+            return;
+        }
+        await PushMapAsync(entries, $"解除 {cam.CcdId}");
     }
 
     // Gap #2 ExposureTimeAbs 2~10000µs；GainRaw int 256~2047（Stage 0 實機確認）

@@ -647,8 +647,26 @@ app-CRC 因此是傳輸段唯一的交叉檢查，**必須保留**（硬體 CRC 
 **舊版 grab 格式（無 `ccd_id`/`bound`）相容**（退回全未綁、不崩）。
 回歸 `store`/`settings`/`singleccd`/`upstream`/`grabtrigger`/`recipemgmt`/`sort`/`patches` **全 PASS**。
 
-**仍未做**：在 Control 上「指派某相機到某槽」的綁定動作——需把映射推回 grab 的 `cam_map.json`，
-屬新的 8100 協議，需另行設計。版面目視待 Addis。
+**綁定動作（SET_CAM_MAP）— ⚠️ 兩端分級不同，勿混**：
+
+新增 8100 命令 `SET_CAM_MAP {entries:[{mac,cam_id,ccd_id}]}` → Grab 寫 `cam_map.json` 並重載。
+**刻意送「完整表」而非增量**：增量語意在兩端各自維護狀態時極易分歧，全表覆蓋則「畫面所見 = 檔案內容」。
+
+| 半邊 | 級別 | 說明 |
+|---|---|---|
+| Control（送出端）| **L2** | `--selftest topology` 新增 `#21-f` **PASS**：① 目標槽已被別台佔用 → **拒絕搶槽且不送命令** ② 正常綁定送出的完整表含「原有綁定 + 新綁定」、`cam_id` = 槽在拓樸中的索引（**不用列舉順序**，那正是 #21 要修掉的東西）|
+| Grab（寫入端）| **L1（寫好未驗）** | damac 當日不可連線，**未編譯、未執行過任何一次**。依 §8 紀律不得視為可用 |
+
+Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → **用 `load_map` 自己驗一次**
+（驗證規則只有一份，不會出現「寫得進去卻下次開機載不起來」）→ 備份原檔 `.bak` → `rename` 上線
+（原子操作，不留半寫檔）→ 重載。`main.cpp` handler **取像中/已 ARM 一律拒絕**
+（cam_id 決定 `FrameHeader.camId` 與 IP 端輸出夾，途中換等於同片面板前後段被歸給不同 CCD）。
+配合既有的 fail-fast 載入設計，即使寫出壞檔，下次啟動也是**中止並報錯**而非靜默錯映射。
+
+**damac 回來後必補**：編譯 → 實機跑一次 SET_CAM_MAP（含取像中拒絕、壞 entries 拒絕、
+寫入後 `LIST_CAMERAS` 反映新綁定、`.bak` 有產生）→ 才可升 L3。
+
+**仍未做**：版面目視待 Addis。
 
 #### 其他發現（非阻斷）
 - **IP/Grab 的 ControlServer 都是單客戶端序列處理**（[ip/control_server.cpp:386-392](../ip/src/control_server.cpp#L386)

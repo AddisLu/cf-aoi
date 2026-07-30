@@ -82,6 +82,74 @@ bool CamManager::load_map(const std::string& path, std::string& err, std::string
     return true;
 }
 
+bool CamManager::write_map(const std::string& path, const std::string& entries_json,
+                           std::string& err) {
+    // ── ① 先組出完整檔案內容（帶說明，讓人直接看檔也懂）──────────────────────
+    json entries;
+    try {
+        entries = json::parse(entries_json);
+    } catch (const std::exception& e) {
+        err = std::string("entries JSON 解析失敗：") + e.what();
+        return false;
+    }
+    if (!entries.is_array()) { err = "entries 必須是陣列"; return false; }
+
+    json doc;
+    doc["_comment"] = "MAC ↔ cam_id（CCD 槽位）穩定映射 — Gap #21。由 Control 的 SET_CAM_MAP 寫入。";
+    doc["_note"]    = "手動編輯亦可；格式與規則見 cam_map.example.json。cam_id/MAC 皆不可重複。";
+    doc["cameras"]  = entries;
+
+    // ── ② 寫暫存檔 → **用 load_map 自己驗一次** → 過了才 rename ────────────────
+    // 為什麼要這樣：驗證規則只有一份（load_map），不會出現「寫得進去但下次開機載不起來」。
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        if (!f) { err = "無法寫入暫存檔 " + tmp; return false; }
+        f << doc.dump(2) << "\n";
+        if (!f.good()) { err = "寫入暫存檔失敗 " + tmp; return false; }
+    }
+
+    // 用一個暫時的 CamManager 驗（不動自己的 mac_map_，驗失敗時現況完全不受影響）
+    {
+        CamManager probe;
+        std::string verr, vwarn;
+        if (!probe.load_map(tmp, verr, vwarn)) {
+            std::remove(tmp.c_str());
+            err = "新映射未通過驗證（已放棄，原檔不動）：" + verr;
+            return false;
+        }
+        if (!probe.has_map()) {
+            std::remove(tmp.c_str());
+            err = "新映射為空（至少要有一筆；若要停用映射請直接刪檔）";
+            return false;
+        }
+    }
+
+    // ── ③ 備份原檔（有的話）→ rename 上線（rename 為原子操作，不會留半寫的檔）──
+    {
+        std::ifstream cur(path);
+        if (cur.good()) {
+            cur.close();
+            std::remove((path + ".bak").c_str());
+            std::rename(path.c_str(), (path + ".bak").c_str());   // 失敗不阻斷，只是少一份備份
+        }
+    }
+    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+        std::remove(tmp.c_str());
+        err = "rename 失敗，映射未更新：" + path;
+        return false;
+    }
+
+    // ── ④ 重載進本實例（此後 open_all / annotate 立即使用新映射）─────────────
+    std::string lerr, lwarn;
+    if (!load_map(path, lerr, lwarn)) {
+        err = "已寫檔但重載失敗（下次啟動會中止，請檢查 " + path + "）：" + lerr;
+        return false;
+    }
+    printf("[cam_manager] cam_map 已更新：%zu 筆（備份 %s.bak）\n", mac_map_.size(), path.c_str());
+    return true;
+}
+
 void CamManager::annotate(std::vector<CamInfo>& infos) const {
     for (size_t i = 0; i < infos.size(); ++i) {
         auto it = mac_map_.find(normalize_mac(infos[i].mac));
