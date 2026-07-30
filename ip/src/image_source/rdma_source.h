@@ -4,20 +4,26 @@
 // =============================================================================
 // 改自 Reference/cfaoi_phase1/t40_e2e_server.cpp，升級為 N-slot + credit 背壓。
 //
-// 設計：
+// 設計（⚠️ 2026-07-30 資料路徑由 RDMA_WRITE_WITH_IMM 改為 SEND/RECV，見 rdma_common.h 註解）：
 //   N 個 slot（cudaHostAlloc Portable|Mapped，GB10 用；不用 nvidia_peermem）
-//   N 個 post_recv = N 個初始 credit
+//   N 個 post_recv **各指向一個 slot**（wr_id = slot 編號）= N 個初始 credit
 //   握手 SEND MrInfoEx{base_addr, rkey, n_slots, slot_size} 給 Grab
+//     （addr/rkey 改 SEND 後資料路徑已不用，保留於 wire 供相容/診斷；n_slots/slot_size 仍必要）
 //
 //   recv_thread：
 //     poll_one_nonblock + 100μs sleep（可中斷，running_ 旗標控制）
-//     → IBV_WC_RECV_RDMA_WITH_IMM → slot_id = seq % n_slots
-//     → 驗 magic/CRC → memcpy slot → push_blocking（阻塞等 FrameQueue 有位置）
-//     → post_recv（補 credit）   ★ 此順序是釘點 1 的正確性保證
+//     → IBV_WC_RECV → slot_id = wc.wr_id（**不再用 seq % n_slots 推算**）
+//     → seq 取自 payload 內的 FrameHeader.frameSeq（SEND 無 imm；uint64 不受 32-bit 截斷）
+//     → 驗 magic / byte_len 對帳 / CRC → memcpy slot → push_blocking（阻塞等 FrameQueue 有位置）
+//     → 重掛指向本 slot 的 WQE（= 釋放此 slot）
 //
-//   背壓鏈：
-//     process_image 慢 → FrameQueue 滿 → push_blocking 阻塞 → 不 post_recv
-//     → Grab WRITE_WITH_IMM 觸發 RNR（rnr_retry_count=7=∞）→ Grab poll_one 阻塞
+//   ★ 正確性保證（改 SEND 的理由）：SEND 的資料落點由收端 WQE 決定，WQE 未重掛時
+//     RNR 發生在「放置資料之前」→ slot 不可能在讀取期間被覆寫（by construction）。
+//     舊 WRITE 版由送端自算位址，RNR 只擋 imm、payload 照樣落地並在重試時反覆重寫 → 實機 CRC 損毀。
+//
+//   背壓鏈（行為不變）：
+//     process_image 慢 → FrameQueue 滿 → push_blocking 阻塞 → 不重掛 WQE
+//     → Grab SEND 觸發 RNR（rnr_retry_count=7=∞）→ Grab poll_one 阻塞
 //
 // main loop 呼叫 next_frame()（= FrameQueue::pop()），其他模式（offline-tcp）介面相同。
 // =============================================================================
@@ -63,7 +69,7 @@ private:
     RcConn   conn_;
     void*    ring_buf_ = nullptr;  // cudaHostAlloc N×slot_size
     ibv_mr*  ring_mr_  = nullptr;
-    ibv_mr*  rx_mr_    = nullptr;  // 小 buffer，消耗 WRITE_WITH_IMM RR 用
+    ibv_mr*  rx_mr_    = nullptr;  // 小 buffer（舊 WRITE_WITH_IMM 路徑遺留；改 SEND 後資料路徑不用）
     ibv_mr*  ctrl_mr_  = nullptr;  // MrInfoEx 握手 buffer MR（init 後保留至 stop）
     uint8_t* rx_small_ = nullptr;  // 4 bytes dummy recv buffer
 

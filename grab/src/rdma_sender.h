@@ -1,6 +1,7 @@
 #pragma once
 // RdmaSender — Grab 端 RDMA 發送（N-buffer 非同步 pipeline）
-// 封裝 RcConn::connect → MrInfoEx 握手 → 多筆 in-flight post_write_imm。
+// 封裝 RcConn::connect → MrInfoEx 握手 → 多筆 in-flight post_send。
+// （2026-07-30：資料路徑由 post_write_imm 改為 post_send，避免 slot 覆寫損毀；見 rdma_common.h）
 // 2026-06-23：由「single-slot 同步逐幀 poll」升級為「N 緩衝、≤N 筆 in-flight、lazy FIFO poll」，
 // 解除送端逐幀等待的吞吐瓶頸（wire 格式不變，與 IP/grab 完全相容）。
 
@@ -18,7 +19,7 @@ public:
     // 成功回傳 true；失敗印 stderr 並回傳 false。
     bool connect(const char* spark_ip, const char* port, size_t max_payload_bytes);
 
-    // send_frame：組 FrameHeader + 複製影像 → post_write_imm → poll_one。
+    // send_frame：組 FrameHeader + 複製影像 → post_send → poll_one。
     // 呼叫前必須先 connect()。panel_id_hash 由呼叫端用 frame_panel_hash() 計算。
     // slice_index/total_slice：每片 N 張切片標記（預設 0/1 = legacy 單幀語意，舊呼叫端不變）。
     // ⚠ 非 thread-safe：多相機 thread 共用一條 QP 時，呼叫端負責序列化（見 main.cpp send_mtx）。

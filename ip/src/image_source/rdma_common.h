@@ -29,12 +29,20 @@
 struct MrInfo { uint64_t addr; uint32_t rkey; uint32_t len; uint32_t crc; };
 
 // Step 3：N-slot ring buffer 握手擴充（grab/IP 兩端同步更新，不搞版本協商）。
-// Grab 收到此結構後，每幀寫入位置：
-//   slot_id  = frame_seq % n_slots
-//   write_addr = addr + (uint64_t)slot_id * slot_size
-// IP 端 post_recv N 個 = N 個初始 credit；每 memcpy 完成後補一個 post_recv = credit++。
-// 背壓：credit 耗盡 → Grab WRITE_WITH_IMM → RNR（rnr_retry_count=7=∞）→
-//   Grab poll_one() 阻塞直到 IP 補 post_recv → 自然背壓，無需額外控制通道。
+//
+// ⚠️ 2026-07-30 資料路徑由 RDMA_WRITE_WITH_IMM 改為 **SEND/RECV**（實機抓到資料損毀後的修正）：
+//   舊法 Grab 自行算 write_addr = addr + (frame_seq % n_slots) * slot_size 直接寫過去，
+//   靠「IP 端 post_recv 的數量」當 credit。**但 RNR credit 只擋 WRITE_WITH_IMM 的 immediate 遞送，
+//   擋不住 payload 落地**：Grab 一拿到前一筆 send completion 就 post 下一筆 write，payload 照樣寫進
+//   slot，且 RNR 期間持續重試、每次重寫該 slot → IP 端正在讀的 slot 被覆寫 → CRC 損毀。
+//   實測（2 台相機 + 背壓）：slots=2/4/16 → err=11/10/0，純由 ring 深度決定 = slot 重用競態。
+//
+//   改用 SEND 後，**資料落點由收端的 recv WQE 決定**（不再由送端指定位址）：IP 端處理完一個 slot
+//   才 post 一個指向該 slot 的 WQE（wr_id = slot 編號）；沒有 WQE 時 RNR 發生在「放置資料之前」，
+//   故 slot 絕不可能在 IP 端讀取期間被覆寫 —— by construction 的正確，不是縮小競態窗口。
+//   背壓行為不變：WQE 用完 → Grab SEND 收 RNR（rnr_retry_count=7=∞）→ send completion 不回來
+//   → Grab poll_one() 阻塞 → 自然背壓，無需額外控制通道。
+//   addr/rkey 保留於 wire（相容 + 診斷用），資料路徑已不使用；n_slots/slot_size 仍為必要協商。
 struct MrInfoEx {
     uint64_t addr;       // N-slot ring buffer 基底位址（cudaHostAlloc pinned）
     uint32_t rkey;       // 整塊 buffer 的 RDMA 授權金鑰（一個 MR 涵蓋全部 N slot）
@@ -129,9 +137,11 @@ struct RcConn {
         rdma_ack_cm_event(ev);
     }
 
-    void post_recv(ibv_mr* mr, void* buf, uint32_t len) {
+    // wr_id：完成事件會原樣帶回（wc.wr_id）。資料路徑（SEND）用它標記「這筆落在哪個 slot」。
+    // 與 grab/src/rdma_common.h 同源，簽章須一致。
+    void post_recv(ibv_mr* mr, void* buf, uint32_t len, uint64_t wr_id = 1) {
         ibv_sge sge{ (uint64_t)buf, len, mr->lkey };
-        ibv_recv_wr wr{}; wr.wr_id = 1; wr.sg_list = &sge; wr.num_sge = 1;
+        ibv_recv_wr wr{}; wr.wr_id = wr_id; wr.sg_list = &sge; wr.num_sge = 1;
         ibv_recv_wr* bad = nullptr;
         RC_CHECK(ibv_post_recv(id->qp, &wr, &bad) == 0, "ibv_post_recv");
     }

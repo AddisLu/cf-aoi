@@ -59,13 +59,16 @@ bool RdmaImageSource::init(const std::string& bind_ip, const std::string& port,
         ring_mr_ = conn_.reg(ring_buf_, ring_bytes,
                              IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
 
-        // 小 dummy buffer：WRITE_WITH_IMM 消耗 RR 時不寫此 buffer（imm 才是關鍵）
+        // 小 dummy buffer：保留給控制訊息路徑（資料路徑已改 SEND，不再使用）
         rx_small_ = new uint8_t[4]();
         rx_mr_ = conn_.reg(rx_small_, 4, IBV_ACCESS_LOCAL_WRITE);
 
-        // ── ③ 預掛 N 個 post_recv（= N 個初始 credit）—— 必須在 accept_conn 前 ──
+        // ── ③ 預掛 N 個 post_recv，**每個指向一個 slot**（= N 個初始 credit）──────
+        // 資料路徑改 SEND 後，資料落點由這裡的 WQE 決定（不再由 Grab 指定位址）。
+        // wr_id = slot 編號 → 完成事件可反查資料落在哪個 slot。必須在 accept_conn 前掛好。
         for (uint32_t i = 0; i < n_slots_; ++i)
-            conn_.post_recv(rx_mr_, rx_small_, 4);
+            conn_.post_recv(ring_mr_, (uint8_t*)ring_buf_ + (size_t)i * slot_size_,
+                            slot_size_, /*wr_id=*/i);
 
         // 接受 Grab 連線
         conn_.accept_conn();
@@ -148,61 +151,71 @@ void RdmaImageSource::recv_thread_fn() {
             continue;
         }
 
-        if (wc.opcode != IBV_WC_RECV_RDMA_WITH_IMM) {
-            fprintf(stderr, "[rdma_source] WARN: 非 WRITE_WITH_IMM（opcode=%d）\n",
+        if (wc.opcode != IBV_WC_RECV) {
+            fprintf(stderr, "[rdma_source] WARN: 非 SEND/RECV（opcode=%d）\n",
                     (int)wc.opcode);
             continue;
         }
 
-        uint32_t seq     = ntohl(wc.imm_data);
-        uint32_t slot_id = seq % n_slots_;
-        uint8_t* slot    = (uint8_t*)ring_buf_ + (size_t)slot_id * slot_size_;
+        // 資料落在哪個 slot 由「我們自己掛的 WQE」決定 → wr_id 即 slot 編號（不再由 seq 推算）
+        uint32_t slot_id = (uint32_t)wc.wr_id;
+        if (slot_id >= n_slots_) {          // 防呆：理論上不可能，錯了寧可停也不要亂讀記憶體
+            fprintf(stderr, "[rdma_source] ERR wr_id=%llu 超出 slot 範圍（n_slots=%u）\n",
+                    (unsigned long long)wc.wr_id, n_slots_);
+            break;
+        }
+        uint8_t* slot = (uint8_t*)ring_buf_ + (size_t)slot_id * slot_size_;
 
         // 讀取 FrameHeader（pinned memory，CPU 直讀，無需 cudaMemcpy）
         FrameHeader h{};
         memcpy(&h, slot, sizeof(h));
+        // seq 改由 header 取（SEND 無 imm）；uint64 全幅，不再受 imm 的 32-bit 截斷限制
+        uint64_t seq = h.frameSeq;
+
+        // 補 credit＝重掛「指向同一個 slot」的 WQE（錯誤幀也要補，否則 credit 漏光會假死）
+        auto repost_slot = [&]() {
+            conn_.post_recv(ring_mr_, slot, slot_size_, /*wr_id=*/slot_id);
+        };
 
         // magic / version 快速檢查
         if (h.magic != FRAME_MAGIC || h.version != FRAME_VERSION) {
-            fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u magic/version 不符"
-                    "（magic=0x%08x）\n", seq, slot_id, h.magic);
+            fprintf(stderr, "[rdma_source] ERR seq=%llu slot=%u magic/version 不符"
+                    "（magic=0x%08x）\n", (unsigned long long)seq, slot_id, h.magic);
             FR_RECORD_INCIDENT("frame_validation",
                 "rdma magic/version seq=" + std::to_string(seq) +
                 " slot=" + std::to_string(slot_id));
             ++recv_err_;
-            conn_.post_recv(rx_mr_, rx_small_, 4);  // 補 credit（錯誤幀也要補）
+            repost_slot();
             continue;
         }
 
         // payload 大小防呆（含尺寸一致性：畸形 header 不得帶著錯誤 w×h 進 cv::Mat）
+        // SEND 另有 wc.byte_len＝對端實際送出的位元組數 → 可直接與 header 宣告值對帳（WRITE 時沒有）
         size_t total = sizeof(FrameHeader) + h.payloadBytes;
         const bool dim_ok = h.width >= 1 && h.width <= 16384 &&
                             h.height >= 1 && h.height <= 16384 &&
                             (uint64_t)h.payloadBytes == (uint64_t)h.width * h.height;
-        if (total > slot_size_ || !dim_ok) {
-            fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u total=%zu slot_size=%u"
+        const bool len_ok = (size_t)wc.byte_len == total;
+        if (total > slot_size_ || !dim_ok || !len_ok) {
+            fprintf(stderr, "[rdma_source] ERR seq=%llu slot=%u total=%zu byte_len=%u slot_size=%u"
                     " w=%u h=%u payload=%u（尺寸/大小不合法）\n",
-                    seq, slot_id, total, slot_size_, h.width, h.height, h.payloadBytes);
+                    (unsigned long long)seq, slot_id, total, wc.byte_len, slot_size_,
+                    h.width, h.height, h.payloadBytes);
             FR_RECORD_INCIDENT("frame_validation",
                 "rdma payload/尺寸不合法 seq=" + std::to_string(seq) +
                 " slot=" + std::to_string(slot_id) +
+                " byte_len=" + std::to_string(wc.byte_len) +
                 " w=" + std::to_string(h.width) + " h=" + std::to_string(h.height) +
                 " payload=" + std::to_string(h.payloadBytes));
             ++recv_err_;
-            conn_.post_recv(rx_mr_, rx_small_, 4);
+            repost_slot();
             continue;
         }
 
-        // ── ★ 釘點 1 [1]：memcpy slot → payload（**必須是碰到 slot 的第一件事**）──────
-        // 2026-07-30 實機教訓：原本順序是 CRC(讀 slot) → memcpy → push_blocking → post_recv，
-        // 且註解宣稱「post_recv 在 push 之後 → slot 不會被覆蓋」。**該假設是錯的**：
-        // RNR / recv-WQE credit 只擋 WRITE_WITH_IMM 的 immediate 遞送，擋不住 payload 落地——
-        // 送端一取得前一筆的 send completion 就會 post 下一筆 write，payload 照樣寫進 slot。
-        // 真正的安全條件是「收端持有 slot 的時間 < n_slots × 幀週期」。原順序把 push_blocking
-        // （背壓時可達 1200ms）算在持有期內 → 2 台相機(幀週期 136ms)、n_slots=4 時預算僅 544ms → 必爆。
-        // 實測：slots=2 → err=11/20、slots=4 → err=10/20、slots=16 → err=0/20（純粹是時間預算）。
-        // 修法：先把資料複製出來，持有期縮到「只有 memcpy」(~3-6ms ≪ 136ms，餘裕 >20×)，
-        // 之後的 CRC/push 全部只碰自己的副本。post_recv 位置不動（仍在 push 後 → 背壓鏈不變）。
+        // ── ★ 釘點 1 [1]：memcpy slot → payload ──────────────────────────────────
+        // 資料路徑改 SEND 後，slot 的安全性已由「WQE 尚未重掛」保證（Grab 無處可放 → RNR 等待），
+        // 不再依賴這裡的複製速度。仍先複製出來的理由：後續 CRC/push 只碰自己的副本，
+        // 讓 slot 能在 push_blocking 前就邏輯上「用完」，語意單純。
         auto _tm0 = std::chrono::steady_clock::now();
         std::vector<uint8_t> payload(h.payloadBytes);
         memcpy(payload.data(), slot + sizeof(FrameHeader), h.payloadBytes);
@@ -217,13 +230,14 @@ void RdmaImageSource::recv_thread_fn() {
             uint32_t crc = crc32_ieee(payload.data(), h.payloadBytes);
             sum_crc_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tc0).count();
             if (crc != h.crc32) {
-                fprintf(stderr, "[rdma_source] ERR seq=%u slot=%u CRC 不符"
-                        "（got=0x%08x want=0x%08x）\n", seq, slot_id, crc, h.crc32);
+                fprintf(stderr, "[rdma_source] ERR seq=%llu slot=%u CRC 不符"
+                        "（got=0x%08x want=0x%08x）\n",
+                        (unsigned long long)seq, slot_id, crc, h.crc32);
                 FR_RECORD_INCIDENT("frame_validation",
                     "rdma crc seq=" + std::to_string(seq) +
                     " slot=" + std::to_string(slot_id));
                 ++recv_err_;
-                conn_.post_recv(rx_mr_, rx_small_, 4);
+                repost_slot();
                 continue;
             }
         }
@@ -239,17 +253,19 @@ void RdmaImageSource::recv_thread_fn() {
         queue_->push_blocking(h, panel, std::move(payload));
         sum_push_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - _tp0).count();
 
-        // ── ★ 釘點 1 [3]：post_recv（補 credit，在 memcpy + push_blocking 後）──
-        // 此後 Grab 可重用 slot_id 的 ring 位置（seq+n_slots 會寫到同一 slot）
-        conn_.post_recv(rx_mr_, rx_small_, 4);
+        // ── ★ 釘點 1 [3]：重掛指向本 slot 的 WQE（= 釋放此 slot 給 Grab）──────────
+        // 位置刻意仍放在 push_blocking 之後 → 佇列滿時不補 WQE → Grab SEND 收 RNR → 背壓（行為不變）。
+        // 與舊版的差別：現在「不補 WQE」是**真的**擋得住資料落地（SEND 沒有落點就不放資料），
+        // 舊版 WRITE 是送端自己決定位址，不補 WQE 只擋 imm、payload 照樣寫進來 → 覆寫損毀。
+        repost_slot();
 
         ++recv_ok_;
 
         if (recv_ok_.load() % 20 == 0 || recv_ok_.load() <= 5) {
-            printf("[rdma_source] 已收 %llu 幀 ok / %llu err（slot=%u seq=%u CRC=OK）\n",
+            printf("[rdma_source] 已收 %llu 幀 ok / %llu err（slot=%u seq=%llu CRC=OK）\n",
                    (unsigned long long)recv_ok_.load(),
                    (unsigned long long)recv_err_.load(),
-                   slot_id, seq);
+                   slot_id, (unsigned long long)seq);
         }
     }
     {

@@ -100,14 +100,15 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
     memcpy(buf, &h, sizeof(h));
     memcpy(buf + sizeof(h), payload, payload_bytes);
 
-    // N-slot 定址 — slot_id = frame_seq % n_slots（= buf_idx），write_addr 落在對應 slot
-    // 背壓：IP credit 耗盡 → WRITE_WITH_IMM RNR（rnr_retry_count=7=∞）→ 後續 poll_one 阻塞 → 自然背壓
-    uint32_t slot_id    = (uint32_t)(frame_seq % remote_.n_slots);
-    uint64_t write_addr = remote_.addr + (uint64_t)slot_id * remote_.slot_size;
+    // SEND（非 RDMA WRITE）：**不指定遠端位址** —— 資料落在 IP 端下一個 recv WQE 指向的 slot。
+    // IP 端處理完某 slot 才 post 指向它的 WQE ⇒ 該 slot 不可能在 IP 讀取期間被覆寫。
+    // （舊法自行算 write_addr 直接寫，RNR 擋不住 payload 落地 → 實機 CRC 損毀，見 rdma_common.h 註解。）
+    // 背壓不變：IP 端 WQE 用完 → 本 SEND 收 RNR（rnr_retry_count=7=∞）→ completion 不回來
+    //           → 下一幀的 poll_one() 阻塞 → 自然背壓。
+    // seq 不再靠 imm 傳遞，收端從 payload 內的 FrameHeader.frameSeq 取得（uint64，不受 32-bit 截斷）。
     uint32_t total = (uint32_t)(sizeof(h) + payload_bytes);
     try {
-        conn_.post_write_imm(mr_, buf, total,
-                             write_addr, remote_.rkey, (uint32_t)frame_seq);
+        conn_.post_send(mr_, buf, total);
         ++posted_;   // async：不逐幀 poll，讓 ≤ n_buf_ 筆同時 in-flight（pipeline）
     } catch (const std::exception& e) {
         if (connected_) {
