@@ -1,80 +1,72 @@
 <!-- @dsCard group="流程 Steps" -->
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 3 對位 Mark — 教範本（Pattern Matching）與試對位</title>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 3 對位 Mark（精簡版）</title>
 <style>
 :root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
---accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
---ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+--accent:#4f46e5;--ok:#16a34a;--err:#dc2626;
+--ok-bg:#ecfdf5;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
 *{box-sizing:border-box;margin:0}
-body{font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
-h1{font-size:17px}.pagesub{color:var(--muted);font-size:12px;margin:4px 0 16px}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;max-width:1020px}
-.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:20px}
-h3{font-size:14px;margin-bottom:8px}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:9px 18px;font-weight:700;font-size:13px;cursor:pointer}
+body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:1000px}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:22px}
+.ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;grid-column:1/-1}
+.ph h3{font-size:14px}
+.hbtn{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-weight:800;color:var(--muted)}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 18px;font-weight:700;font-size:13px;cursor:pointer}
 .btn.ghost{background:var(--off-bg);color:var(--ink)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;font-size:12px;font-weight:600;margin-bottom:10px}
 .seg span{padding:6px 14px;cursor:pointer}
 .seg .on{background:var(--accent);color:#fff}
-.img{position:relative;background:#0f1115;border-radius:10px;height:330px;overflow:hidden}
+.img{position:relative;background:#0f1115;border-radius:10px;height:320px;overflow:hidden}
 .tex{position:absolute;inset:0;background:repeating-linear-gradient(90deg,#1d222c 0 4px,#171c25 4px 8px),repeating-linear-gradient(0deg,#1d222c00 0 5px,#151a22 5px 10px)}
-.mk{position:absolute;left:120px;top:110px;width:150px;height:110px;border:2px dashed #fbbf24;border-radius:4px}
-.mk .lb{position:absolute;top:-20px;left:0;font-size:11px;color:#fbbf24;font-weight:700}
-.tpl{position:absolute;left:165px;top:145px;width:60px;height:44px;border:2px solid #34d399;background:#34d39922}
-.tpl .lb{position:absolute;bottom:-18px;left:0;font-size:11px;color:#34d399;font-weight:700}
-.cross{position:absolute;left:192px;top:164px;width:10px;height:10px}
-.cross:before,.cross:after{content:"";position:absolute;background:#f87171}
-.cross:before{left:4px;top:0;width:2px;height:10px}.cross:after{top:4px;left:0;width:10px;height:2px}
-.hint{position:absolute;right:10px;bottom:8px;font-size:11px;color:#8b949e}
-.kv{display:grid;grid-template-columns:110px 1fr;row-gap:6px;font-size:13px;margin:8px 0 12px}
+.mk{position:absolute;left:120px;top:105px;width:150px;height:110px;border:2px dashed #fbbf24;border-radius:4px}
+.tpl{position:absolute;left:165px;top:140px;width:60px;height:44px;border:2px solid #34d399;background:#34d39922}
+.i{display:inline-flex;width:16px;height:16px;border-radius:50%;background:var(--off-bg);color:var(--muted);font-size:11px;align-items:center;justify-content:center;font-weight:700;cursor:help;vertical-align:2px}
+.tipwrap{position:relative;display:inline-block}
+.tip{position:absolute;left:24px;top:-8px;width:200px;background:#1a1d21;color:#fff;border-radius:9px;padding:8px 11px;font-size:11px;line-height:1.5;z-index:2}
+.tip:before{content:"";position:absolute;left:-5px;top:12px;border:5px solid transparent;border-right-color:#1a1d21}
+.kv{display:grid;grid-template-columns:86px 1fr;row-gap:7px;font-size:13px;margin:10px 0 14px}
 .kv .k{color:var(--muted)}
 .kv .v{font-family:ui-monospace,monospace;font-weight:600}
-.score{display:flex;align-items:baseline;gap:10px;margin:6px 0}
-.score .n{font-size:36px;font-weight:800;color:var(--ok)}
+.score{display:flex;align-items:baseline;gap:10px;margin:10px 0 4px}
+.score .n{font-size:38px;font-weight:800;color:var(--ok)}
 .score .thr{font-size:12px;color:var(--muted)}
-.okband{background:var(--ok-bg);color:var(--ok);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600}
-.failband{background:var(--err-bg);color:var(--err);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;margin-top:8px}
-.note{font-size:11px;color:var(--muted);margin-top:10px}
-.tog{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:10px}
+.band{border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;background:var(--ok-bg);color:var(--ok)}
+.tog{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:12px}
 .sw{width:38px;height:22px;border-radius:11px;background:var(--ok);position:relative}
 .sw i{position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff}
-.row{display:flex;gap:8px;margin-top:10px}
+.row{display:flex;gap:8px;margin-top:12px}
+.legend{position:absolute;right:10px;bottom:8px;font-size:11px;display:flex;gap:12px}
+.legend span{display:flex;align-items:center;gap:5px;color:#8b949e}
+.legend i{width:12px;height:9px;display:inline-block;border-radius:2px}
 </style></head><body>
-<h1>Step 3 — 對位 Mark（Pattern Matching：每台 CCD 各自教一次）</h1>
-<div class="pagesub">底層＝既有 #34 A2 M_AlignRoi + golden_maker 邏輯 + CHECK_ALIGN/SET_ALIGN（Spark 實機 L3）。
-每台相機起始點不同 → 各教各的 Mark；golden 以 base64 隨 LOAD_RECIPE 進 IP（network-clean）。</div>
-
 <div class="panel"><div class="grid">
+  <div class="ph"><h3>對位 Mark — CCD00</h3><button class="hbtn">?</button></div>
   <div>
-    <div class="seg"><span class="on">實拍底圖（抓這台一幀）</span><span>載入 TIFF</span></div>
+    <div class="seg"><span class="on">實拍底圖</span><span>載入 TIFF</span></div>
     <div class="img">
       <div class="tex"></div>
-      <div class="mk"><span class="lb">搜尋窗 640×480（黃虛線，拖角調整）</span></div>
-      <div class="tpl"><span class="lb">Mark 範本（綠實線框選）</span></div>
-      <div class="cross"></div>
-      <div class="hint">滾輪縮放 · 拖曳平移 · 先框範本，搜尋窗自動帶出可再調</div>
+      <div class="mk"></div>
+      <div class="tpl"></div>
+      <div class="legend"><span><i style="border:2px solid #34d399"></i>Mark</span>
+        <span><i style="border:2px dashed #fbbf24"></i>搜尋窗</span></div>
     </div>
     <div class="row">
       <button class="btn ghost">重抓底圖</button>
-      <button class="btn">儲存 Mark（寫入此 CCD 配方）</button>
+      <button class="btn">儲存 Mark</button>
     </div>
   </div>
   <div>
-    <div class="tog"><span class="sw"><i></i></span>此 CCD 啟用對位（AlignEnable）</div>
+    <div class="tog"><span class="sw"><i></i></span>啟用對位</div>
     <div class="kv">
-      <span class="k">ReferX / Y</span><span class="v">197, 168（範本中心，自動）</span>
-      <span class="k">搜尋窗</span><span class="v">640 × 480</span>
-      <span class="k">範本檔</span><span class="v">mark_ccd00.tif</span>
+      <span class="k">Refer X/Y</span><span class="v">197, 168</span>
+      <span class="k">搜尋窗 <span class="tipwrap"><span class="i">i</span>
+        <span class="tip">在此範圍內找 Mark；比範本大 3–5 倍即可。太小找不到、太大變慢。</span></span></span><span class="v">640 × 480</span>
+      <span class="k">範本</span><span class="v">mark_ccd00.tif</span>
     </div>
-    <h3>試對位（教完立刻驗）</h3>
-    <button class="btn ghost">▶ 抓新幀試對位</button>
-    <div class="score"><span class="n">0.94</span><span class="thr">score（門檻 0.55）</span></div>
-    <div class="kv" style="margin-top:0">
-      <span class="k">ShiftX / Y</span><span class="v">+7.001, +3.000 px</span>
-    </div>
-    <div class="okband">✓ 對位成功 — 位移已可套用（SET_ALIGN），偵測 ROI 會自動平移</div>
-    <div class="failband">✗ 分數過低範例（0.28）：「此區域特徵不足——換一個有明顯圖案的位置重新框選」</div>
-    <div class="note">限制內建提示：模型為純平移（±3° 內旋轉僅回報不套用）；生產時 score 不過 → 回 ERR
-    交上位機決策，系統不會自行硬套。全幅 ROI 配方套對位不會塌（F1 已修）。</div>
+    <button class="btn ghost">▶ 試對位</button>
+    <div class="score"><span class="n">0.94</span><span class="thr">/ 門檻 0.55</span></div>
+    <div class="kv" style="margin:0 0 10px"><span class="k">Shift X/Y</span><span class="v">+7.0, +3.0 px</span></div>
+    <div class="band">✓ 對位成功 — ROI 已可自動平移</div>
   </div>
 </div></div>
 </body></html>

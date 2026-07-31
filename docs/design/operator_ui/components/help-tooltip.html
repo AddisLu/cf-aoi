@@ -1,0 +1,55 @@
+<!-- @dsCard group="Components" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>說明系統 — tooltip / 求助抽屜 / 一行警示</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;
+--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:24px}
+h1{font-size:17px;margin-bottom:14px}
+h2{font-size:12px;color:var(--muted);margin:18px 0 8px}
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;max-width:760px}
+.i{display:inline-flex;width:16px;height:16px;border-radius:50%;background:var(--off-bg);color:var(--muted);font-size:11px;align-items:center;justify-content:center;font-weight:700;cursor:help;vertical-align:2px}
+.tipwrap{position:relative;display:inline-block}
+.tip{position:absolute;left:24px;top:-10px;width:240px;background:#1a1d21;color:#fff;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:2}
+.tip:before{content:"";position:absolute;left:-5px;top:14px;border:5px solid transparent;border-right-color:#1a1d21}
+.hbtn{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-weight:800;color:var(--muted);cursor:pointer}
+.drawer{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:8px;max-width:760px;display:grid;grid-template-columns:1fr 280px}
+.dmain{padding:16px;color:var(--muted);font-size:13px;background:var(--surface)}
+.dside{background:#fbfbfc;border-left:1px solid var(--line);padding:14px}
+.dside h3{font-size:13px;margin-bottom:8px}
+.dside .q{font-size:12px;padding:7px 0;border-bottom:1px solid var(--line);color:var(--ink)}
+.dside .q b{display:block}
+.dside .q span{color:var(--muted);font-size:11px}
+.band{display:flex;align-items:center;gap:8px;border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;margin-top:8px;max-width:760px}
+.b-warn{background:var(--warn-bg);color:#92400e}
+.b-err{background:var(--err-bg);color:var(--err)}
+.band .act{margin-left:auto;font-weight:700;color:var(--accent);cursor:pointer}
+</style></head><body>
+<h1>說明系統（頁面文字都收到這三種容器）</h1>
+
+<h2>1. ⓘ 懸停提示 — 欄位級說明，平時不佔版面</h2>
+<div class="demo">
+  搜尋窗 <span class="tipwrap"><span class="i">i</span>
+  <span class="tip">對位時在這個範圍內尋找 Mark。<br>比範本大 3–5 倍即可；太大變慢、太小容易找不到。</span></span>
+  　　　曝光 µs <span class="i">i</span>　　增益 raw <span class="i">i</span>
+</div>
+
+<h2>2. 「?」求助抽屜 — 每頁右上角，整頁教學收在這裡</h2>
+<div class="demo" style="display:flex;justify-content:space-between;align-items:center">
+  <span style="font-weight:700">相機工作台</span><button class="hbtn">?</button>
+</div>
+<div class="drawer">
+  <div class="dmain">（頁面內容，維持乾淨）</div>
+  <div class="dside">
+    <h3>這一頁怎麼用</h3>
+    <div class="q"><b>為什麼要先對位再檢測？</b><span>對位把 ROI 平移到面板實際位置，沒對位的檢測會抓錯區域。</span></div>
+    <div class="q"><b>mean 很低是壞掉了嗎？</b><span>mean&lt;3 通常是沒開光源（暗場雜訊底），不是相機故障。</span></div>
+    <div class="q"><b>解除綁定會怎樣？</b><span>相機回到未指派清單，該槽曝光/增益設定保留。</span></div>
+  </div>
+</div>
+
+<h2>3. 一行式警示 — 只在發生時出現，帶一個動作</h2>
+<div class="band b-warn">⚠ 尚未對位 — 檢測 ROI 可能偏移 <span class="act">去 Step 3 →</span></div>
+<div class="band b-err">✗ 缺陷數觸頂 10000 — 通常是 Pitch 設錯 <span class="act">FFT 估算 →</span></div>
+</body></html>

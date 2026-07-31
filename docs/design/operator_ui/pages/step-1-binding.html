@@ -1,95 +1,83 @@
 <!-- @dsCard group="流程 Steps" -->
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 1 綁定 — 三種狀態（綁定/解除/衝突）</title>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 1 綁定（精簡版：綁定/解除/衝突）</title>
 <style>
 :root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
---accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
---ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+--accent:#4f46e5;--ok:#16a34a;--err:#dc2626;
+--ok-bg:#ecfdf5;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
 *{box-sizing:border-box;margin:0}
-body{font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
-h1{font-size:17px}.pagesub{color:var(--muted);font-size:12px;margin:4px 0 16px}
-.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;max-width:1200px}
-.lbl{font-size:12px;color:var(--muted);margin-bottom:6px}
+body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;max-width:1150px}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
-.panel h3{font-size:14px;margin-bottom:2px}
-.sub{font-size:12px;color:var(--muted);margin-bottom:12px}
-.mono{font-family:ui-monospace,SF Mono,monospace;font-size:11px}
-.cand{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.panel h3{font-size:14px}
+.i{display:inline-flex;width:16px;height:16px;border-radius:50%;background:var(--off-bg);color:var(--muted);font-size:11px;align-items:center;justify-content:center;font-weight:700;cursor:help}
+.mono{font-family:ui-monospace,monospace;font-size:11px}
+.cand{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
 .cand.sel{border-color:var(--accent);background:var(--accent-bg)}
 .cand .info{flex:1}.cand b{font-size:13px}
 .cand .meta{font-size:11px;color:var(--muted)}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:9px 18px;font-weight:700;font-size:13px;cursor:pointer}
-.btn.sm{padding:6px 14px;font-size:12px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer}
+.btn.sm{padding:7px 14px;font-size:12px}
 .btn.danger{background:#fff;color:var(--err);border:1.5px solid var(--err)}
 .btn.ghost{background:var(--off-bg);color:var(--ink)}
-.kv{display:grid;grid-template-columns:88px 1fr;row-gap:6px;font-size:13px;margin:10px 0}
+.kv{display:grid;grid-template-columns:64px 1fr;row-gap:7px;font-size:13px;margin-bottom:12px}
 .kv .k{color:var(--muted)}
-.okband{background:var(--ok-bg);color:var(--ok);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;margin-bottom:12px}
-.errband{background:var(--err-bg);color:var(--err);border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;margin-bottom:12px}
-.confirm{border:1.5px solid var(--err);border-radius:10px;padding:12px;margin-top:12px;background:var(--err-bg)}
-.confirm p{font-size:12px;color:#7f1d1d;margin-bottom:10px}
-.note{font-size:11px;color:var(--muted);margin-top:10px}
+.band{border-radius:9px;padding:7px 12px;font-size:12px;font-weight:600;margin-bottom:12px}
+.b-ok{background:var(--ok-bg);color:var(--ok)}
+.b-err{background:var(--err-bg);color:var(--err)}
+.modal{border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px;box-shadow:0 8px 26px rgba(0,0,0,.12);background:var(--surface)}
+.modal p{font-size:13px;margin-bottom:12px}
+.lbl{font-size:11px;color:var(--muted);margin-bottom:6px}
 </style></head><body>
-<h1>Step 1 — 綁定（含解除、衝突處理）</h1>
-<div class="pagesub">底層＝既有 SET_CAM_MAP 全表語意，UI 永遠只呈現「這一槽」的決定；取像中一律鎖住（Grab 端已擋）。</div>
-
 <div class="cols">
+
 <div>
-<div class="lbl">A. 未綁定 → 一鍵綁定（最常見，2 次點擊完成）</div>
+<div class="lbl">A · 綁定（選 → 按，2 步完成）</div>
 <div class="panel">
-  <h3>把相機綁到 CCD02</h3>
-  <div class="sub">偵測到 2 台未指派的相機——選一台，按綁定。</div>
-  <div class="cand sel">
-    <input type="radio" checked>
-    <div class="info"><b>raL8192-12gm</b> · SN 25445961
-      <div class="meta mono">00:30:53:2A:0B:11 · 192.168.5.3 · 接在 WGE1/0/37</div></div>
-    <span class="mono" style="color:var(--ok)">在線</span>
-  </div>
-  <div class="cand">
-    <input type="radio">
-    <div class="info"><b>raL8192-12gm</b> · SN 25445972
-      <div class="meta mono">00:30:53:2A:0B:24 · 192.168.5.6</div></div>
-    <span class="mono" style="color:var(--ok)">在線</span>
-  </div>
-  <button class="btn">綁定到 CCD02</button>
-  <div class="note">按下即寫入 cam_map.json 並重載；左欄卡片立即轉綠。曝光/增益設定跟著 CCD 槽位（cam_id），不跟相機個體。</div>
+  <div class="ph"><h3>綁定相機到 CCD02</h3><span class="i">i</span></div>
+  <div class="cand sel"><input type="radio" checked>
+    <div class="info"><b>raL8192</b> · SN …5961<div class="meta mono">…:0B:11 · WGE1/0/37</div></div>
+    <span class="mono" style="color:var(--ok)">在線</span></div>
+  <div class="cand"><input type="radio">
+    <div class="info"><b>raL8192</b> · SN …5972<div class="meta mono">…:0B:24</div></div>
+    <span class="mono" style="color:var(--ok)">在線</span></div>
+  <button class="btn">綁定</button>
 </div>
 </div>
 
 <div>
-<div class="lbl">B. 已綁定 → 檢視與解除（解除＝危險動作，二段確認）</div>
+<div class="lbl">B · 已綁定 → 解除（二段確認）</div>
 <div class="panel">
-  <h3>CCD00 的綁定</h3>
-  <div class="okband">✓ 綁定正常 — 列舉到的 MAC 與紀錄一致</div>
+  <div class="ph"><h3>CCD00</h3><span class="i">i</span></div>
+  <div class="band b-ok">✓ 綁定正常</div>
   <div class="kv">
     <span class="k">型號</span><span>raL8192-12gm</span>
-    <span class="k">序號</span><span>25445953</span>
+    <span class="k">SN</span><span>25445953</span>
     <span class="k">MAC</span><span class="mono">00:30:53:53:19:41</span>
-    <span class="k">IP</span><span class="mono">192.168.5.1（persistent）</span>
+    <span class="k">IP</span><span class="mono">192.168.5.1</span>
   </div>
   <button class="btn danger sm">解除綁定…</button>
-  <div class="confirm">
-    <p><b>確定解除 CCD00 的綁定？</b><br>此相機將回到「未指派」清單；該槽的曝光/增益設定保留。
-    嚴格模式下未綁定的相機<b>不會取像</b>。</p>
-    <button class="btn danger sm">確認解除</button>
+  <div class="modal">
+    <p>解除 <b>CCD00</b> 的綁定？</p>
+    <button class="btn danger sm">解除</button>
     <button class="btn ghost sm">取消</button>
   </div>
 </div>
 </div>
 
 <div>
-<div class="lbl">C. MAC 不符 → 引導處理（不讓操作員猜）</div>
+<div class="lbl">C · MAC 不符 → 二選一出口</div>
 <div class="panel">
-  <h3>CCD03 綁定異常</h3>
-  <div class="errband">✗ MAC 不符 — 此槽紀錄的相機沒出現，卻出現另一台</div>
+  <div class="ph"><h3>CCD03</h3><span class="i">i</span></div>
+  <div class="band b-err">✗ MAC 不符</div>
   <div class="kv">
-    <span class="k">預期</span><span class="mono">00:30:53:2A:0B:24（SN 25445972）</span>
-    <span class="k">實際出現</span><span class="mono">00:30:53:2A:0B:31（SN 25445980）</span>
+    <span class="k">預期</span><span class="mono">…:0B:24</span>
+    <span class="k">實際</span><span class="mono">…:0B:31</span>
   </div>
-  <div class="sub">最可能原因：網路線插錯埠位，或相機被調換。</div>
-  <button class="btn ghost sm">我插錯線了，去檢查（維持綁定）</button>
-  <button class="btn sm" style="margin-left:6px">確認換機：改綁 …:0B:31</button>
-  <div class="note">「改綁」＝更新 cam_map 此槽的 MAC；原相機自動回未指派清單。</div>
+  <button class="btn ghost sm">去檢查接線</button>
+  <button class="btn sm" style="margin-left:6px">改綁這台</button>
 </div>
 </div>
+
 </div>
 </body></html>

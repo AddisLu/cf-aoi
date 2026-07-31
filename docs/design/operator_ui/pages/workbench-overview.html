@@ -1,9 +1,9 @@
 <!-- @dsCard group="Pages" -->
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>相機工作台 — 整頁版面（取代現有 系統設定/單CCD 的分散動線）</title>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>相機工作台 — 整頁版面（精簡版）</title>
 <style>
 :root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
 --accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
---ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
 *{box-sizing:border-box;margin:0}
 body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600}
@@ -11,107 +11,90 @@ body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-ser
 .c-ok{background:var(--ok-bg);color:var(--ok)}.c-ok i{background:var(--ok)}
 .c-warn{background:var(--warn-bg);color:var(--warn)}.c-warn i{background:var(--warn)}
 .c-off{background:var(--off-bg);color:var(--off)}.c-off i{background:var(--off)}
-.mono{font-family:ui-monospace,SF Mono,monospace;font-size:11px}
-/* top bar */
-.top{display:flex;align-items:center;gap:16px;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 20px}
+.top{display:flex;align-items:center;gap:14px;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 20px}
 .top h1{font-size:16px}
 .kpi{display:flex;gap:14px;margin-left:auto;font-size:12px;color:var(--muted)}
 .kpi b{color:var(--ink);font-size:15px}
-/* layout */
-.wrap{display:grid;grid-template-columns:290px 1fr;gap:0;height:calc(100vh - 49px)}
+.hbtn{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-weight:800;color:var(--muted);cursor:pointer}
+.wrap{display:grid;grid-template-columns:270px 1fr;height:calc(100vh - 49px)}
 .rail{border-right:1px solid var(--line);background:#fbfbfc;padding:12px;overflow-y:auto}
-.rail h2{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:6px 2px}
 .card{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--off);border-radius:10px;padding:9px 12px;margin-bottom:8px;cursor:pointer}
 .card.ok{border-left-color:var(--ok)}.card.warn{border-left-color:var(--warn)}
 .card.sel{outline:2px solid var(--accent);outline-offset:1px}
 .card .r{display:flex;justify-content:space-between;align-items:center}
 .card .slot{font-weight:700}
 .card .meta{font-size:11px;color:var(--muted)}
-/* main */
 .main{padding:18px 24px;overflow-y:auto}
-.ident{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+.ident{display:flex;align-items:baseline;gap:12px}
 .ident h2{font-size:20px}
 .ident .meta{color:var(--muted);font-size:12px}
-/* stepper */
 .steps{display:flex;gap:8px;margin:14px 0 18px}
 .step{flex:1;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-weight:600;font-size:13px;color:var(--muted);cursor:pointer}
 .step .n{width:22px;height:22px;border-radius:50%;background:var(--off-bg);display:flex;align-items:center;justify-content:center;font-size:12px}
 .step.done{color:var(--ink)}.step.done .n{background:var(--ok);color:#fff}
 .step.cur{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 .step.cur .n{background:var(--accent);color:#fff}
-/* panel skeleton */
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;min-height:330px}
-.panel h3{font-size:15px;margin-bottom:4px}
-.panel .sub{font-size:12px;color:var(--muted);margin-bottom:14px}
-.btn{display:inline-block;background:var(--accent);color:#fff;border-radius:9px;padding:10px 22px;font-weight:700;font-size:14px;border:none;cursor:pointer}
-.big{font-size:34px;font-weight:800}
-.ok-t{color:var(--ok)}
-.ghost{background:var(--off-bg);color:var(--ink);font-weight:600}
-.ann{background:#fffbeb;border:1px dashed var(--warn);border-radius:10px;padding:8px 12px;font-size:12px;color:#92400e;margin-top:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;min-height:300px}
+.btn{background:var(--accent);color:#fff;border-radius:9px;padding:11px 24px;font-weight:700;font-size:14px;border:none;cursor:pointer}
+.btn.ghost{background:var(--off-bg);color:var(--ink)}
+.big{font-size:38px;font-weight:800}
+.row{display:flex;gap:26px;align-items:center;margin-bottom:18px}
+.rsub{font-size:11px;color:var(--muted)}
+.wall{display:flex;gap:8px}
+.p{width:76px;height:76px;background:var(--off-bg);border-radius:8px}
 </style></head><body>
 
 <div class="top">
   <h1>相機工作台</h1>
-  <span class="chip c-ok"><i></i>Grab 已連線</span>
-  <span class="chip c-ok"><i></i>IP 已連線</span>
+  <span class="chip c-ok"><i></i>Grab</span>
+  <span class="chip c-ok"><i></i>IP</span>
   <div class="kpi"><span>已綁定 <b>4</b>/6</span><span>在線 <b>5</b></span><span>待處理 <b style="color:var(--warn)">2</b></span></div>
+  <button class="hbtn">?</button>
 </div>
 
 <div class="wrap">
   <div class="rail">
-    <h2>槽位（點選開始）</h2>
     <div class="card ok sel"><div class="r"><span class="slot">CCD00</span><span class="chip c-ok"><i></i>已綁定</span></div>
-      <div class="meta">raL8192 · SN…5953 · mean 90.4</div></div>
+      <div class="meta">raL8192 · mean 90.4</div></div>
     <div class="card ok"><div class="r"><span class="slot">CCD01</span><span class="chip c-ok"><i></i>已綁定</span></div>
-      <div class="meta">raL4096 · SN…1505 · mean 87.2</div></div>
+      <div class="meta">raL4096 · mean 87.2</div></div>
     <div class="card warn"><div class="r"><span class="slot">CCD02</span><span class="chip c-warn"><i></i>未綁定</span></div>
-      <div class="meta">偵測到候選 1 台</div></div>
+      <div class="meta">候選 1 台</div></div>
     <div class="card ok"><div class="r"><span class="slot">CCD03</span><span class="chip c-ok"><i></i>已綁定</span></div>
-      <div class="meta">raL8192 · SN…5961 · 未取像</div></div>
+      <div class="meta">raL8192 · 未取像</div></div>
     <div class="card"><div class="r"><span class="slot">CCD04</span><span class="chip c-off"><i></i>離線</span></div>
-      <div class="meta">上次在線 10:42</div></div>
+      <div class="meta">10:42 前在線</div></div>
     <div class="card" style="opacity:.6"><div class="r"><span class="slot">CCD05</span><span class="chip c-off"><i></i>空槽</span></div>
-      <div class="meta">等待接入</div></div>
-    <h2 style="margin-top:14px">未指派的相機</h2>
-    <div class="card warn"><div class="meta mono">00:30:53:2A:0B:11</div>
-      <div class="meta">raL8192 · 拖到槽位或點槽位綁定</div></div>
+      <div class="meta">—</div></div>
+    <div class="card warn" style="margin-top:16px"><div class="r"><span class="slot" style="font-size:12px">未指派</span>
+      <span class="chip c-warn"><i></i>1 台</span></div>
+      <div class="meta">…:0B:11 raL8192</div></div>
   </div>
 
   <div class="main">
     <div class="ident">
       <h2>CCD00</h2>
-      <span class="meta">raL8192-12gm · SN 25445953 · <span class="mono">00:30:53:53:19:41</span> · 192.168.5.1</span>
+      <span class="meta">raL8192-12gm · SN 25445953 · 192.168.5.1</span>
       <span class="chip c-ok"><i></i>已綁定</span>
     </div>
 
     <div class="steps">
       <div class="step done"><span class="n">✓</span>綁定</div>
-      <div class="step done"><span class="n">✓</span>取像驗證</div>
-      <div class="step done"><span class="n">✓</span>對位 Mark</div>
-      <div class="step cur"><span class="n">4</span>調參與缺陷</div>
-      <div class="step"><span class="n">5</span>套用到其他相機</div>
+      <div class="step done"><span class="n">✓</span>取像</div>
+      <div class="step done"><span class="n">✓</span>對位</div>
+      <div class="step cur"><span class="n">4</span>調參</div>
+      <div class="step"><span class="n">5</span>套用</div>
     </div>
 
     <div class="panel">
-      <h3>調參與缺陷確認（示意骨架，細節見「Step 4」卡）</h3>
-      <div class="sub">改 4 個關鍵參數 → 按 Test → 看缺陷數與縮圖牆 → T/P 分類（= AI Retrain 標註）</div>
-      <div style="display:flex;gap:28px;align-items:center;margin:16px 0">
-        <div><div class="big ok-t">7</div><div class="sub">缺陷數</div></div>
-        <button class="btn">▶ Test 檢測</button>
+      <div class="row">
+        <div><div class="big" style="color:var(--ok)">7</div><div class="rsub">缺陷</div></div>
+        <button class="btn">▶ Test</button>
         <button class="btn ghost">FFT 估 Pitch</button>
       </div>
-      <div style="display:flex;gap:8px">
-        <div style="width:76px;height:76px;background:var(--off-bg);border-radius:8px"></div>
-        <div style="width:76px;height:76px;background:var(--off-bg);border-radius:8px"></div>
-        <div style="width:76px;height:76px;background:var(--off-bg);border-radius:8px"></div>
-        <div style="width:76px;height:76px;background:var(--off-bg);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted)">+3</div>
-      </div>
+      <div class="wall"><div class="p"></div><div class="p"></div><div class="p"></div>
+        <div class="p" style="display:flex;align-items:center;justify-content:center;color:var(--muted)">+4</div></div>
     </div>
-
-    <div class="ann">設計要點：①動線 = 生產順序：綁定 → 取像 → <b>對位</b> → 檢測調參 → 套用（對位把 ROI
-    平移到位，檢測才有意義）；②每張卡的五個小圓點 = 該相機五步驟進度，掃一眼就知道 6 台各做到哪；
-    ③「未指派的相機」集中在左下，綁定永遠只有一種入口；④ 27 參數完整表收進 Step 4 的「進階」摺疊；
-    ⑤ 對位 Mark 每台各教各的（legacy 模型 A），Step 5 複製參數預設不含 Mark。</div>
   </div>
 </div>
 </body></html>
