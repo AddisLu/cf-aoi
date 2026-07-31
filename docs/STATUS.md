@@ -811,6 +811,22 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 
 ---
 
+## 相機工作台改版（2026-07-31）：操作員五步驟單頁動線 + 導覽收斂
+
+> 設計：Claude Design「CF-AOI Operator UI」（mockup 入版控 `docs/design/operator_ui/`，
+> 經 Addis 三輪迭代：補對位步驟、修正為生產順序、全頁精簡化）。
+> 實作：`CameraWorkbenchView`（commit `f545e0c`）+ 導覽收斂（`166d47b`）。
+
+| 項 | 內容 | 級別 |
+|---|---|---|
+| 工作台頁 | 左欄槽位卡（宣告×偵測 join + 五步驟進度點）→ ①綁定（候選一鍵綁/解除二段確認/MAC 不符二出口）②取像（TUNE_MEAN + mean 判讀暗場防呆 + 曝光增益滑桿）③對位（M_AlignRoi 數值教學入該槽分區）④調參（嵌 SingleCcdSetup 完整檢測鏈）⑤套用（新 `CopyParamsToIps` 跨相機分區複製，預設保留各目標 Mark + 可選曝光增益批次下發）| **L2**（`--selftest workbench` **21/21**：join 四態/完整表綁定/暗場/工作點判讀/Mark 落檔/複製不覆蓋 Mark/進度點；**Mac 目視 ✓ 版面確認**）|
+| 導覽收斂 | 側欄 7→4 頁（主控台/工作台/缺陷分類/系統設定）；配方編輯/演算法驗證/單 CCD 併入工作台 Step 4；系統設定移除「相機參數」分頁 | 既有 11 套 selftest 回歸全過 |
+
+**誠實界線**：②縮圖預覽待 grab `GET_FRAME_PREVIEW`（新命令未做）；③視覺框選教 Mark + 試對位
+（CHECK_ALIGN 接線）待實拍影像流程；實機（真 Grab/相機）操作 = 6 相機到貨日照 runbook 驗 → L3。
+
+---
+
 ## 權威 Gap 表（2026-06-17）：舊版 Reference → 現狀 → gap#
 
 > 來源：2026-06-17 三套 Reference 逐功能考古（`Reference/PrjCfAoi`=legacy 單體、`Reference/Demo`=GPU 核心、
