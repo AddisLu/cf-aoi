@@ -902,13 +902,6 @@ int main(int argc, char** argv) {
                       << "  bind=" << args.rdma_bind << ":" << args.rdma_port << "\n";
         }
 
-        RdmaImageSource rdma_src;
-        if (!rdma_src.init(args.rdma_bind, args.rdma_port,
-                           args.rdma_slots, max_payload, queue)) {
-            std::cerr << "[rdma-validate] RDMA 初始化失敗\n";
-            return 3;
-        }
-
         FrameHeader hdr;
         std::vector<uint8_t> payload;
         std::atomic<uint64_t> ok_count{0}, err_count{0};
@@ -917,6 +910,8 @@ int main(int argc, char** argv) {
         // 8200 於 rdma 模式亦開（Step 4/5 前置）：串流期間 Control 心跳/狀態查詢要通，
         // 否則相機一開 IP 燈就紅。影像注入命令擋掉（來源是 RDMA）；本模式無檢測管線 →
         // LOAD_RECIPE 誠實 ERR。
+        // ⚠️ 必須在 rdma_src.init() **之前** start：init 內 accept_conn() 會阻塞等 Grab
+        // 的 RDMA 連線；若 8200 排在其後，IP 起動到 Grab ARM 之間心跳連不上（實測 refused）。
         ControlServer ctrl_srv(args.control_port, queue);
         ctrl_srv.set_image_ingest_enabled(false);
         ctrl_srv.set_output_dir(args.output);
@@ -934,6 +929,13 @@ int main(int argc, char** argv) {
             return s.dump();
         });
         if (!ctrl_srv.start()) return 3;
+
+        RdmaImageSource rdma_src;
+        if (!rdma_src.init(args.rdma_bind, args.rdma_port,
+                           args.rdma_slots, max_payload, queue)) {
+            std::cerr << "[rdma-validate] RDMA 初始化失敗\n";
+            return 3;
+        }
 
         while (rdma_src.next_frame(hdr, payload)) {
             // 驗收：seq 必須遞增（RC QP 保序）
@@ -1024,16 +1026,12 @@ int main(int argc, char** argv) {
                                           : "僅有缺陷時存（0 缺陷跳過，省 ~410ms/幀）")
                   << "\n";
 
-        RdmaImageSource rdma_src;
-        if (!rdma_src.init(args.rdma_bind, args.rdma_port,
-                           args.rdma_slots, max_payload, queue)) {
-            std::cerr << "[rdma-process] RDMA 初始化失敗\n";
-            return 3;
-        }
-
         // 8200 於 rdma 模式亦開（Step 4/5 前置）：串流期間 Control 心跳/LOAD_RECIPE 預熱/
         // CHECK·SET_ALIGN/CF_GET_RESULT（LIST_DEFECT_FOLDERS 鏈）都要通。
         // 影像注入命令擋掉（來源是 RDMA，混入會弄壞 seq/遺失對帳）。
+        // ⚠️ 必須在 rdma_src.init() **之前** start：init 內 accept_conn() 會阻塞等 Grab
+        // 的 RDMA 連線；若 8200 排在其後，IP 起動到 Grab ARM 之間心跳連不上（實測 refused）。
+        RdmaImageSource rdma_src;                // 先宣告（status provider 引用；計數器 pre-init 安全為 0）
         std::mutex zones_mtx;                    // LOAD_RECIPE 可在串流中更新 zones
         std::atomic<bool> recipe_loaded{false};  // 首次 LOAD_RECIPE 後改用 server 的 saving/ioi 設定
         ControlServer ctrl_srv(args.control_port, queue);
@@ -1084,6 +1082,12 @@ int main(int argc, char** argv) {
             return s.dump();
         });
         if (!ctrl_srv.start()) return 3;
+
+        if (!rdma_src.init(args.rdma_bind, args.rdma_port,
+                           args.rdma_slots, max_payload, queue)) {
+            std::cerr << "[rdma-process] RDMA 初始化失敗\n";
+            return 3;
+        }
 
         FrameHeader hdr;
         std::vector<uint8_t> payload;
