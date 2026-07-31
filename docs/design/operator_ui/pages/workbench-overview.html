@@ -87,12 +87,13 @@ body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-ser
     <div class="steps">
       <div class="step done"><span class="n">✓</span>綁定</div>
       <div class="step done"><span class="n">✓</span>取像驗證</div>
-      <div class="step cur"><span class="n">3</span>調參與缺陷</div>
-      <div class="step"><span class="n">4</span>套用到其他相機</div>
+      <div class="step done"><span class="n">✓</span>對位 Mark</div>
+      <div class="step cur"><span class="n">4</span>調參與缺陷</div>
+      <div class="step"><span class="n">5</span>套用到其他相機</div>
     </div>
 
     <div class="panel">
-      <h3>調參與缺陷確認（示意骨架，細節見「Step 3」卡）</h3>
+      <h3>調參與缺陷確認（示意骨架，細節見「Step 4」卡）</h3>
       <div class="sub">改 4 個關鍵參數 → 按 Test → 看缺陷數與縮圖牆 → T/P 分類（= AI Retrain 標註）</div>
       <div style="display:flex;gap:28px;align-items:center;margin:16px 0">
         <div><div class="big ok-t">7</div><div class="sub">缺陷數</div></div>
@@ -107,9 +108,10 @@ body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-ser
       </div>
     </div>
 
-    <div class="ann">設計要點：①動線固定由左至右、當前步驟高亮；②每張卡的四個小圓點 = 該相機四步驟進度，
-    掃一眼就知道 6 台各做到哪；③「未指派的相機」集中在左下，綁定永遠只有一種入口；
-    ④ 27 參數完整表收進步驟 3 的「進階」摺疊，操作員預設看不到。</div>
+    <div class="ann">設計要點：①動線 = 生產順序：綁定 → 取像 → <b>對位</b> → 檢測調參 → 套用（對位把 ROI
+    平移到位，檢測才有意義）；②每張卡的五個小圓點 = 該相機五步驟進度，掃一眼就知道 6 台各做到哪；
+    ③「未指派的相機」集中在左下，綁定永遠只有一種入口；④ 27 參數完整表收進 Step 4 的「進階」摺疊；
+    ⑤ 對位 Mark 每台各教各的（legacy 模型 A），Step 5 複製參數預設不含 Mark。</div>
   </div>
 </div>
 </body></html>
