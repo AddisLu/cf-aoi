@@ -71,6 +71,11 @@ public static class UpstreamWiring
             try
             {
                 var timeout = int.TryParse(timeoutMs, out var t) && t > 0 ? t : 40000;
+                // fpp=0（appsettings 無 Grab 區段時的 C# 預設）= 連續模式：收滿不會自動停、
+                // 只能靠 CF_STOP 收尾。生產應設每片張數 → 大聲警告，避免 8/M 靜默走錯模式。
+                if (svc.Config.Grab.FramesPerPanel <= 0)
+                    svc.Log.Warn("CF_GRAB_START：Grab.FramesPerPanel 未設定（=0，連續模式）——" +
+                                 "收滿不會自動停，生產請在 appsettings.json 的 Grab 區段設定每片每台張數");
                 var resp = await svc.Connection.Grab.GrabStartAsync(timeout, svc.Config.Grab.FramesPerPanel);
                 var ok = resp?["status"]?.GetValue<string>() == "OK";
                 if (!ok) svc.Log.Warn($"GRAB_START 失敗：{resp?["error"]?.GetValue<string>() ?? "無回應"}");
