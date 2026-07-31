@@ -1,0 +1,69 @@
+<!-- @dsCard group="流程 Steps" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 4 套用到其他相機 — 選來源參數/選目標/回饋</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
+h1{font-size:17px}.pagesub{color:var(--muted);font-size:12px;margin:4px 0 16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;max-width:900px}
+.grid{display:grid;grid-template-columns:1fr 1.2fr;gap:20px}
+h3{font-size:14px;margin-bottom:8px}
+.src{border:1px solid var(--line);border-radius:10px;padding:12px}
+.src .from{font-size:12px;color:var(--muted);margin-bottom:8px}
+.kv{display:grid;grid-template-columns:1fr auto;row-gap:5px;font-size:13px}
+.kv .v{font-weight:700;font-family:ui-monospace,monospace}
+.inc{margin-top:10px;font-size:12px;color:var(--muted)}
+.inc label{display:flex;gap:7px;align-items:center;margin-top:5px;color:var(--ink)}
+.tgt{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:7px}
+.tgt.on{border-color:var(--accent);background:var(--accent-bg)}
+.tgt .n{font-weight:700;width:60px}
+.tgt .meta{font-size:11px;color:var(--muted);flex:1}
+.tgt .st{font-size:11px;font-weight:700}
+.st.done{color:var(--ok)}.st.skip{color:var(--muted)}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 22px;font-weight:700;font-size:14px;cursor:pointer;margin-top:12px}
+.selrow{display:flex;gap:10px;font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px;cursor:pointer}
+.okband{background:var(--ok-bg);color:var(--ok);border-radius:9px;padding:9px 12px;font-size:12px;font-weight:600;margin-top:12px}
+.note{font-size:11px;color:var(--muted);margin-top:10px}
+</style></head><body>
+<h1>Step 4 — 把調好的參數套用到其他相機</h1>
+<div class="pagesub">底層＝既有 #7 CopyRecipeParamsToMany（檢測參數+對位 Mark 逐槽複製）＋可選 SET_CAM_PARAMS（曝光/增益）。</div>
+
+<div class="panel"><div class="grid">
+  <div>
+    <h3>來源：CCD00（目前調好的）</h3>
+    <div class="src">
+      <div class="from">配方 DEFAULT · 10:58 Test＝7 缺陷 ✓</div>
+      <div class="kv">
+        <span>BTH / DTH</span><span class="v">1.40 / 0.58</span>
+        <span>PitchX / PitchY</span><span class="v">26 / 18</span>
+        <span>Blob 過濾</span><span class="v">min 5</span>
+        <span>曝光 / 增益</span><span class="v">2000µs / 2047</span>
+      </div>
+      <div class="inc">要複製哪些？
+        <label><input type="checkbox" checked>檢測參數（27 欄全套）</label>
+        <label><input type="checkbox" checked>曝光 / 增益（寫入各槽 cam_config）</label>
+        <label><input type="checkbox">對位 Mark（各槽通常要自己教，預設不複製）</label>
+      </div>
+    </div>
+  </div>
+  <div>
+    <h3>目標相機</h3>
+    <div class="selrow"><span>全選</span><span>只選已綁定</span><span>清除</span></div>
+    <div class="tgt on"><input type="checkbox" checked><span class="n">CCD01</span>
+      <span class="meta">raL4096 · 已綁定 · mean 87.2</span><span class="st done">✓ 已套用</span></div>
+    <div class="tgt on"><input type="checkbox" checked><span class="n">CCD02</span>
+      <span class="meta">raL8192 · 已綁定</span><span class="st done">✓ 已套用</span></div>
+    <div class="tgt on"><input type="checkbox" checked><span class="n">CCD03</span>
+      <span class="meta">raL8192 · 已綁定</span><span class="st done">✓ 已套用</span></div>
+    <div class="tgt"><input type="checkbox" disabled><span class="n">CCD04</span>
+      <span class="meta">離線 — 無法套用曝光/增益（檢測參數仍可寫配方）</span><span class="st skip">部分</span></div>
+    <div class="tgt"><input type="checkbox" disabled><span class="n">CCD05</span>
+      <span class="meta">空槽</span><span class="st skip">跳過</span></div>
+    <button class="btn">套用到 3 台</button>
+    <div class="okband">✓ 完成：3 台檢測參數＋曝光增益已套用；建議每台回 Step 3 各跑一次 Test 抽驗。</div>
+    <div class="note">異型號提醒內建：raL4096 解析度不同，ROI 超界會自動夾住並提示（不靜默）。</div>
+  </div>
+</div></div>
+</body></html>

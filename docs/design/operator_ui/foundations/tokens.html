@@ -1,0 +1,58 @@
+<!-- @dsCard group="Foundations" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>CF-AOI 色彩與狀態語彙</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.6 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:24px}
+h1{font-size:18px;margin-bottom:4px}.sub{color:var(--muted);font-size:12px;margin-bottom:20px}
+h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 10px}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.sw{width:150px;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sw .c{height:44px}.sw .t{padding:8px 10px;font-size:12px}.sw .t b{display:block}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.chip i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.c-ok{background:var(--ok-bg);color:var(--ok)}.c-ok i{background:var(--ok)}
+.c-warn{background:var(--warn-bg);color:var(--warn)}.c-warn i{background:var(--warn)}
+.c-err{background:var(--err-bg);color:var(--err)}.c-err i{background:var(--err)}
+.c-off{background:var(--off-bg);color:var(--off)}.c-off i{background:var(--off)}
+.c-run{background:var(--accent-bg);color:var(--accent)}.c-run i{background:var(--accent);animation:p 1.2s infinite}
+@keyframes p{50%{opacity:.3}}
+.type div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:8px}
+.note{background:var(--accent-bg);border-radius:10px;padding:10px 14px;font-size:12px;color:#3730a3;margin-top:18px}
+</style></head><body>
+<h1>CF-AOI 操作員 UI — 基礎語彙</h1>
+<div class="sub">原則：一眼判讀。同一顏色永遠代表同一意義，全站不混用。</div>
+
+<h2>語意色</h2>
+<div class="row">
+<div class="sw"><div class="c" style="background:#16a34a"></div><div class="t"><b>OK 綠</b>已綁定・在線・PASS</div></div>
+<div class="sw"><div class="c" style="background:#d97706"></div><div class="t"><b>Warn 琥珀</b>待處理・未綁定・警告</div></div>
+<div class="sw"><div class="c" style="background:#dc2626"></div><div class="t"><b>Error 紅</b>MAC 不符・失敗・NG</div></div>
+<div class="sw"><div class="c" style="background:#9ca3af"></div><div class="t"><b>Off 灰</b>離線・空槽</div></div>
+<div class="sw"><div class="c" style="background:#4f46e5"></div><div class="t"><b>Accent 靛</b>主要動作・進行中</div></div>
+</div>
+
+<h2>狀態 Chips（相機卡與面板共用）</h2>
+<div class="row" style="align-items:center">
+<span class="chip c-ok"><i></i>已綁定</span>
+<span class="chip c-warn"><i></i>未綁定</span>
+<span class="chip c-err"><i></i>MAC 不符</span>
+<span class="chip c-off"><i></i>離線</span>
+<span class="chip c-run"><i></i>取像中</span>
+<span class="chip c-ok"><i></i>mean 90.4</span>
+<span class="chip c-warn"><i></i>暗場 2.5</span>
+</div>
+
+<h2>字級</h2>
+<div class="type">
+<div style="font-size:28px;font-weight:700">28 / 700 — 關鍵數字（mean_gray、缺陷數）</div>
+<div style="font-size:18px;font-weight:700">18 / 700 — 頁面標題</div>
+<div style="font-size:14px">14 / 400 — 內文與表單</div>
+<div style="font-size:12px;color:#6b7280">12 / 400 muted — 輔助說明、SN/MAC</div>
+</div>
+
+<div class="note">設計對應 Avalonia：色票進 Styles 資源字典；chips = 既有 Ellipse+TextBlock 樣式化；
+不引入新框架，全部可用現有控制項實作。</div>
+</body></html>

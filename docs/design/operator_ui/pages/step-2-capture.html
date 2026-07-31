@@ -1,0 +1,74 @@
+<!-- @dsCard group="流程 Steps" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 2 取像驗證 — 抓幀/曝光增益/判讀</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
+h1{font-size:17px}.pagesub{color:var(--muted);font-size:12px;margin:4px 0 16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;max-width:860px}
+.grid{display:grid;grid-template-columns:1fr 1.1fr;gap:22px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:11px 22px;font-weight:700;font-size:14px;cursor:pointer}
+.btn.ghost{background:var(--off-bg);color:var(--ink)}
+.big{font-size:44px;font-weight:800;line-height:1}
+.judg{display:inline-block;margin-top:6px;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700}
+.j-ok{background:var(--ok-bg);color:var(--ok)}
+.hist{display:flex;gap:4px;align-items:flex-end;height:44px;margin-top:14px}
+.hist i{width:14px;background:var(--accent-bg);border-radius:3px 3px 0 0;display:block}
+.hist i.cur{background:var(--accent)}
+.hlab{font-size:11px;color:var(--muted);margin-top:4px}
+.slider{margin:14px 0}
+.slider .l{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px}
+.slider .l b{color:var(--ink);font-size:14px}
+.track{height:6px;background:var(--off-bg);border-radius:3px;position:relative}
+.track .fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:3px}
+.track .knob{position:absolute;top:-5px;width:16px;height:16px;background:#fff;border:2px solid var(--accent);border-radius:50%}
+.preview{background:#0f1115;border-radius:10px;height:230px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:12px;flex-direction:column;gap:8px}
+.pv-strip{width:88%;height:120px;background:repeating-linear-gradient(90deg,#2a2f3a 0 3px,#232833 3px 6px);border-radius:4px}
+.note{font-size:11px;color:var(--muted);margin-top:12px}
+.warnband{background:var(--warn-bg);color:#92400e;border-radius:9px;padding:8px 12px;font-size:12px;margin-top:14px}
+.row{display:flex;gap:10px;align-items:center;margin-top:14px}
+</style></head><body>
+<h1>Step 2 — 取像驗證（這台相機有沒有在拍？拍得亮不亮？）</h1>
+<div class="pagesub">底層＝既有 TUNE_MEAN（抓一幀回 mean）+ SET_CAM_PARAMS；縮圖預覽＝新增 grab 端 GET_FRAME_PREVIEW（縮小 JPEG，待實作，設計先留位）。</div>
+
+<div class="panel"><div class="grid">
+  <div>
+    <div style="font-size:12px;color:var(--muted)">平均灰階 mean_gray</div>
+    <div class="big">90.4</div>
+    <span class="judg j-ok">✓ 亮度正常（工作點 ≈90）</span>
+    <div class="hist">
+      <i style="height:8px"></i><i style="height:10px"></i><i style="height:18px"></i>
+      <i style="height:26px"></i><i style="height:34px"></i><i class="cur" style="height:42px"></i>
+    </div>
+    <div class="hlab">最近 6 次抓幀（3.1 → 90.4：調光/調參軌跡）</div>
+
+    <div class="slider">
+      <div class="l"><span>曝光 µs</span><b>2000</b></div>
+      <div class="track"><div class="fill" style="width:20%"></div><div class="knob" style="left:20%"></div></div>
+      <div class="l" style="margin-top:2px"><span>70</span><span>10000</span></div>
+    </div>
+    <div class="slider">
+      <div class="l"><span>增益 raw</span><b>2047</b></div>
+      <div class="track"><div class="fill" style="width:100%"></div><div class="knob" style="right:-2px"></div></div>
+      <div class="l" style="margin-top:2px"><span>256</span><span>2047</span></div>
+    </div>
+    <div class="row">
+      <button class="btn">抓一幀驗證</button>
+      <button class="btn ghost">套用並再抓</button>
+    </div>
+  </div>
+  <div>
+    <div class="preview">
+      <div class="pv-strip"></div>
+      <span>最近抓取的縮圖（8160×3000 → 縮 1/16）</span>
+      <span style="font-size:11px">點擊放大 · 1:1 檢視雜訊/條紋</span>
+    </div>
+    <div class="warnband">⚠ 判讀規則內建：mean &lt; 3 顯示「暗場（noise floor）——請開光源」，
+    不讓操作員誤判成相機故障；曝光 &gt; 500µs 顯示「產線行速下不可用，只供驗證」（光源 25–30× 課題）。</div>
+    <div class="note">調完記得：本頁「套用」即寫入 cam_config.json（跟槽位走）；
+    TUNE_MEAN 測試值不再殘留（頁面離開時自動復原上次套用值——收掉 7/30 坑 #5）。</div>
+  </div>
+</div></div>
+</body></html>

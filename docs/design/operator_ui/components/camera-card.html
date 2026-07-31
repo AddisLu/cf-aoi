@@ -1,0 +1,92 @@
+<!-- @dsCard group="Components" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>相機槽位卡 — 5 種狀態</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:24px}
+h1{font-size:18px}.sub{color:var(--muted);font-size:12px;margin:4px 0 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;max-width:1100px}
+.lbl{font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+.card{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--off);border-radius:12px;padding:12px 14px;cursor:pointer}
+.card.sel{outline:2px solid var(--accent);outline-offset:1px}
+.card.ok{border-left-color:var(--ok)}.card.warn{border-left-color:var(--warn)}
+.card.err{border-left-color:var(--err)}.card.run{border-left-color:var(--accent)}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.slot{font-weight:700;font-size:15px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600}
+.chip i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.c-ok{background:var(--ok-bg);color:var(--ok)}.c-ok i{background:var(--ok)}
+.c-warn{background:var(--warn-bg);color:var(--warn)}.c-warn i{background:var(--warn)}
+.c-err{background:var(--err-bg);color:var(--err)}.c-err i{background:var(--err)}
+.c-off{background:var(--off-bg);color:var(--off)}.c-off i{background:var(--off)}
+.c-run{background:var(--accent-bg);color:var(--accent)}.c-run i{background:var(--accent);animation:p 1.2s infinite}
+@keyframes p{50%{opacity:.3}}
+.meta{font-size:12px;color:var(--muted)}
+.mono{font-family:ui-monospace,SF Mono,monospace;font-size:11px}
+.foot{display:flex;justify-content:space-between;margin-top:8px;font-size:12px}
+.mean{font-weight:700}.mean.good{color:var(--ok)}.mean.dark{color:var(--warn)}
+.steps{display:flex;gap:3px}
+.dot{width:14px;height:14px;border-radius:50%;background:var(--off-bg);color:var(--muted);font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.dot.done{background:var(--ok);color:#fff}
+</style></head><body>
+<h1>相機槽位卡（左欄清單用）</h1>
+<div class="sub">左框色 = 槽位狀態；右下四點 = ①綁定②取像③調參④套用 完成進度。點卡片 → 右側工作面板。</div>
+<div class="grid">
+<div>
+<div class="lbl">已綁定・在線（+ 選中態）</div>
+<div class="card ok sel">
+  <div class="top"><span class="slot">CCD00</span><span class="chip c-ok"><i></i>已綁定</span></div>
+  <div class="meta">raL8192-12gm · SN 25445953</div>
+  <div class="meta mono">00:30:53:53:19:41 · 192.168.5.1</div>
+  <div class="foot"><span class="mean good">mean 90.4</span>
+  <span class="steps"><span class="dot done">1</span><span class="dot done">2</span><span class="dot done">3</span><span class="dot">4</span></span></div>
+</div></div>
+<div>
+<div class="lbl">取像中（串流）</div>
+<div class="card run">
+  <div class="top"><span class="slot">CCD01</span><span class="chip c-run"><i></i>取像中</span></div>
+  <div class="meta">raL4096-24gm · SN 21421505</div>
+  <div class="meta mono">00:30:53:15:B0:C1 · 192.168.5.2</div>
+  <div class="foot"><span class="mean good">5 幀 · drop 0</span>
+  <span class="steps"><span class="dot done">1</span><span class="dot done">2</span><span class="dot">3</span><span class="dot">4</span></span></div>
+</div></div>
+<div>
+<div class="lbl">偵測到但未綁定（琥珀＝要處理）</div>
+<div class="card warn">
+  <div class="top"><span class="slot">CCD02</span><span class="chip c-warn"><i></i>未綁定</span></div>
+  <div class="meta">偵測到 1 台候選相機</div>
+  <div class="meta mono">00:30:53:2A:0B:11（未指派）</div>
+  <div class="foot"><span class="meta">點選 → 一鍵綁定</span>
+  <span class="steps"><span class="dot">1</span><span class="dot">2</span><span class="dot">3</span><span class="dot">4</span></span></div>
+</div></div>
+<div>
+<div class="lbl">MAC 不符（可能插錯埠/槽）</div>
+<div class="card err">
+  <div class="top"><span class="slot">CCD03</span><span class="chip c-err"><i></i>MAC 不符</span></div>
+  <div class="meta">預期 …:0B:24，實際出現 …:0B:31</div>
+  <div class="meta mono">檢查接線或改綁</div>
+  <div class="foot"><span class="meta" style="color:var(--err)">需要處理</span>
+  <span class="steps"><span class="dot">1</span><span class="dot">2</span><span class="dot">3</span><span class="dot">4</span></span></div>
+</div></div>
+<div>
+<div class="lbl">已綁定但離線（掉線/沒電）</div>
+<div class="card">
+  <div class="top"><span class="slot">CCD04</span><span class="chip c-off"><i></i>離線</span></div>
+  <div class="meta">raL8192-12gm · SN 25445960</div>
+  <div class="meta mono">00:30:53:2A:0B:18 · 192.168.5.5</div>
+  <div class="foot"><span class="meta">上次在線 10:42</span>
+  <span class="steps"><span class="dot done">1</span><span class="dot">2</span><span class="dot">3</span><span class="dot">4</span></span></div>
+</div></div>
+<div>
+<div class="lbl">空槽（已宣告未接）</div>
+<div class="card" style="opacity:.65">
+  <div class="top"><span class="slot">CCD05</span><span class="chip c-off"><i></i>空槽</span></div>
+  <div class="meta">等待相機接入</div>
+  <div class="meta mono">expected_mac：未指定</div>
+  <div class="foot"><span class="meta">—</span>
+  <span class="steps"><span class="dot">1</span><span class="dot">2</span><span class="dot">3</span><span class="dot">4</span></span></div>
+</div></div>
+</div>
+</body></html>

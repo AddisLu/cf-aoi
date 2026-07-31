@@ -1,0 +1,80 @@
+<!-- @dsCard group="流程 Steps" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 3 調參與缺陷 — Test/縮圖牆/T-P 分類（AI Retrain）</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;--off:#9ca3af;
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:14px/1.55 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
+h1{font-size:17px}.pagesub{color:var(--muted);font-size:12px;margin:4px 0 16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;max-width:980px}
+.toprow{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-size:11px;color:var(--muted)}
+.f input{width:86px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:14px;font-weight:600}
+.f input.chg{border-color:var(--accent);background:var(--accent-bg)}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 20px;font-weight:700;font-size:14px;cursor:pointer}
+.btn.ghost{background:var(--off-bg);color:var(--ink)}
+.result{display:flex;gap:26px;align-items:center;margin:16px 0 12px}
+.big{font-size:40px;font-weight:800;line-height:1}
+.rsub{font-size:11px;color:var(--muted)}
+.delta{font-size:12px;color:var(--ok);font-weight:700}
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;margin-top:6px}
+.patch{position:relative;border-radius:8px;overflow:hidden;border:2px solid transparent;background:#11151c;height:92px;cursor:pointer}
+.patch.sel{border-color:var(--accent)}
+.patch .dot{position:absolute;top:38px;left:40px;width:10px;height:10px;border-radius:50%;background:#e8eaf0;box-shadow:0 0 8px #fff}
+.patch .dark .dot{background:#20242e;box-shadow:none;border:1px solid #3a4050}
+.tag{position:absolute;left:5px;bottom:5px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:800}
+.t-t{background:var(--err);color:#fff}.t-p{background:var(--off-bg);color:var(--muted)}.t-u{background:var(--warn-bg);color:var(--warn)}
+.xy{position:absolute;top:4px;left:5px;font-size:9px;color:#8b949e;font-family:ui-monospace,monospace}
+.progress{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:12px;color:var(--muted)}
+.bar{flex:1;height:8px;background:var(--off-bg);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;width:71%;background:var(--ok)}
+.keys{display:flex;gap:8px;margin-top:10px;font-size:11px;color:var(--muted)}
+.kbd{background:var(--off-bg);border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-family:ui-monospace,monospace;font-weight:700;color:var(--ink)}
+.adv{margin-top:14px;border-top:1px dashed var(--line);padding-top:10px;font-size:12px;color:var(--muted)}
+.adv b{color:var(--accent);cursor:pointer}
+.flood{background:var(--err-bg);border-radius:9px;padding:8px 12px;font-size:12px;color:#7f1d1d;margin-top:12px}
+</style></head><body>
+<h1>Step 3 — 調參與缺陷確認（分類即 AI Retrain 標註）</h1>
+<div class="pagesub">底層全部既有：4 參數綁 RecipeStore（單一資料來源）、Test＝SEND/REVIEW 檢測、縮圖牆＋T/P＝DefectSort 即時持久化（classification.json = AI 重訓資料）。</div>
+
+<div class="panel">
+  <div class="toprow">
+    <div class="f"><label>BTH 亮閾值</label><input value="1.40"></div>
+    <div class="f"><label>DTH 暗閾值</label><input class="chg" value="0.58"></div>
+    <div class="f"><label>PitchX</label><input value="26"></div>
+    <div class="f"><label>PitchY</label><input value="18"></div>
+    <button class="btn ghost">FFT 估 Pitch</button>
+    <button class="btn">▶ Test 檢測</button>
+    <button class="btn ghost">儲存配方</button>
+  </div>
+
+  <div class="result">
+    <div><div class="big" style="color:var(--ok)">7</div><div class="rsub">缺陷數 · 8.9ms</div></div>
+    <div><div class="delta">↓ 前次 12 → 7</div><div class="rsub">DTH 0.60→0.58 的效果</div></div>
+    <div style="margin-left:auto" class="rsub">已分類 5/7　<span style="color:var(--ok);font-weight:700">TrueDefect 2</span> · Particle 3 · 未分類 2</div>
+  </div>
+
+  <div class="wall">
+    <div class="patch sel"><span class="xy">1852,2372</span><span class="dot"></span><span class="tag t-u">未分類</span></div>
+    <div class="patch"><span class="xy">903,441</span><span class="dot"></span><span class="tag t-t">True</span></div>
+    <div class="patch"><span class="xy">4407,1210</span><div class="dark"><span class="dot"></span></div><span class="tag t-p">Particle</span></div>
+    <div class="patch"><span class="xy">2211,880</span><span class="dot"></span><span class="tag t-p">Particle</span></div>
+    <div class="patch"><span class="xy">660,2914</span><div class="dark"><span class="dot"></span></div><span class="tag t-t">True</span></div>
+    <div class="patch"><span class="xy">5120,533</span><span class="dot"></span><span class="tag t-p">Particle</span></div>
+    <div class="patch"><span class="xy">7008,1651</span><span class="dot"></span><span class="tag t-u">未分類</span></div>
+  </div>
+
+  <div class="keys">鍵盤：<span class="kbd">T</span> TrueDefect　<span class="kbd">P</span> Particle
+  <span class="kbd">←</span><span class="kbd">→</span> 切換　<span class="kbd">Enter</span> 放大　每標一張即存（中途離開不丟）</div>
+
+  <div class="progress"><span>AI Retrain 標註進度</span><div class="bar"><i></i></div><span>142 / 200 張目標</span></div>
+
+  <div class="flood">⚠ 爆量防呆內建：缺陷數觸頂 10000 時，直接顯示「第一個檢查 Pitch 是否符合面板週期（用 FFT 估算）」，
+  不顯示一萬張縮圖。</div>
+
+  <div class="adv">進階：<b>展開 27 參數完整表 ▾</b>（ZoneParamEditor 原表收於此；操作員預設不展開）　·
+  對位 Mark 設定 → 單獨頁（頻率低）</div>
+</div>
+</body></html>
