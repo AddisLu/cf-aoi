@@ -36,10 +36,11 @@
       <Setter Property="FontWeight" Value="Bold"/></Style>
   </UserControl.Styles>
 
-  <Grid ColumnDefinitions="272,*" Background="#f6f7f9">
+  <Grid ColumnDefinitions="Auto,*" Background="#f6f7f9">
 
-    <!-- ═══ 左欄：槽位卡 ═══ -->
-    <Border Grid.Column="0" Background="#fbfbfc" BorderBrush="#e5e7eb" BorderThickness="0,0,1,0">
+    <!-- ═══ 左欄：槽位卡（Step 4 檢測工作區需要全寬 → 自動收合） ═══ -->
+    <Border Grid.Column="0" Width="272" Background="#fbfbfc" BorderBrush="#e5e7eb" BorderThickness="0,0,1,0"
+            IsVisible="{Binding !IsStep4}">
       <ScrollViewer>
         <StackPanel Margin="12" Spacing="8">
           <Grid ColumnDefinitions="*,Auto">
@@ -236,7 +237,7 @@
             <Button Grid.Column="1" Classes="ghost" Content="✓ 此相機調參完成"
                     Command="{Binding MarkTunedCommand}"/>
           </Grid>
-          <Border Classes="panel" Padding="6" MinHeight="420">
+          <Border Classes="panel" Padding="6" MinHeight="680">
             <views:SingleCcdSetupView DataContext="{Binding SingleCcd}"/>
           </Border>
         </StackPanel>

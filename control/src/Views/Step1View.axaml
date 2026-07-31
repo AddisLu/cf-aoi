@@ -10,7 +10,7 @@
 
     <!-- 標題列 -->
     <Grid DockPanel.Dock="Top" Margin="18,18,18,12" ColumnDefinitions="*,Auto">
-      <TextBlock Grid.Column="0" Classes="h1" Text="Step 1 · 演算法驗證" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="0" Classes="h1" Text="檢測複判（離線）" VerticalAlignment="Center"/>
       <TextBlock Grid.Column="1" Classes="mono dim" FontSize="12" VerticalAlignment="Center" Text="離線分析 · network-clean"/>
     </Grid>
 

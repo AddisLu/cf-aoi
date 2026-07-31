@@ -1,0 +1,84 @@
+<!-- @dsCard group="Pages" -->
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>檢測複判 — 線上 Run 貨異常的複判動線（獨立頁）</title>
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
+--accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+*{box-sizing:border-box;margin:0}
+body{font:13px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:18px}
+.flow{display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:12px;font-weight:600;color:var(--muted)}
+.flow .s{background:var(--accent-bg);color:var(--accent);border-radius:999px;padding:4px 12px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;max-width:1180px}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.hdr h3{font-size:14px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer}
+.btn.ghost{background:var(--off-bg);color:var(--ink)}
+.btn.green{background:var(--ok)}
+.row{display:flex;gap:8px}
+.strip{position:relative;background:#0f1115;border-radius:10px;height:190px;overflow:hidden;margin-bottom:8px}
+.tex{position:absolute;inset:0;background:repeating-linear-gradient(90deg,#1d222c 0 3px,#171c25 3px 6px)}
+.dot{position:absolute;width:8px;height:8px;border-radius:50%;background:#f87171;box-shadow:0 0 6px #f87171}
+.cap{position:absolute;left:10px;top:8px;font-size:10px;color:#8b949e;font-family:ui-monospace,monospace}
+.cols{display:grid;grid-template-columns:1fr 280px;gap:10px}
+.card{border:1px solid var(--line);border-radius:10px;padding:10px}
+.card h4{font-size:11px;color:var(--muted);margin-bottom:8px}
+.cnt b{font-size:26px;color:var(--err)}
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;margin-top:8px}
+.p{height:60px;background:#11151c;border-radius:6px;position:relative}
+.p i{position:absolute;top:26px;left:28px;width:7px;height:7px;border-radius:50%;background:#e8eaf0;box-shadow:0 0 5px #fff}
+.kv{display:grid;grid-template-columns:52px 1fr;row-gap:5px;font-size:12px;align-items:center;margin-top:6px}
+.kv input{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-weight:600;text-align:center}
+.verdict{border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;margin-top:10px}
+.v-warn{background:var(--warn-bg);color:#92400e}
+.note{font-size:10px;color:var(--muted);margin-top:8px}
+</style></head><body>
+
+<div class="flow">線上 Run 貨異常 →
+  <span class="s">① 開存圖（SaveSourceImage）</span>→
+  <span class="s">② 從 IP 載入該片影像（0–27 張逐張）</span>→
+  <span class="s">③ Test 看檢出</span>→
+  <span class="s">④ 判定：參數問題？真缺陷？</span>
+</div>
+
+<div class="panel">
+  <div class="hdr">
+    <h3>檢測複判（離線）</h3>
+    <div class="row">
+      <button class="btn ghost">載入影像</button>
+      <button class="btn ghost">🖥 從 IP 載入</button>
+      <button class="btn green">▶ Test 送 IP</button>
+      <button class="btn ghost">儲存配方</button>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="tex"></div>
+    <span class="dot" style="left:37%;top:52%"></span>
+    <span class="cap">CCD07_000183 · 8160×5000 · 生產存圖（IP 磁碟，network-clean 不搬全圖）</span>
+  </div>
+  <div class="cols">
+    <div class="card">
+      <div class="cnt"><h4 style="display:inline">檢出</h4> <b>23</b>
+        <span style="font-size:11px;color:var(--muted)">（生產當下判 NG 的那片）</span></div>
+      <div class="wall">
+        <div class="p"><i></i></div><div class="p"><i></i></div><div class="p"><i></i></div>
+        <div class="p"><i></i></div><div class="p"><i></i></div><div class="p"><i></i></div>
+      </div>
+      <div class="verdict v-warn">⚠ 檢出集中在 ROI 邊緣一列 → 疑似對位偏移或 Pitch 誤差，非真缺陷。
+      試調 DTH / 重新 FFT 後再 Test 對比。</div>
+    </div>
+    <div class="card">
+      <h4>快速調參（試改 → Test 對比）</h4>
+      <div class="kv">
+        <span>BTH</span><input value="1.40">
+        <span>DTH</span><input value="0.60">
+        <span>PitchX</span><input value="26">
+        <span>PitchY</span><input value="18">
+      </div>
+      <button class="btn ghost" style="width:100%;margin-top:8px">FFT 估算 Pitch</button>
+      <div class="note">確認是參數問題 → 儲存配方（下一片生效）；
+      確認真缺陷 → 去「缺陷分類」標 TrueDefect（AI Retrain）。
+      逐張批次複判（0–27 張自動輪播）＝下一版。</div>
+    </div>
+  </div>
+</div>
+</body></html>

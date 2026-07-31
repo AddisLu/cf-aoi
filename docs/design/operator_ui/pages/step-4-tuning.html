@@ -1,70 +1,88 @@
 <!-- @dsCard group="流程 Steps" -->
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 4 調參與缺陷（精簡版）</title>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Step 4 調參與缺陷（寬幅版面：線掃影像橫幅置頂）</title>
 <style>
 :root{--bg:#f6f7f9;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e5e7eb;
 --accent:#4f46e5;--ok:#16a34a;--warn:#d97706;--err:#dc2626;
---ok-bg:#ecfdf5;--warn-bg:#fffbeb;--err-bg:#fef2f2;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
+--ok-bg:#ecfdf5;--warn-bg:#fffbeb;--off-bg:#f3f4f6;--accent-bg:#eef2ff}
 *{box-sizing:border-box;margin:0}
-body{font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:22px}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:960px}
-.ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.ph h3{font-size:14px}
-.hbtn{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-weight:800;color:var(--muted)}
-.toprow{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
-.f{display:flex;flex-direction:column;gap:3px}
-.f label{font-size:11px;color:var(--muted)}
-.f input{width:84px;border:1px solid var(--line);border-radius:8px;padding:8px 9px;font-size:14px;font-weight:600}
-.f input.chg{border-color:var(--accent);background:var(--accent-bg)}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 20px;font-weight:700;font-size:14px;cursor:pointer}
+body{font:13px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:18px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;max-width:1180px}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.hdr .t{font-family:ui-monospace,monospace;font-weight:700;color:var(--accent)}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer}
 .btn.ghost{background:var(--off-bg);color:var(--ink)}
-.result{display:flex;gap:26px;align-items:center;margin:18px 0 12px}
-.big{font-size:42px;font-weight:800;line-height:1;color:var(--ok)}
-.rsub{font-size:11px;color:var(--muted)}
-.delta{font-size:12px;color:var(--ok);font-weight:700}
-.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
-.patch{position:relative;border-radius:8px;border:2px solid transparent;background:#11151c;height:92px;cursor:pointer}
-.patch.sel{border-color:var(--accent)}
-.dot{position:absolute;top:38px;left:40px;width:10px;height:10px;border-radius:50%;background:#e8eaf0;box-shadow:0 0 8px #fff}
-.tag{position:absolute;left:5px;bottom:5px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:800}
-.t-t{background:var(--err);color:#fff}.t-p{background:var(--off-bg);color:var(--muted)}.t-u{background:var(--warn-bg);color:var(--warn)}
-.foot{display:flex;align-items:center;gap:14px;margin-top:14px;font-size:12px;color:var(--muted)}
-.kbd{background:var(--off-bg);border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-family:ui-monospace,monospace;font-weight:700;color:var(--ink)}
-.bar{flex:1;height:8px;background:var(--off-bg);border-radius:4px;overflow:hidden}
-.bar i{display:block;height:100%;width:71%;background:var(--ok)}
-.adv{font-size:12px;color:var(--accent);font-weight:600;margin-top:12px;cursor:pointer}
+.btn.green{background:var(--ok)}
+.row{display:flex;gap:8px}
+.strip{position:relative;background:#0f1115;border-radius:10px;height:200px;overflow:hidden;margin-bottom:6px}
+.tex{position:absolute;inset:0;background:repeating-linear-gradient(90deg,#1d222c 0 3px,#171c25 3px 6px)}
+.roi{position:absolute;left:6%;top:12%;width:88%;height:74%;border:1.5px dashed #60a5fa}
+.dot{position:absolute;width:8px;height:8px;border-radius:50%;background:#f87171;box-shadow:0 0 6px #f87171}
+.cap{position:absolute;left:10px;top:8px;font-size:10px;color:#8b949e;font-family:ui-monospace,monospace}
+.status{display:flex;gap:16px;font-size:10px;color:var(--muted);font-family:ui-monospace,monospace;background:#fbfbfc;border:1px solid var(--line);border-radius:8px;padding:5px 12px;margin-bottom:10px}
+.cols{display:grid;grid-template-columns:200px 1fr 250px;gap:10px}
+.card{border:1px solid var(--line);border-radius:10px;padding:10px}
+.card h4{font-size:11px;color:var(--muted);margin-bottom:8px}
+.kv{display:grid;grid-template-columns:48px 1fr;row-gap:5px;font-size:12px;align-items:center}
+.kv input{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-weight:600;text-align:center}
+.kv input.chg{border-color:var(--accent);background:var(--accent-bg)}
+.cnt{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.cnt b{font-size:28px;color:var(--ok)}
+.cnt .d{font-size:11px;color:var(--ok);font-weight:700}
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
+.p{height:60px;background:#11151c;border-radius:6px;position:relative;border:2px solid transparent}
+.p.sel{border-color:var(--accent)}
+.p i{position:absolute;top:26px;left:28px;width:7px;height:7px;border-radius:50%;background:#e8eaf0;box-shadow:0 0 5px #fff}
+.exp{border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
+.exp b{color:var(--accent)}
+.note{font-size:10px;color:var(--muted);margin-top:8px}
 </style></head><body>
 <div class="panel">
-  <div class="ph"><h3>調參與缺陷 — CCD00</h3><button class="hbtn">?</button></div>
-  <div class="toprow">
-    <div class="f"><label>BTH</label><input value="1.40"></div>
-    <div class="f"><label>DTH</label><input class="chg" value="0.58"></div>
-    <div class="f"><label>PitchX</label><input value="26"></div>
-    <div class="f"><label>PitchY</label><input value="18"></div>
-    <button class="btn ghost">FFT 估 Pitch</button>
-    <button class="btn">▶ Test</button>
-    <button class="btn ghost">儲存配方</button>
+  <div class="hdr">
+    <span class="t">CCD00 · 由 Spark1 運算</span>
+    <div class="row">
+      <button class="btn ghost">載入影像</button>
+      <button class="btn ghost">🖥 從 IP 載入</button>
+      <button class="btn green">▶ Test 送 IP</button>
+      <button class="btn">儲存配方</button>
+    </div>
   </div>
 
-  <div class="result">
-    <div><div class="big">7</div><div class="rsub">缺陷 · 8.9ms</div></div>
-    <div><div class="delta">↓ 12 → 7</div><div class="rsub">前次對比</div></div>
-    <div style="margin-left:auto" class="rsub"><b style="color:var(--err)">True 2</b> · Particle 3 · 未分類 2</div>
+  <!-- 影像 = 全寬橫幅（8160×3000 ≈ 2.7:1，不再直立拉長） -->
+  <div class="strip">
+    <div class="tex"></div><div class="roi"></div>
+    <span class="dot" style="left:23%;top:44%"></span>
+    <span class="dot" style="left:61%;top:31%"></span>
+    <span class="cap">INSPECTION IMAGE · 8160×3000 · 滾輪縮放 · 拖曳平移 · 框 ROI</span>
   </div>
+  <div class="status"><span>ImageSize: 8160×3000</span><span>Axis: 4407,1210</span><span>Value: 128</span><span>Zoom: Fit-W</span></div>
 
-  <div class="wall">
-    <div class="patch sel"><span class="dot"></span><span class="tag t-u">未分類</span></div>
-    <div class="patch"><span class="dot"></span><span class="tag t-t">True</span></div>
-    <div class="patch"><span class="dot" style="background:#20242e;box-shadow:none;border:1px solid #3a4050"></span><span class="tag t-p">Particle</span></div>
-    <div class="patch"><span class="dot"></span><span class="tag t-p">Particle</span></div>
-    <div class="patch"><span class="dot" style="background:#20242e;box-shadow:none;border:1px solid #3a4050"></span><span class="tag t-t">True</span></div>
-    <div class="patch"><span class="dot"></span><span class="tag t-p">Particle</span></div>
-    <div class="patch"><span class="dot"></span><span class="tag t-u">未分類</span></div>
+  <div class="cols">
+    <div class="card">
+      <h4>快速調參</h4>
+      <div class="kv">
+        <span>BTH</span><input value="1.40">
+        <span>DTH</span><input class="chg" value="0.58">
+        <span>PitchX</span><input value="26">
+        <span>PitchY</span><input value="18">
+      </div>
+      <button class="btn ghost" style="width:100%;margin-top:8px">FFT 估算 Pitch</button>
+      <h4 style="margin-top:10px">ROI 清單</h4>
+      <div style="font-size:12px;font-family:ui-monospace,monospace">☑ Roi0</div>
+    </div>
+    <div class="card">
+      <div class="cnt"><h4 style="margin:0">檢出結果</h4><b>7</b><span class="d">↓ 12 → 7</span>
+        <span style="font-size:10px;color:var(--muted)">點縮圖 → 大圖定位該缺陷</span></div>
+      <div class="wall">
+        <div class="p sel"><i></i></div><div class="p"><i></i></div><div class="p"><i></i></div>
+        <div class="p"><i></i></div><div class="p"><i></i></div><div class="p"><i></i></div><div class="p"><i></i></div>
+      </div>
+    </div>
+    <div>
+      <div class="exp">▸ 進階參數（27 欄全表）</div>
+      <div class="exp">▸ 對位 Mark (M_AlignRoi)</div>
+      <div class="note">預設摺疊——操作員平時只看左欄 4 參數；
+      調完 → Test → 中欄立刻看檢出數與縮圖，好壞當場判。</div>
+    </div>
   </div>
-
-  <div class="foot">
-    <span><span class="kbd">T</span> 真缺陷</span><span><span class="kbd">P</span> 誤判</span>
-    <span>AI 標註</span><div class="bar"><i></i></div><span>142/200</span>
-  </div>
-  <div class="adv">進階參數（27 欄）▾</div>
 </div>
 </body></html>

@@ -120,7 +120,10 @@
                  其內含 Step1 檢測鏈 + ZoneParamEditor 27 欄進階表），不再獨立成頁。 -->
             <Button Classes="nav" Classes.active="{Binding IsWorkbench}"
                     Command="{Binding NavigateCommand}" CommandParameter="workbench"
-                    ToolTip.Tip="操作員五步驟動線：綁定→取像→對位→調參→套用" Content="相機工作台"/>
+                    ToolTip.Tip="架設動線：綁定→取像→對位→調參→套用" Content="相機工作台"/>
+            <Button Classes="nav" Classes.active="{Binding IsStep1}"
+                    Command="{Binding NavigateCommand}" CommandParameter="step1"
+                    ToolTip.Tip="線上 Run 貨異常時：Load 存圖（本機/從 IP）→ Test → 看檢出，確認參數/誤判原因" Content="檢測複判"/>
             <Button Classes="nav" Classes.active="{Binding IsSort}"
                     Command="{Binding NavigateCommand}" CommandParameter="sort"
                     ToolTip.Tip="缺陷小圖人工分類（T/P 標註 = AI Retrain 資料）" Content="缺陷分類"/>
@@ -271,6 +274,11 @@
         <!-- ============ 相機工作台（操作員五步驟動線；Step 4 內嵌完整檢測鏈） ============ -->
         <Panel IsVisible="{Binding IsWorkbench}">
           <views:CameraWorkbenchView DataContext="{Binding Workbench}"/>
+        </Panel>
+
+        <!-- ============ 檢測複判（生產異常：Load 存圖 → Test → 看檢出/誤判原因） ============ -->
+        <Panel IsVisible="{Binding IsStep1}">
+          <views:Step1View DataContext="{Binding Step1}"/>
         </Panel>
 
         <!-- ============ 缺陷分類 ============ -->
