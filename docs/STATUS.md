@@ -47,7 +47,7 @@
 | 配方單一資料來源 RecipeStore | **L2** | `--selftest store`：三處同步 + 存檔 XML 含改後值。(草稿 L2 ✓) |
 | ShareSetting（全域，appsettings.json） | **L2** | `--selftest settings`：JSON round-trip + 只覆寫該節點 + AiRootPath 預設空。(草稿 L2 ✓) |
 | RecipeSetting 面板（per-recipe XML 編輯/存讀） | **L2** | `--selftest settings`：per-recipe XML round-trip + 不存在回預設 + MaxDefectCountPass 預設 10000。(草稿 L2 ✓) |
-| 連線心跳偵測（CHECK_HEALTH） | **L2（舊邏輯）/最新版 L1** | `--selftest heartbeat` 存在但為**手動 harness**（需起停 IP 觀察綠↔紅，無自動斷言）。重連/IsBusy 邏輯寫好；綠↔紅曾於 Linux 本機觀察。**(原草稿 L3→L2：非自動 unit test，且非跨機定論)** **2026-07-30 改判定邏輯：5s 逾時 × 連續 2 次失敗才斷線（commit `2423b6b`，修法未驗 → 見 Switch 章節 ★8）** |
+| 連線心跳偵測（CHECK_HEALTH） | **L2** | **2026-07-31 起有自動化 selftest**：`--selftest heartbeat auto`（假 IP server 可控停擺）7/7 驗「單次逾時不翻線／連續 2 次才斷／恢復自動重連」（5s×2 門檻 = 2026-07-30 commit `2423b6b`，見 Switch 章節 ★8）。舊 `--selftest heartbeat` 手動 harness 保留。真網路目視（抖動不誤翻紅）待 Mac → L3。 |
 | DefectSort（看小圖人工分類 TrueDefect/Particle） | **L2** | `--selftest patches`（filter/即時持久化/統計/UTF-8）+ `--selftest sort` 通過。使用者 Mac 跑過（中文亂碼、1122 重複等 bug 已修）。**(原草稿 L3→L2：Control 分類 UI 的 selftest 為假 IP server；filter/即時存最新版待 Mac 複測。IP 側遠端命令另計為 L3，見 IP 表)** |
 | SystemSettings 相機陣列（運算單元帶 / 宣告陣列 / 偵測相機）| **L2(selftest)/L1(目視)** | `--selftest topology`+`camera` PASS（拓樸載入/依 compute_unit 分群/處理 N 真/負載估算公式/連線規則；LIST_CAMERAS 分群+KPI、離線不假造）。塊1/2；版面待 Mac 目視。宣告(config) 與 偵測(runtime) 分開、不假 merge（約束②）。|
 | RoiImageView（影像/ROI 共用控制項，塊3-3a）| **L1** | 從 Step1View 抽出，行為一致（StyledProperty 介面，EditZone 可注入/AllZones 畫全部 ROI）；`--selftest singleccd` 驗 EditZone 連動。縮放/平移/框選/導航/量 Pitch **互動待 Mac 目視**。|
@@ -699,9 +699,10 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 - **IP/Grab 的 ControlServer 都是單客戶端序列處理**（[ip/control_server.cpp:386-392](../ip/src/control_server.cpp#L386)
   accept 後同 thread `handle_client`）→ Control 佔住連線時，任何第二個工具（診斷腳本）只會排隊逾時，
   不是回錯誤。多開一個診斷通道會踩到。
-- **`rdma-validate`/`rdma-process` 模式不開 8200**（`ControlServer` 只在 offline-tcp 分支建立，
-  [ip/main.cpp:696](../ip/src/main.cpp#L696)）→ 相機串流期間 **Control 連不上 IP、心跳燈會紅**。
-  Step 4/5 需要「同時有 RDMA 收圖 + Control 控制」時必須解決（現以兩個 IP 行程並行迴避）。
+- ~~**`rdma-validate`/`rdma-process` 模式不開 8200**~~ → **✅ 2026-07-31 已解並實機驗 L3**
+  （見下方「6 相機前收口 sprint」）：兩模式皆開 8200（且**先於** `rdma_src.init`——init 內
+  `accept_conn()` 阻塞等 Grab，原順序會讓 IP 起動到 ARM 之間心跳 refused，實測抓到後改正）。
+  影像注入命令（SEND_IMAGE_*/REVIEW_LOCAL_IMAGE）於 rdma 模式誠實 ERR 擋掉（混入會弄壞 seq/遺失對帳）。
 - **`CF_LOAD_RECIPE` 回 ERR "load recipe failed"（2ms）**：跨 Tailscale 不可能這麼快 → 本地例外；
   但 [UpstreamWiring.cs:52](../control/src/Controllers/UpstreamWiring.cs#L52) 的 `catch { return false; }`
   把例外整個吞掉，只剩一句無資訊的訊息。**吞例外本身需修**（至少 Log.Warn 出 ex.Message）才查得下去。
@@ -711,11 +712,11 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 **真面板缺陷正確性**（現為 free-run 無 encoder 觸發、無相對運動 → 線掃的 Y 軸是「時間」不是「位置」，
 拍到的是同一條線的時間紀錄，非真實 2D 面板影像；需接 encoder 行觸發或讓工件移動）／上位機 8787 經交換機端到端。
 
-### 追加：當日尾聲兩筆修正（2026-07-30 18:16／18:27）— ★7 已補驗 **L3 ✓**（2026-07-31）；★8 仍 **L1**
+### 追加：當日尾聲兩筆修正（2026-07-30 18:16／18:27）— ★7 **L3 ✓**／★8 **L2**（皆 2026-07-31 補驗）
 
 > 補帳於 2026-07-31。兩筆 commit 訊息只含「缺陷發現」的實機證據，查無修後的編譯/復測數據 →
-> 依 §8「沒有驗證就不算完成」，修法先標 L1。**★7 已於 2026-07-31 damac+Spark 實機補驗通過（見下）**；
-> ★8 為 Control 端（Mac）行為，仍待目視驗證。
+> 依 §8「沒有驗證就不算完成」，修法先標 L1。**★7 已於 2026-07-31 damac+Spark 實機補驗（L3）**；
+> **★8 已於同日補自動化 selftest（L2）**，真網路目視待 Mac。
 
 #### ★7【靜默漏檢級】ARM(ALL) 靜默少台：idle 調參開的單台被當成整個陣列（grab，commit `fc00b87`）
 
@@ -743,8 +744,45 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
   （2s 逾時＋**單次失敗即 Disconnect**）把抖動放大成斷線，且反覆重建連線 churn IP 的單客戶端 server。
 - **修法**：逾時 2s→5s、connect 逾時 2s→4s、需**連續 2 次失敗**才判斷線（未達門檻維持原狀態，不翻燈不記 log）；
   最慢約 12.5s 判定真斷線。
-- **修法 L1（未驗）**，補驗步驟：`dotnet build` 0 警告 → Mac 於抖動網路（熱點）跑 ≥10 分鐘**不再誤翻紅** →
-  真停掉 IP 時 **~12.5s 內翻紅**、IP 回來後自動重連（既有重連邏輯不被門檻改動破壞）。
+- **修法 L2（2026-07-31 自動化 selftest）**：新增 `--selftest heartbeat auto`（假 IP server 可控回應/停擺，
+  時間常數經 `ConfigureForTest` 縮到毫秒級）**7/7 PASS ×3 輪**——Phase1 健康→綠；Phase2 **單次逾時全程綠燈
+  + 無「連線中斷」log**（★8 核心語意）；Phase3 連續 ≥2 失敗→紅+log；Phase4 恢復→自動重連+log。
+  回歸 upstream/grabtrigger/store/settings 全 PASS。**真網路目視（熱點抖動不誤翻紅／真斷 ~12.5s 翻紅）仍待 Mac → L3**。
+
+---
+
+## 6 相機前收口 sprint（2026-07-31）：8/M 平台架設前，現有設備能收的全收
+
+> 目標：盤點「6 相機到位前、以現有硬體（Mac + damac + Spark + 2 相機 + 5945）可完成」的項目並全部完成。
+> 排除：需相機陣列/光源/encoder/真上位機的（硬體受阻）、需 Mac 目視的 UI、使用者已裁示 deferred 的演算法缺口。
+
+**✅ 已收（4 項）：**
+
+| 項 | 內容 | 級別 | 驗證 |
+|---|---|---|---|
+| A | **★8 心跳門檻自動化 selftest**（`--selftest heartbeat auto`）| **L2** | 7/7 ×3 輪（單次逾時不翻線/連 2 次斷/恢復重連）+ 4 套 selftest 回歸；見 ★8 節 |
+| B | **IP 8200 於 rdma 模式啟用**（Step 4/5 前置，收掉 7/30「必須解決」項）| **L3** | 見下方詳細 |
+| C | **Grab.FramesPerPanel 設定面**：appsettings 顯式露出 + `fpp<=0` 時 CF_GRAB_START `Log.Warn` 點名（8/M 連續模式坑）| **L2** | dotnet build 0 警告；settings/grabtrigger/upstream 回歸 PASS |
+| D | **6 相機架設 runbook**（[docs/6cam_setup_runbook.md](6cam_setup_runbook.md)）：7/30-31 全部坑固化成到貨檢查單 | docs | — |
+
+**B 詳細（IP 8200 於 rdma 模式，2026-07-31 實機 L3）：**
+
+- **rdma-process**：LOAD_RECIPE（`zones_mtx` 串流中可換配方 + `record_recipe` 留痕；載入後改用 server 解析的
+  recipe_saving/ioi）/SET_ALIGN/GET_STATUS（queue/recv/edge counters/zones）/CHECK_HEALTH/DefectSort 查詢
+  （CF_GET_RESULT 鏈）。**rdma-validate**：心跳/狀態；LOAD_RECIPE 誠實 ERR（無檢測管線）。
+- **啟動順序修正（實測抓到）**：8200 必須**先於** `rdma_src.init`——init 內 `accept_conn()` 阻塞等 Grab 連線，
+  原順序 IP 起動到 ARM 之間 8200 connection refused（= 生產上 Control 心跳最需要綠的窗口）。
+- **實機驗證（damac 2 台真相機 ↔ Spark，經 5945）**：
+  ① IP 單獨起動（無 Grab）8200 立即可連：兩模式 CHECK_HEALTH OK、GET_STATUS 正確、
+  rdma-process **pre-ARM LOAD_RECIPE（CF_ 預熱語意）OK**、rdma-validate LOAD_RECIPE 誠實 ERR。
+  ② **串流中併發**：第二片串流（sent 10→20、dropped=0、Spark recv ok=20 err=0 CRC 全對）期間
+  8200 連打客戶端 **381 次 CHECK_HEALTH/GET_STATUS 全 OK**、佇列峰值 0、背壓 0
+  （103 次失敗全在 GRAB_STOP 後 IP 依設計退出之後 = 預期 teardown）。
+  ③ 注入守門：`SEND_IMAGE_STREAM_BEGIN`/`REVIEW_LOCAL_IMAGE` → ERR；`SEND_IMAGE_FOR_REVIEW`
+  帶 payload 被拒後**同連線後續 CHECK_HEALTH 仍 OK**（先讀完 payload 再拒 → 框架不失步）。
+
+**⏭ 仍開（記錄，非本次範圍）：** IP/Grab ControlServer 單客戶端序列處理（診斷通道與 Control 併用會排隊；
+非阻斷）／★8 真網路 Mac 目視／★6 Control log 面板目視／damac 三處殘留副本待手動刪（rm 指令見 7/31 對話）。
 
 ---
 
