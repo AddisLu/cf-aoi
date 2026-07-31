@@ -116,19 +116,8 @@ public partial class MainWindowViewModel : ViewModelBase
         SingleCcdSetup = new SingleCcdSetupViewModel(svc);
 
         Workbench = new CameraWorkbenchViewModel(svc, SysSettings, SingleCcdSetup);
-
-        // master→detail：宣告陣列點 CCD 槽（SystemSettings.SelectedSlot）→ 進單 CCD 設定整合頁。
-        // 無帶參導覽 → 用屬性訂閱；不改既有 NavigateCommand。
-        // ⚠ 僅在「系統設定頁」時才跳頁：相機工作台也會驅動 SelectedSlot（共用引擎），不可被拉走。
-        SysSettings.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(SystemSettingsViewModel.SelectedSlot) && SysSettings.SelectedSlot is { } slot
-                && CurrentScreen == "settings")
-            {
-                SingleCcdSetup.LoadSlot(slot);
-                CurrentScreen = "singleccd";
-            }
-        };
+        // （2026-07-31 導覽收斂）舊「設定頁點槽 → 跳單 CCD 頁」master→detail 已移除：
+        // 系統設定不再顯示相機陣列，槽位選擇/檢測全部走相機工作台（Step 4 內嵌 SingleCcdSetup）。
 
         OfflineFolder = svc.Config.Paths.ImageDir;
         Store.RecipeReloaded += () => CurRecipe = Store.SelectedRecipe;

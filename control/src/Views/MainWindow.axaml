@@ -115,24 +115,21 @@
             <Border Height="1" Background="{DynamicResource Line}" Margin="6,10"/>
             <TextBlock Text="配方 / 檢測" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
                        Foreground="{DynamicResource Txt3}" Margin="10,2,0,4"/>
+            <!-- 導覽收斂為 4 頁（2026-07-31 操作員動線改版）：
+                 配方編輯/演算法驗證/單 CCD 設定 已整併進「相機工作台」Step 4（嵌 SingleCcdSetup，
+                 其內含 Step1 檢測鏈 + ZoneParamEditor 27 欄進階表），不再獨立成頁。 -->
             <Button Classes="nav" Classes.active="{Binding IsWorkbench}"
                     Command="{Binding NavigateCommand}" CommandParameter="workbench"
                     ToolTip.Tip="操作員五步驟動線：綁定→取像→對位→調參→套用" Content="相機工作台"/>
-            <Button Classes="nav" Classes.active="{Binding IsZone}"
-                    Command="{Binding NavigateCommand}" CommandParameter="zone" Content="配方編輯"/>
-            <Button Classes="nav" Classes.active="{Binding IsStep1}"
-                    Command="{Binding NavigateCommand}" CommandParameter="step1" Content="演算法驗證"/>
             <Button Classes="nav" Classes.active="{Binding IsSort}"
-                    Command="{Binding NavigateCommand}" CommandParameter="sort" Content="缺陷分類"/>
+                    Command="{Binding NavigateCommand}" CommandParameter="sort"
+                    ToolTip.Tip="缺陷小圖人工分類（T/P 標註 = AI Retrain 資料）" Content="缺陷分類"/>
 
             <Border Height="1" Background="{DynamicResource Line}" Margin="6,10"/>
             <TextBlock Text="系統" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
                        Foreground="{DynamicResource Txt3}" Margin="10,2,0,4"/>
             <Button Classes="nav" Classes.active="{Binding IsSettings}"
                     Command="{Binding NavigateCommand}" CommandParameter="settings" Content="系統設定"/>
-            <Button Classes="nav" Classes.active="{Binding IsSingleCcd}"
-                    Command="{Binding NavigateCommand}" CommandParameter="singleccd"
-                    ToolTip.Tip="從系統設定的宣告陣列點一顆 CCD 進入；可直接開啟（未選則顯提示）" Content="單 CCD 設定"/>
           </StackPanel>
         </DockPanel>
       </Border>
@@ -271,19 +268,9 @@
           </Grid>
         </Grid>
 
-        <!-- ============ Step 1 ============ -->
-        <!-- ============ 相機工作台（操作員五步驟動線） ============ -->
+        <!-- ============ 相機工作台（操作員五步驟動線；Step 4 內嵌完整檢測鏈） ============ -->
         <Panel IsVisible="{Binding IsWorkbench}">
           <views:CameraWorkbenchView DataContext="{Binding Workbench}"/>
-        </Panel>
-
-        <Panel IsVisible="{Binding IsStep1}">
-          <views:Step1View DataContext="{Binding Step1}"/>
-        </Panel>
-
-        <!-- ============ 配方編輯 ============ -->
-        <Panel IsVisible="{Binding IsZone}">
-          <views:ZoneParamEditorView DataContext="{Binding ZoneEditor}"/>
         </Panel>
 
         <!-- ============ 缺陷分類 ============ -->
@@ -291,14 +278,9 @@
           <views:DefectSortView DataContext="{Binding DefectSort}"/>
         </Panel>
 
-        <!-- ============ 系統設定 ============ -->
+        <!-- ============ 系統設定（僅連線；相機陣列/調參已整併進工作台） ============ -->
         <Panel IsVisible="{Binding IsSettings}">
           <views:SystemSettingsView DataContext="{Binding SysSettings}"/>
-        </Panel>
-
-        <!-- ============ 單 CCD 設定（塊3：薄殼嵌 Step1View + ZoneParamEditorView） ============ -->
-        <Panel IsVisible="{Binding IsSingleCcd}">
-          <views:SingleCcdSetupView DataContext="{Binding SingleCcdSetup}"/>
         </Panel>
 
       </Panel>
