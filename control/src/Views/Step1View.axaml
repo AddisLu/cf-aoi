@@ -6,16 +6,29 @@
              x:Class="CfAoiControl.Views.Step1View"
              x:DataType="vm:Step1ViewModel">
 
+  <!-- 檢測複判（2026-07-31 寬幅改版，與工作台 Step 4 同版面比例）：
+       線上 Run 貨異常 → 開存圖 → 從 IP 載入該片影像 → Test → 判定「參數問題 or 真缺陷」。
+       影像 = 上方全寬橫幅（8160×3000/5000 線掃比例）；下方 = 快速調參 / 檢出結果。 -->
   <DockPanel Background="{DynamicResource Bg}" TextElement.Foreground="{DynamicResource Txt}">
 
-    <!-- 標題列 -->
-    <Grid DockPanel.Dock="Top" Margin="18,18,18,12" ColumnDefinitions="*,Auto">
-      <TextBlock Grid.Column="0" Classes="h1" Text="檢測複判（離線）" VerticalAlignment="Center"/>
-      <TextBlock Grid.Column="1" Classes="mono dim" FontSize="12" VerticalAlignment="Center" Text="離線分析 · network-clean"/>
+    <!-- 標題列 + 動作（與單 CCD 工作台同一排式） -->
+    <Grid DockPanel.Dock="Top" Margin="18,16,18,10" ColumnDefinitions="*,Auto">
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <TextBlock Classes="h1" Text="檢測複判（離線）"/>
+        <TextBlock Classes="mono dim" FontSize="12" VerticalAlignment="Center" Text="network-clean"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <Button Classes="ghost" Content="載入影像" Command="{Binding BrowseImageCommand}"/>
+        <Button Classes="ghost" Content="🖥 從 IP 載入" Command="{Binding BrowseRemoteImageCommand}"
+                IsEnabled="{Binding Services.Connection.IsIpConnected}"
+                ToolTip.Tip="瀏覽 IP/Linux 機磁碟上的生產存圖（免搬大檔；Test 在 IP 全解析度跑 bit-exact）。遠端時像素值顯「-」。"/>
+        <Button Classes="green" Content="▶ Test 送 IP" Command="{Binding RunAnalysisCommand}"/>
+        <Button Classes="primary" Content="儲存配方" Command="{Binding SaveRecipeCommand}"/>
+      </StackPanel>
     </Grid>
 
     <!-- 自動生成警告 -->
-    <Border DockPanel.Dock="Top" Margin="18,0,18,12" Background="{DynamicResource WarnBg}"
+    <Border DockPanel.Dock="Top" Margin="18,0,18,10" Background="{DynamicResource WarnBg}"
             BorderBrush="{DynamicResource Warn}" BorderThickness="1" CornerRadius="{DynamicResource Rad}"
             Padding="13,9" IsVisible="{Binding ShowAutoGenWarning}">
       <StackPanel Orientation="Horizontal" Spacing="10">
@@ -25,39 +38,84 @@
       </StackPanel>
     </Border>
 
-    <!-- 8 格狀態列 -->
-    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}"
-            BorderThickness="1" CornerRadius="{DynamicResource Rad}" Margin="18,0,18,18" Padding="0">
+    <!-- 影像：全寬橫幅（與工作台 Step 4 同高，比例一致） -->
+    <ctrl:RoiImageView DockPanel.Dock="Top" x:Name="Roi" Height="330" Margin="18,0,18,0"
+                       Source="{Binding SourceBitmap}"
+                       ImageWidth="{Binding ImageWidth}" ImageHeight="{Binding ImageHeight}"
+                       PixelData="{Binding PixelData}"
+                       EditZone="{Binding Store.PrimaryZone}"
+                       Defects="{Binding NavDefects}"
+                       SelectedDefectIndex="{Binding SelectedDefectIndex, Mode=TwoWay}"
+                       ResultVersion="{Binding ResultVersion}"
+                       Caption="{Binding ImageSizeText, StringFormat='INSPECTION IMAGE · {0}'}"/>
+
+    <!-- 狀態列（緊貼影像） -->
+    <Border DockPanel.Dock="Top" Background="{DynamicResource Bg2}" BorderBrush="{DynamicResource Line}"
+            BorderThickness="1" CornerRadius="{DynamicResource Rad}" Margin="18,6,18,10" Padding="0">
       <StackPanel Orientation="Horizontal">
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding ImageSizeText}"/>
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Roi.AxisText}"/>
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Roi.ValueText}"/>
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Roi.ZoomText}"/>
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding SelectedText}"/>
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding RecipeText}"/>
-        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,6" Text="{Binding #Roi.RegionText}"/>
-        <TextBlock Classes="mono" FontSize="11" FontWeight="Bold" Padding="13,6" Text="{Binding DefectCntText}"
-                   Foreground="{Binding DefectCntAtCap, Converter={StaticResource AtCapToBrush}}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding ImageSizeText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding #Roi.AxisText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding #Roi.ValueText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding #Roi.ZoomText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding SelectedText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding RecipeText}"/>
+        <TextBlock Classes="mono dim2" FontSize="11" Padding="13,5" Text="{Binding #Roi.RegionText}"/>
       </StackPanel>
     </Border>
 
-    <Grid Margin="18,0,18,12" ColumnDefinitions="*,330">
-      <!-- ===== 左欄：影像區 + 缺陷縮圖牆 ===== -->
-      <Grid Grid.Column="0" RowDefinitions="70*,30*" Margin="0,0,13,0">
-        <!-- 影像/ROI 共用控制項（抽出，行為一致）：Step1 = 單一 ROI(PrimaryZone)，AllZones 不設 -->
-        <ctrl:RoiImageView Grid.Row="0" x:Name="Roi"
-                           Source="{Binding SourceBitmap}"
-                           ImageWidth="{Binding ImageWidth}" ImageHeight="{Binding ImageHeight}"
-                           PixelData="{Binding PixelData}"
-                           EditZone="{Binding Store.PrimaryZone}"
-                           Defects="{Binding NavDefects}"
-                           SelectedDefectIndex="{Binding SelectedDefectIndex, Mode=TwoWay}"
-                           ResultVersion="{Binding ResultVersion}"
-                           Caption="{Binding ImageSizeText, StringFormat='INSPECTION IMAGE · {0}'}"/>
+    <!-- 下方：快速調參 / 檢出結果 -->
+    <Grid Margin="18,0,18,16" ColumnDefinitions="252,*">
 
-        <!-- 缺陷縮圖牆 -->
-        <Border Grid.Row="1" Classes="card" Padding="2" Margin="0,13,0,0">
-          <ListBox Name="ThumbList" ItemsSource="{Binding Thumbs}" SelectedItem="{Binding SelectedThumb}" Background="Transparent" BorderThickness="0">
+      <Border Grid.Column="0" Classes="card" Padding="12">
+        <ScrollViewer>
+          <StackPanel Spacing="8">
+            <TextBlock Classes="cardHead" Text="快速調參 (M_DetectRoi)"/>
+            <Grid ColumnDefinitions="52,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+              <TextBlock Text="配方" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" Margin="0,1"
+                        ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
+              <TextBlock Grid.Row="1" Text="BTH" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Store.PrimaryZone.BrightThreshold}"
+                             Increment="0.05" Minimum="1.01" Maximum="3.0" FormatString="F2" Margin="0,1"/>
+              <TextBlock Grid.Row="2" Text="DTH" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Store.PrimaryZone.DarkThreshold}"
+                             Increment="0.05" Minimum="0.1" Maximum="0.99" FormatString="F2" Margin="0,1"/>
+              <TextBlock Grid.Row="3" Text="PitchX" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Store.PrimaryZone.PitchX}"
+                             Increment="1" Minimum="1" Margin="0,1"/>
+              <TextBlock Grid.Row="4" Text="PitchY" VerticalAlignment="Center" Foreground="{DynamicResource Txt2}"/>
+              <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Store.PrimaryZone.PitchY}"
+                             Increment="1" Minimum="1" Margin="0,1"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Classes="ghost" Content="FFT 估算 Pitch" Command="{Binding EstimateFftCommand}"/>
+              <Button Classes="primary" Content="套用" Command="{Binding ApplyFftCommand}" IsVisible="{Binding HasFftResult}"/>
+            </StackPanel>
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsEstimatingFft}" Height="4"/>
+            <TextBlock FontSize="12" Foreground="{DynamicResource Ok}" TextWrapping="Wrap"
+                       IsVisible="{Binding HasFftResult}" Text="{Binding FftResultText}"/>
+            <Border Height="1" Background="{DynamicResource Line}"/>
+            <CheckBox Content="Debug 存全圖" IsChecked="{Binding DebugSaveDefectPatches}"
+                      ToolTip.Tip="勾選：Test 時請 IP 存全部缺陷小圖（供缺陷分類）。不勾只存結果+overlay（較快）。"/>
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsAnalyzing}" Height="4"/>
+            <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
+                       Text="檢測上限 10000（IP 端固定）。完整 27 參數在「相機工作台 ④ → 進階」。"/>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <!-- 檢出結果：缺陷數 + 縮圖牆（點縮圖 → 大圖定位該缺陷） -->
+      <Border Grid.Column="1" Classes="card" Margin="10,0,0,0" Padding="12">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14" Margin="0,0,0,8">
+            <TextBlock Classes="cardHead" Text="檢出結果" VerticalAlignment="Center"/>
+            <TextBlock Classes="mono" FontSize="16" FontWeight="Bold" Text="{Binding DefectCntText}"
+                       Foreground="{Binding DefectCntAtCap, Converter={StaticResource AtCapToBrush}}"/>
+            <TextBlock Classes="dim" FontSize="11" VerticalAlignment="Center"
+                       Text="（點縮圖 → 大圖定位；改參數 → 再按 Test 對比；真缺陷 → 缺陷分類頁標註）"/>
+          </StackPanel>
+          <ListBox Name="ThumbList" ItemsSource="{Binding Thumbs}" SelectedItem="{Binding SelectedThumb}"
+                   Background="Transparent" BorderThickness="0">
             <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:DefectThumb">
@@ -69,71 +127,8 @@
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
-        </Border>
-      </Grid>
-
-      <!-- ===== 右欄：Action + 參數 ===== -->
-      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="13">
-          <!-- Action -->
-          <Border Classes="card">
-            <StackPanel Spacing="8">
-              <TextBlock Classes="cardHead" Text="操作"/>
-              <UniformGrid Columns="2">
-                <Button Classes="primary" Margin="0,0,4,6" Content="載入影像" Command="{Binding BrowseImageCommand}"/>
-                <Button Classes="green" Margin="4,0,0,6" Content="▶ Test 送 IP" Command="{Binding RunAnalysisCommand}"/>
-                <Button Classes="ghost" Margin="0,0,4,0" Content="儲存配方" Command="{Binding SaveRecipeCommand}"/>
-                <CheckBox Margin="4,0,0,0" Content="Debug 存全圖" IsChecked="{Binding DebugSaveDefectPatches}"
-                          ToolTip.Tip="勾選：Test 時請 IP 存全部缺陷小圖（供 DefectSort 分類）。不勾只存結果+overlay（調參較快）。初值來自 ShareSetting.DebugAlgorithm。"/>
-              </UniformGrid>
-              <Button Classes="ghost" HorizontalAlignment="Stretch" Content="🖥 從 IP 載入影像"
-                      Command="{Binding BrowseRemoteImageCommand}" IsEnabled="{Binding Services.Connection.IsIpConnected}"
-                      ToolTip.Tip="瀏覽 IP/Linux 機磁碟上的影像（免搬大檔）：IP 端讀全解析度、只回縮小預覽顯示；框 ROI 走全解析度座標、Test 在 IP 全解析度跑（bit-exact）。遠端時像素值(Axis/Value)顯「-」。"/>
-              <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                      CornerRadius="{DynamicResource Rad}" Padding="8,6">
-                <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
-                           Text="（Add/Delete Rect、Remap、HistEq 等 MIL 專屬功能新版未啟用）"/>
-              </Border>
-              <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsAnalyzing}" Height="4"/>
-            </StackPanel>
-          </Border>
-
-          <!-- 參數（快速調參 + 配方選擇）-->
-          <Border Classes="card">
-            <StackPanel Spacing="10">
-              <TextBlock Classes="cardHead" Text="快速調參 (M_DetectRoi)"/>
-              <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="配方" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Txt2}"/>
-                <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
-                          ItemsSource="{Binding Store.RecipeNames}" SelectedItem="{Binding Store.SelectedRecipe}"/>
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="BrightThreshold" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Txt2}"/>
-                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Store.PrimaryZone.BrightThreshold}" Increment="0.05" Minimum="1.01" Maximum="3.0" FormatString="F2"/>
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="DarkThreshold" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Txt2}"/>
-                <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Store.PrimaryZone.DarkThreshold}" Increment="0.05" Minimum="0.1" Maximum="0.99" FormatString="F2"/>
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="PitchX" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Txt2}"/>
-                <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Store.PrimaryZone.PitchX}" Increment="1" Minimum="1"/>
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="PitchY" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource Txt2}"/>
-                <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Store.PrimaryZone.PitchY}" Increment="1" Minimum="1"/>
-              </Grid>
-
-              <!-- FFT 估算 Pitch -->
-              <StackPanel Spacing="6">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Button Classes="ghost" Content="FFT 估算 Pitch" Command="{Binding EstimateFftCommand}"/>
-                  <Button Classes="primary" Content="套用" Command="{Binding ApplyFftCommand}" IsVisible="{Binding HasFftResult}"/>
-                  <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsEstimatingFft}" Width="60" Height="4" VerticalAlignment="Center"/>
-                </StackPanel>
-                <TextBlock FontSize="12" Foreground="{DynamicResource Ok}" TextWrapping="Wrap"
-                           IsVisible="{Binding HasFftResult}" Text="{Binding FftResultText}"/>
-              </StackPanel>
-
-              <TextBlock Classes="dim" FontSize="11" Text="檢測上限：10000（IP 端固定，不可改）"/>
-              <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
-                         Text="（完整 32 參數編輯在「配方編輯」；此處為快速調參）"/>
-            </StackPanel>
-          </Border>
-        </StackPanel>
-      </ScrollViewer>
+        </DockPanel>
+      </Border>
     </Grid>
   </DockPanel>
 </UserControl>
