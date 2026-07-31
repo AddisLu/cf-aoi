@@ -60,6 +60,9 @@ public:
     void set_status_provider(StatusFn fn) { status_ = std::move(fn); }
     void set_ai_enabled(bool v) { ai_enabled_ = v; }
     void set_output_dir(const std::string& d) { output_dir_ = d; }   // 供 LIST/SORT_DEFECTS 掃描
+    // rdma 模式：影像來源是 RDMA，TCP 影像注入（SEND_IMAGE_*/REVIEW_LOCAL_IMAGE）必須擋掉——
+    // 注入的幀會混進 RDMA 消費迴圈，弄壞 seq/遺失對帳。其餘命令（心跳/查詢/LOAD_RECIPE/對位）照常。
+    void set_image_ingest_enabled(bool v) { image_ingest_ = v; }
 
     // LOAD_RECIPE 解析的存圖設定（mutex 保護）；offline-tcp 迴圈快照後傳給 process_image。
     RecipeSavingConfig saving_config() const {
@@ -109,6 +112,7 @@ private:
     uint16_t frame_seq_ = 0;
     std::string output_dir_ = "output";
     std::atomic<bool> review_save_patches_{false};   // SEND_IMAGE_FOR_REVIEW debug 旗標
+    std::atomic<bool> image_ingest_{true};           // false = rdma 模式，拒絕 TCP 影像注入
 
     LoadRecipeFn load_recipe_;
     SetAlignFn   set_align_;

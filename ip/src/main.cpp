@@ -911,8 +911,29 @@ int main(int argc, char** argv) {
 
         FrameHeader hdr;
         std::vector<uint8_t> payload;
-        uint64_t ok_count = 0, err_count = 0;
+        std::atomic<uint64_t> ok_count{0}, err_count{0};
         uint64_t last_seq = UINT64_MAX;
+
+        // 8200 於 rdma 模式亦開（Step 4/5 前置）：串流期間 Control 心跳/狀態查詢要通，
+        // 否則相機一開 IP 燈就紅。影像注入命令擋掉（來源是 RDMA）；本模式無檢測管線 →
+        // LOAD_RECIPE 誠實 ERR。
+        ControlServer ctrl_srv(args.control_port, queue);
+        ctrl_srv.set_image_ingest_enabled(false);
+        ctrl_srv.set_output_dir(args.output);
+        ctrl_srv.set_load_recipe_handler(
+            [](const std::string&, const std::string&, const std::string&, std::string& err) {
+                err = "rdma-validate 模式無檢測管線，LOAD_RECIPE 不適用（用 rdma-process）";
+                return false;
+            });
+        ctrl_srv.set_status_provider([&]() -> std::string {
+            json s;
+            s["mode"] = "rdma-validate";
+            s["recv_ok"]  = ok_count.load();
+            s["recv_err"] = err_count.load();
+            s["queue"] = queue.size();
+            return s.dump();
+        });
+        if (!ctrl_srv.start()) return 3;
 
         while (rdma_src.next_frame(hdr, payload)) {
             // 驗收：seq 必須遞增（RC QP 保序）
@@ -956,6 +977,7 @@ int main(int argc, char** argv) {
         }
 
         rdma_src.stop();
+        ctrl_srv.stop();
         printf("[rdma-validate] 完成：ok=%llu err=%llu total=%llu\n",
                (unsigned long long)ok_count,
                (unsigned long long)err_count,
@@ -1008,6 +1030,60 @@ int main(int argc, char** argv) {
             std::cerr << "[rdma-process] RDMA 初始化失敗\n";
             return 3;
         }
+
+        // 8200 於 rdma 模式亦開（Step 4/5 前置）：串流期間 Control 心跳/LOAD_RECIPE 預熱/
+        // CHECK·SET_ALIGN/CF_GET_RESULT（LIST_DEFECT_FOLDERS 鏈）都要通。
+        // 影像注入命令擋掉（來源是 RDMA，混入會弄壞 seq/遺失對帳）。
+        std::mutex zones_mtx;                    // LOAD_RECIPE 可在串流中更新 zones
+        std::atomic<bool> recipe_loaded{false};  // 首次 LOAD_RECIPE 後改用 server 的 saving/ioi 設定
+        ControlServer ctrl_srv(args.control_port, queue);
+        ctrl_srv.set_image_ingest_enabled(false);
+        ctrl_srv.set_ai_enabled(pipe.ai_enabled());
+        ctrl_srv.set_output_dir(args.output);
+        ctrl_srv.set_load_recipe_handler(
+            [&](const std::string& recipe, const std::string& recipe_xml,
+                const std::string& panel, std::string& err) -> bool {
+                try {
+                    auto z = recipe_xml.empty()
+                        ? ZoneConfigAdapter::from_recipe_xml(recipe, base)
+                        : ZoneConfigAdapter::from_recipe_xml_content(recipe_xml, base);
+                    std::lock_guard<std::mutex> lk(zones_mtx);
+                    zones = std::move(z);
+                    recipe_loaded = true;
+                    std::cout << "[rdma-process] LOAD_RECIPE "
+                              << (recipe_xml.empty() ? ("'" + recipe + "'") : "(inline xml)")
+                              << " panel=" << panel << " → " << zones.size() << " zones\n";
+                    diag::FlightRecorder::instance().record_recipe(
+                        (recipe_xml.empty() ? recipe : recipe + " (inline xml)") +
+                            " panel=" + panel,
+                        zones_to_snaps(zones));
+                    return true;
+                } catch (const RecipeError& e) {
+                    err = e.what();
+                    FR_RECORD_INCIDENT("recipe_load", err);
+                    return false;
+                }
+            });
+        ctrl_srv.set_set_align_handler([&](double shift_x, double shift_y) {
+            std::lock_guard<std::mutex> lk(zones_mtx);
+            apply_align_shift(zones, shift_x, shift_y);  // F1：全幅 zone 跳過，不塌成 1px
+        });
+        ctrl_srv.set_status_provider([&]() -> std::string {
+            json s;
+            s["mode"] = "rdma-process";
+            s["processed"] = processed;
+            s["ai"] = pipe.ai_enabled();
+            s["queue"] = queue.size();
+            s["recv_ok"]  = rdma_src.recv_ok();
+            s["recv_err"] = rdma_src.recv_err();
+            s["edge_align_fail"]     = edge_ctr.align_fail.load(std::memory_order_relaxed);
+            s["edge_transport_warn"] = edge_ctr.transport_warn.load(std::memory_order_relaxed);
+            s["edge_last_drift_pct"] = edge_ctr.last_drift_pct.load(std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lk(zones_mtx);
+            s["zones"] = zones.size();
+            return s.dump();
+        });
+        if (!ctrl_srv.start()) return 3;
 
         FrameHeader hdr;
         std::vector<uint8_t> payload;
@@ -1078,14 +1154,19 @@ int main(int argc, char** argv) {
                           (unsigned)hdr.camId, (unsigned long long)hdr.frameSeq);
             std::string name = nm;
 
-            diag::FrameScene scene = make_scene_params(zones, name, hdr);
+            std::vector<ZoneConfig> z_snapshot;
+            { std::lock_guard<std::mutex> lk(zones_mtx); z_snapshot = zones; }
+            // LOAD_RECIPE 過 → 用 server 解析的 saving/ioi（CF_ 鏈）；否則維持 CLI 靜態載入
+            RecipeSavingConfig frame_saving_cfg =
+                recipe_loaded.load() ? ctrl_srv.saving_config() : cli_saving_cfg;
+            diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
             scene.queue_depth = (int64_t)depth;   // 水位快照（原漏填 → incident 時查不到塞車徵兆）
             diag::FlightRecorder::instance().set_scene(scene);
             auto t0 = std::chrono::steady_clock::now();
-            InspectionResult res = process_image(pipe, zones, gray, name,
+            InspectionResult res = process_image(pipe, z_snapshot, gray, name,
                                                  /*verify*/false, verify_failed,
-                                                 cli_saving_cfg, machine_optical);
-            res.ioi_list = file_ioi;
+                                                 frame_saving_cfg, machine_optical);
+            res.ioi_list = recipe_loaded.load() ? ctrl_srv.ioi_list() : file_ioi;
             double proc_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
             sum_proc_ms += proc_ms;
@@ -1121,6 +1202,7 @@ int main(int argc, char** argv) {
         }
 
         rdma_src.stop();
+        ctrl_srv.stop();
         double total_s = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t_start).count();
         if (total_lost > 0)

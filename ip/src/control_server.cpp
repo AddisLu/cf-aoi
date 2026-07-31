@@ -509,6 +509,11 @@ void ControlServer::handle_client(int fd) {
             reply(fd, resp);
 
         } else if (cmd == "SEND_IMAGE_STREAM_BEGIN") {
+            if (!image_ingest_.load()) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"},
+                           {"error", "此模式影像來源為 RDMA，不接受 TCP 影像注入（僅 offline-tcp 支援）"}});
+                continue;
+            }
             frame_seq_ = 0;
             resp["status"] = "OK";
             reply(fd, resp);
@@ -549,6 +554,12 @@ void ControlServer::handle_client(int fd) {
             }
             double recv_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t_recv0).count();
+            // rdma 模式守門：payload 已從 socket 讀完（保命令框架不失步），拒收不 enqueue。
+            if (!image_ingest_.load()) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"},
+                           {"error", "此模式影像來源為 RDMA，不接受 TCP 影像注入（僅 offline-tcp 支援）"}});
+                continue;
+            }
             FrameHeader hdr = make_frame_header(panel, cam_id, fseq, width, height,
                                                 payload.data(), payload_bytes, sys_id,
                                                 /*timestamp*/ 0, last);
@@ -988,6 +999,11 @@ void ControlServer::handle_client(int fd) {
         } else if (cmd == "REVIEW_LOCAL_IMAGE") {
             // 對 IP 機磁碟上的「全解析度」影像跑檢測（與 SEND_IMAGE_FOR_REVIEW 同一 process_image 路徑 → bit-exact）。
             // ★ 讀全解析度 IMREAD_UNCHANGED（與 offline-file/file_source 同邏輯），不用任何預覽縮圖。需先 LOAD_RECIPE。
+            if (!image_ingest_.load()) {
+                reply(fd, {{"seq", seq}, {"status", "ERR"},
+                           {"error", "此模式影像來源為 RDMA，不接受 TCP 影像注入（僅 offline-tcp 支援）"}});
+                continue;
+            }
             std::string path = expand_user(params.value("path", ""));
             std::string panel = params.value("panel_id", fs::path(path).stem().string());
             review_save_patches_ = params.value("debug", false);
