@@ -46,3 +46,4 @@ control/src/config/array_topology.json
 
 # ===== Misc =====
 /tmp/
+control/src/publish/
