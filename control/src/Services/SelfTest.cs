@@ -50,6 +50,7 @@ public static class SelfTest
                 case "remoteimg": return await RemoteImgTest();
                 case "recipemgmt": return RecipeMgmtTest();
                 case "recipesaving": return await RecipeSavingTest(rest);
+                case "workbench": return await WorkbenchTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -999,6 +1000,184 @@ public static class SelfTest
     }
 
     // ---- 連線心跳偵測（綠↔紅 + 自動重連）----
+    // ── 相機工作台（操作員五步驟動線）：假 Grab server 驗 綁定→取像→對位→(調參)→套用 ──
+    private static async Task<int> WorkbenchTest()
+    {
+        int pass = 0, fail = 0;
+        void Check(bool ok, string name)
+        {
+            if (ok) { pass++; Console.WriteLine($"  ✓ {name}"); }
+            else    { fail++; Console.WriteLine($"  ✗ {name}"); }
+        }
+
+        var svc = AppServices.Build();
+        var engine = new ViewModels.SystemSettingsViewModel(svc);
+        var single = new ViewModels.SingleCcdSetupViewModel(svc);
+        var wb = new ViewModels.CameraWorkbenchViewModel(svc, engine, single);
+
+        // 拓樸：3 槽（CCD90 綁 MAC AA / CCD91、92 未宣告 MAC）；分區用 IPT9x 不汙染真配方
+        engine.ApplyTopology(Models.ArrayTopologyModel.Parse("""
+            { "ccd_total_count": 3,
+              "compute_units": [ { "id":"SparkT","node":"IpOffline","role":"aoi" } ],
+              "slots": [
+                {"ccd_id":"CCD90","compute_unit":"SparkT","expected_mac":"00:30:53:00:00:AA","recipe_partition":"IPT90"},
+                {"ccd_id":"CCD91","compute_unit":"SparkT","expected_mac":null,"recipe_partition":"IPT91"},
+                {"ccd_id":"CCD92","compute_unit":"SparkT","expected_mac":null,"recipe_partition":"IPT92"} ] }
+            """));
+
+        // ── 假 Grab server：可變 cams 表 + 記錄 SET_CAM_MAP / SET_CAM_PARAMS ──
+        var camsLock = new object();
+        var cams = new System.Collections.Generic.List<(string Mac, string Model, string Serial, string Ccd, bool Bound, int CamId)>
+        {
+            ("00:30:53:00:00:AA", "raL8192-12gm", "SA", "CCD90", true, 0),
+            ("00:30:53:00:00:BB", "raL8192-12gm", "SB", "",      false, 9),
+        };
+        string CamsJson()
+        {
+            lock (camsLock)
+                return "[" + string.Join(",", cams.Select(c =>
+                    $"{{\"cam_id\":{c.CamId},\"mac\":\"{c.Mac}\",\"model\":\"{c.Model}\",\"serial\":\"{c.Serial}\"," +
+                    $"\"ip\":\"192.168.5.{c.CamId + 1}\",\"online\":true,\"persistent\":true,\"ip_config\":\"Persistent\"," +
+                    $"\"device_class\":\"BaslerGigE\",\"ccd_id\":\"{c.Ccd}\",\"bound\":{(c.Bound ? "true" : "false")}}}")) + "]";
+        }
+        System.Text.Json.Nodes.JsonNode? lastMapReq = null;
+        var setParamCalls = new System.Collections.Generic.List<(int CamId, double Exp, int Gain)>();
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var seq = (int?)req["seq"] ?? 0;
+                string cmd = req["cmd"]!.GetValue<string>();
+                string resp;
+                switch (cmd)
+                {
+                    case "LIST_CAMERAS":
+                        resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"cameras\":{CamsJson()}}}";
+                        break;
+                    case "SET_CAM_MAP":
+                        lastMapReq = req;
+                        lock (camsLock)
+                        {
+                            var entries = req["params"]!["entries"]!.AsArray();
+                            for (int i = 0; i < cams.Count; i++)
+                            {
+                                var hit = entries.FirstOrDefault(e =>
+                                    e!["mac"]!.GetValue<string>() == cams[i].Mac);
+                                cams[i] = hit is null
+                                    ? (cams[i].Mac, cams[i].Model, cams[i].Serial, "", false, cams[i].CamId)
+                                    : (cams[i].Mac, cams[i].Model, cams[i].Serial,
+                                       hit["ccd_id"]!.GetValue<string>(), true, hit["cam_id"]!.GetValue<int>());
+                            }
+                        }
+                        resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"written\":{req["params"]!["entries"]!.AsArray().Count}}}";
+                        break;
+                    case "TUNE_MEAN":
+                    {
+                        double exp = req["params"]!["exposure_us"]!.GetValue<double>();
+                        double mean = exp >= 1000 ? 90.4 : 2.5;   // 高曝光=打光工作點 / 低曝光=暗場
+                        resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"mean_gray\":{mean}," +
+                               $"\"exposure_us_actual\":{exp},\"gain_raw_actual\":{req["params"]!["gain_raw"]!.GetValue<int>()}}}";
+                        break;
+                    }
+                    case "SET_CAM_PARAMS":
+                    {
+                        var p = req["params"]!;
+                        setParamCalls.Add((p["cam_id"]!.GetValue<int>(),
+                                           p["exposure_us"]!.GetValue<double>(), p["gain_raw"]!.GetValue<int>()));
+                        resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"exposure_us_actual\":{p["exposure_us"]!.GetValue<double>()}," +
+                               $"\"gain_raw_actual\":{p["gain_raw"]!.GetValue<int>()}}}";
+                        break;
+                    }
+                    default:
+                        resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                        break;
+                }
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", port);
+
+        // 配方環境：WB_TEST；預先給 IPT90 一個「自己的 Mark」驗 Step5 不覆蓋
+        svc.RecipeStore.Select("WB_TEST");
+        var pre = new Models.RecipeModel();
+        pre.AlignRoi.PatternPath = "keep_ccd90_mark.tif";
+        svc.Recipes.Save("WB_TEST", pre, "IPT90");
+
+        // ── ① 列舉 + 左欄 join ──
+        await engine.LoadCamerasCommand.ExecuteAsync(null);
+        Check(wb.Rail.Count == 3, $"左欄 3 槽（實得 {wb.Rail.Count}）");
+        var r90 = wb.Rail.First(r => r.CcdId == "CCD90");
+        var r91 = wb.Rail.First(r => r.CcdId == "CCD91");
+        Check(r90.Kind == ViewModels.SlotBindKind.Bound && r90.Done1, "CCD90 已綁定 → 進度點①亮");
+        Check(r91.Kind == ViewModels.SlotBindKind.Declared && !r91.Done1, "CCD91 未綁定");
+        Check(wb.Unassigned.Count == 1, "未指派清單 1 台（MAC BB）");
+
+        // ── Step 1：把 BB 綁到 CCD91（候選→綁定，完整表語意）──
+        wb.SelectedSlot = r91;
+        Check(wb.BindModeIsBind, "未綁定槽 → 綁定面板模式 bind");
+        wb.SelectedCandidate = engine.UnboundCameras.First();
+        await wb.BindCandidateCommand.ExecuteAsync(null);
+        var entriesSent = lastMapReq?["params"]?["entries"]?.AsArray();
+        bool fullTable = entriesSent is { Count: 2 }
+            && entriesSent.Any(e => e!["mac"]!.GetValue<string>().EndsWith("AA") && e["ccd_id"]!.GetValue<string>() == "CCD90")
+            && entriesSent.Any(e => e!["mac"]!.GetValue<string>().EndsWith("BB") && e["ccd_id"]!.GetValue<string>() == "CCD91"
+                                    && e["cam_id"]!.GetValue<int>() == 1);
+        Check(fullTable, "SET_CAM_MAP 送完整表（AA 保留 + BB→CCD91 cam_id=槽索引 1）");
+        var r91b = wb.Rail.First(r => r.CcdId == "CCD91");
+        Check(r91b.Kind == ViewModels.SlotBindKind.Bound && wb.BindModeIsBound, "綁定後 CCD91 轉綠 + 面板轉 bound 模式");
+        Check(wb.Unassigned.Count == 0, "未指派清單清空");
+
+        // ── Step 2：取像驗證（暗場判讀 → 調高曝光 → 正常）──
+        wb.SelectedSlot = wb.Rail.First(r => r.CcdId == "CCD91");
+        wb.ExposureUs = 70; wb.GainRaw = 256;
+        await wb.GrabOneCommand.ExecuteAsync(null);
+        Check(wb.MeanText == "2.5" && wb.MeanJudgment.Contains("暗場"), $"暗場判讀（mean {wb.MeanText}）");
+        wb.ExposureUs = 2000; wb.GainRaw = 2047;
+        await wb.ApplyAndGrabCommand.ExecuteAsync(null);
+        Check(wb.MeanText == "90.4" && wb.MeanJudgment.Contains("正常"), $"工作點判讀（mean {wb.MeanText}）");
+        Check(wb.Rail.First(r => r.CcdId == "CCD91").Done2, "進度點②亮");
+        Check(setParamCalls.Any(c => c.CamId == 1 && Math.Abs(c.Exp - 2000) < 0.1), "套用寫入 cam1 曝光 2000");
+
+        // ── Step 3：對位 Mark 存入該槽分區 ──
+        wb.AlignEnable = true; wb.AlignReferX = 197; wb.AlignReferY = 168;
+        wb.AlignSearchW = 640; wb.AlignSearchH = 480; wb.AlignPatternPath = "mark_ccd91.tif";
+        wb.SaveAlignCommand.Execute(null);
+        var p91 = System.IO.File.ReadAllText(svc.Recipes.RecipeXmlPath("WB_TEST", "IPT91"));
+        Check(p91.Contains("<ReferX>197</ReferX>") && p91.Contains("<PatternPath>mark_ccd91.tif</PatternPath>")
+              && p91.Contains("<AlignEnable>true</AlignEnable>"), "Mark 寫入 WB_TEST/IPT91");
+        Check(wb.Rail.First(r => r.CcdId == "CCD91").Done3, "進度點③亮");
+
+        // ── Step 5：套用到其他相機（保留目標 Mark；曝光/增益跟送）──
+        svc.RecipeStore.PrimaryZone!.PitchX = 77;
+        svc.RecipeStore.Save();
+        wb.GoStepCommand.Execute("5");
+        Check(wb.CopyTargets.Count == 2, $"目標清單 2 槽（實得 {wb.CopyTargets.Count}）");
+        Check(wb.CopyTargets.First(t => t.CcdId == "CCD90").Selected
+              && !wb.CopyTargets.First(t => t.CcdId == "CCD92").CanSelect, "已綁定預選、未綁定不可選");
+        setParamCalls.Clear();
+        await wb.ApplyToTargetsCommand.ExecuteAsync(null);
+        var p90 = System.IO.File.ReadAllText(svc.Recipes.RecipeXmlPath("WB_TEST", "IPT90"));
+        Check(p90.Contains("<PitchX>77</PitchX>"), "檢測參數複製到 IPT90（PitchX 77）");
+        Check(p90.Contains("keep_ccd90_mark.tif"), "IPT90 自己的 Mark 未被覆蓋（各教各的）");
+        Check(setParamCalls.Any(c => c.CamId == 0), "CCD90 的相機收到曝光/增益");
+        Check(wb.CopyStatus.StartsWith("✓"), $"套用回饋（{wb.CopyStatus}）");
+        Check(wb.Rail.First(r => r.CcdId == "CCD91").Done5, "進度點⑤亮");
+
+        svc.Connection.Grab.Disconnect();
+        listener.Stop();
+        Console.WriteLine($"結果: {pass} pass, {fail} fail");
+        return fail == 0 ? 0 : 1;
+    }
+
     // ★8 自動化驗證（--selftest heartbeat auto）：假 IP server 可控「回應/停擺」，
     // 驗「單次逾時不翻線、連續 2 次才斷、恢復後自動重連」門檻邏輯。
     // 時間常數經 ConfigureForTest 縮到毫秒級（400ms 逾時 × 150ms 間隔），全程約 6 秒。

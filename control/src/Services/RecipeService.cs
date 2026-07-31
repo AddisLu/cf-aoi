@@ -112,6 +112,31 @@ public sealed class RecipeService
         return n;
     }
 
+    /// <summary>
+    /// 相機工作台 Step 5：**同一配方內**把 srcIp 分區的檢測參數複製到多個目標分區（跨相機軸，
+    /// 與 #7 的跨配方軸不同）。includeAlign=false（預設）保留各目標自己的對位 Mark——
+    /// 每台 CCD 起始點不同，Mark 各教各的（legacy 模型 A）。回傳實際複製數。
+    /// </summary>
+    public int CopyParamsToIps(string recipe, string srcIp, IEnumerable<string> dstIps, bool includeAlign = false)
+    {
+        var srcPath = RecipeXmlPath(recipe, srcIp);
+        if (!File.Exists(srcPath))
+            throw new FileNotFoundException($"來源配方不存在：{srcPath}");
+        int n = 0;
+        foreach (var dst in dstIps)
+        {
+            if (string.IsNullOrEmpty(dst) || dst == srcIp) continue;
+            var copy = Load(srcPath);                       // 每次重載 = 各目標獨立 deep copy
+            var dstPath = RecipeXmlPath(recipe, dst);
+            if (!includeAlign && File.Exists(dstPath))
+                copy.AlignRoi = Load(dstPath).AlignRoi;     // 保留目標自己的 Mark
+            Save(recipe, copy, dst);
+            n++;
+        }
+        _log.Info($"參數已複製：{recipe}/{srcIp} → {n} 個相機分區（Mark {(includeAlign ? "含" : "不含")}）");
+        return n;
+    }
+
     // ---- RecipeSetting（per-recipe 存圖設定，= legacy RecipeSetting.xml，放配方資料夾根）----
     public string RecipeSettingXmlPath(string recipeName) =>
         Path.Combine(ExpandPath(_cfg.Paths.RecipeDir), recipeName, "RecipeSetting.xml");

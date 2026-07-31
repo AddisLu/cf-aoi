@@ -26,6 +26,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public DefectSortViewModel DefectSort { get; }
     public SystemSettingsViewModel SysSettings { get; }
     public SingleCcdSetupViewModel SingleCcdSetup { get; }   // 塊3：單 CCD 設定整合頁
+    public CameraWorkbenchViewModel Workbench { get; }       // 相機工作台（操作員五步驟動線）
     public SystemConfigModel Config => _svc.Config;
     public RecipeStore Store => _svc.RecipeStore;   // 配方共用來源（主視窗 Recipe 區預覽）
     public ShareSettingModel ShareSetting => _svc.Config.ShareSetting;   // 全域旗標（ShareSetting 面板）
@@ -69,6 +70,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsSort))]
     [NotifyPropertyChangedFor(nameof(IsSettings))]
     [NotifyPropertyChangedFor(nameof(IsSingleCcd))]
+    [NotifyPropertyChangedFor(nameof(IsWorkbench))]
     private string currentScreen = "dashboard";
 
     public bool IsDashboard => CurrentScreen == "dashboard";
@@ -77,6 +79,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsSort      => CurrentScreen == "sort";
     public bool IsSettings  => CurrentScreen == "settings";
     public bool IsSingleCcd => CurrentScreen == "singleccd";   // 塊3：單 CCD 設定整合頁
+    public bool IsWorkbench => CurrentScreen == "workbench";   // 相機工作台（五步驟動線）
 
     [RelayCommand] private void Navigate(string? screen)
     { if (!string.IsNullOrEmpty(screen)) CurrentScreen = screen!; }
@@ -112,11 +115,15 @@ public partial class MainWindowViewModel : ViewModelBase
         SysSettings = new SystemSettingsViewModel(svc);
         SingleCcdSetup = new SingleCcdSetupViewModel(svc);
 
+        Workbench = new CameraWorkbenchViewModel(svc, SysSettings, SingleCcdSetup);
+
         // master→detail：宣告陣列點 CCD 槽（SystemSettings.SelectedSlot）→ 進單 CCD 設定整合頁。
         // 無帶參導覽 → 用屬性訂閱；不改既有 NavigateCommand。
+        // ⚠ 僅在「系統設定頁」時才跳頁：相機工作台也會驅動 SelectedSlot（共用引擎），不可被拉走。
         SysSettings.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(SystemSettingsViewModel.SelectedSlot) && SysSettings.SelectedSlot is { } slot)
+            if (e.PropertyName == nameof(SystemSettingsViewModel.SelectedSlot) && SysSettings.SelectedSlot is { } slot
+                && CurrentScreen == "settings")
             {
                 SingleCcdSetup.LoadSlot(slot);
                 CurrentScreen = "singleccd";

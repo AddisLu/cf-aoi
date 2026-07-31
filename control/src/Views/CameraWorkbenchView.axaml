@@ -1,0 +1,280 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:CfAoiControl.ViewModels"
+             xmlns:conv="clr-namespace:CfAoiControl.Converters"
+             xmlns:views="clr-namespace:CfAoiControl.Views"
+             x:Class="CfAoiControl.Views.CameraWorkbenchView"
+             x:DataType="vm:CameraWorkbenchViewModel">
+
+  <UserControl.Styles>
+    <Style Selector="Border.card"><Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="#e5e7eb"/><Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/><Setter Property="Padding" Value="12,9"/></Style>
+    <Style Selector="Border.panel"><Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="#e5e7eb"/><Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="12"/><Setter Property="Padding" Value="18"/></Style>
+    <Style Selector="Button.pri"><Setter Property="Background" Value="#4f46e5"/>
+      <Setter Property="Foreground" Value="White"/><Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="CornerRadius" Value="9"/><Setter Property="Padding" Value="18,9"/></Style>
+    <Style Selector="Button.ghost"><Setter Property="Background" Value="#f3f4f6"/>
+      <Setter Property="CornerRadius" Value="9"/><Setter Property="Padding" Value="14,9"/></Style>
+    <Style Selector="Button.danger"><Setter Property="Background" Value="White"/>
+      <Setter Property="Foreground" Value="#dc2626"/><Setter Property="BorderBrush" Value="#dc2626"/>
+      <Setter Property="BorderThickness" Value="1.5"/><Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Padding" Value="12,7"/></Style>
+    <Style Selector="Button.step"><Setter Property="Background" Value="White"/>
+      <Setter Property="BorderBrush" Value="#e5e7eb"/><Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/><Setter Property="Padding" Value="10,8"/>
+      <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Foreground" Value="#6b7280"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/></Style>
+    <Style Selector="Button.step.cur"><Setter Property="Background" Value="#eef2ff"/>
+      <Setter Property="BorderBrush" Value="#4f46e5"/><Setter Property="Foreground" Value="#4f46e5"/></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#6b7280"/>
+      <Setter Property="FontSize" Value="12"/></Style>
+    <Style Selector="TextBlock.big"><Setter Property="FontSize" Value="38"/>
+      <Setter Property="FontWeight" Value="Bold"/></Style>
+  </UserControl.Styles>
+
+  <Grid ColumnDefinitions="272,*" Background="#f6f7f9">
+
+    <!-- ═══ 左欄：槽位卡 ═══ -->
+    <Border Grid.Column="0" Background="#fbfbfc" BorderBrush="#e5e7eb" BorderThickness="0,0,1,0">
+      <ScrollViewer>
+        <StackPanel Margin="12" Spacing="8">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="muted" Text="槽位" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Classes="ghost" FontSize="12" Padding="10,4"
+                    Content="↻ 重新列舉" Command="{Binding RefreshCamerasCommand}"/>
+          </Grid>
+          <ListBox ItemsSource="{Binding Rail}" SelectedItem="{Binding SelectedSlot}"
+                   Background="Transparent" BorderThickness="0" Padding="0">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:WorkbenchSlot">
+                <Border Classes="card" BorderThickness="4,1,1,1" Margin="0,0,0,2"
+                        BorderBrush="{Binding Kind, Converter={x:Static conv:SlotKindToBrushConverter.Instance}}">
+                  <StackPanel Spacing="3">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Text="{Binding CcdId}" FontWeight="Bold"/>
+                      <TextBlock Grid.Column="1" Text="{Binding ChipLabel}" FontSize="11"
+                                 Foreground="{Binding Kind, Converter={x:Static conv:SlotKindToBrushConverter.Instance}}"/>
+                    </Grid>
+                    <TextBlock Classes="muted" FontSize="11" Text="{Binding MetaLine}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                      <Ellipse Width="9" Height="9" Fill="{Binding Done1, Converter={x:Static conv:StepDotBrushConverter.Instance}}"/>
+                      <Ellipse Width="9" Height="9" Fill="{Binding Done2, Converter={x:Static conv:StepDotBrushConverter.Instance}}"/>
+                      <Ellipse Width="9" Height="9" Fill="{Binding Done3, Converter={x:Static conv:StepDotBrushConverter.Instance}}"/>
+                      <Ellipse Width="9" Height="9" Fill="{Binding Done4, Converter={x:Static conv:StepDotBrushConverter.Instance}}"/>
+                      <Ellipse Width="9" Height="9" Fill="{Binding Done5, Converter={x:Static conv:StepDotBrushConverter.Instance}}"/>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock Classes="muted" Text="未指派的相機" Margin="0,8,0,0"
+                     IsVisible="{Binding Unassigned.Count}"/>
+          <ItemsControl ItemsSource="{Binding Unassigned}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border Classes="card" BorderThickness="4,1,1,1" BorderBrush="#d97706" Margin="0,0,0,6">
+                  <StackPanel>
+                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Model}"/>
+                    <TextBlock Classes="muted" FontSize="11" Text="{Binding MacDisplay}"/>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- ═══ 右側：五步驟 ═══ -->
+    <ScrollViewer Grid.Column="1" IsVisible="{Binding HasSlot}">
+      <StackPanel Margin="20,16" Spacing="12">
+
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <TextBlock Text="{Binding SelectedSlot.CcdId}" FontSize="20" FontWeight="Bold"/>
+          <TextBlock Classes="muted" VerticalAlignment="Bottom" Margin="0,0,0,2"
+                     Text="{Binding SelectedSlot.MetaLine}"/>
+        </StackPanel>
+
+        <UniformGrid Columns="5">
+          <Button Classes="step" Classes.cur="{Binding IsStep1}" Content="① 綁定"
+                  Command="{Binding GoStepCommand}" CommandParameter="1"/>
+          <Button Classes="step" Classes.cur="{Binding IsStep2}" Content="② 取像"
+                  Command="{Binding GoStepCommand}" CommandParameter="2"/>
+          <Button Classes="step" Classes.cur="{Binding IsStep3}" Content="③ 對位"
+                  Command="{Binding GoStepCommand}" CommandParameter="3"/>
+          <Button Classes="step" Classes.cur="{Binding IsStep4}" Content="④ 調參"
+                  Command="{Binding GoStepCommand}" CommandParameter="4"/>
+          <Button Classes="step" Classes.cur="{Binding IsStep5}" Content="⑤ 套用"
+                  Command="{Binding GoStepCommand}" CommandParameter="5"/>
+        </UniformGrid>
+
+        <!-- ── Step 1 綁定 ── -->
+        <Border Classes="panel" IsVisible="{Binding IsStep1}">
+          <StackPanel Spacing="10">
+            <!-- 未綁定：候選清單 -->
+            <StackPanel Spacing="8" IsVisible="{Binding BindModeIsBind}">
+              <TextBlock FontWeight="SemiBold" Text="{Binding SelectedSlot.CcdId, StringFormat=綁定相機到 {0}}"/>
+              <ListBox ItemsSource="{Binding Engine.UnboundCameras}"
+                       SelectedItem="{Binding SelectedCandidate}"
+                       Background="Transparent" BorderThickness="0" MaxHeight="180">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Border Classes="card" Margin="0,0,0,2">
+                      <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Model}"/>
+                        <TextBlock Classes="muted" Text="{Binding Serial, StringFormat=SN {0}}"/>
+                        <TextBlock Classes="muted" Text="{Binding MacDisplay}"/>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Classes="muted" Text="（沒有候選：確認相機接線與供電後按左上「重新列舉」）"
+                         IsVisible="{Binding !Engine.UnboundCameras.Count}"/>
+              <Button Classes="pri" Content="綁定" Command="{Binding BindCandidateCommand}"/>
+            </StackPanel>
+            <!-- 已綁定：檢視 + 解除 -->
+            <StackPanel Spacing="8" IsVisible="{Binding BindModeIsBound}">
+              <TextBlock Foreground="#16a34a" FontWeight="SemiBold" Text="✓ 綁定正常"/>
+              <TextBlock Text="{Binding BoundCamText}"/>
+              <Button Classes="danger" Content="解除綁定…" Command="{Binding AskUnbindCommand}"
+                      HorizontalAlignment="Left"/>
+              <Border Background="#fef2f2" CornerRadius="10" Padding="12"
+                      IsVisible="{Binding ShowUnbindConfirm}">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="{Binding SelectedSlot.CcdId, StringFormat=解除 {0} 的綁定？}"/>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="danger" Content="解除" Command="{Binding ConfirmUnbindCommand}"/>
+                    <Button Classes="ghost" Content="取消" Command="{Binding CancelUnbindCommand}"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+            <!-- MAC 不符：二選一出口 -->
+            <StackPanel Spacing="8" IsVisible="{Binding BindModeIsMismatch}">
+              <TextBlock Foreground="#dc2626" FontWeight="SemiBold" Text="✗ MAC 不符"/>
+              <TextBlock Text="{Binding MismatchText}"/>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Classes="ghost" Content="去檢查接線" Command="{Binding CancelUnbindCommand}"/>
+                <Button Classes="pri" Content="確認換機：改綁這台" Command="{Binding RebindActualCommand}"/>
+              </StackPanel>
+            </StackPanel>
+            <TextBlock Classes="muted" Text="{Binding BindStatus}"/>
+          </StackPanel>
+        </Border>
+
+        <!-- ── Step 2 取像驗證 ── -->
+        <Border Classes="panel" IsVisible="{Binding IsStep2}">
+          <Grid ColumnDefinitions="*,1.1*">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="muted" Text="mean_gray"
+                         ToolTip.Tip="&lt;3＝暗場（沒開光源），非相機故障。工作點 ≈90。"/>
+              <TextBlock Classes="big" Text="{Binding MeanText}"/>
+              <TextBlock Foreground="#16a34a" FontWeight="SemiBold" Text="{Binding MeanJudgment}"/>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="muted" Text="曝光 µs"/>
+                <TextBlock Grid.Column="1" FontWeight="Bold" Text="{Binding ExposureUs, StringFormat=F0}"/>
+              </Grid>
+              <Slider Minimum="70" Maximum="10000" Value="{Binding ExposureUs}"/>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="muted" Text="增益 raw"/>
+                <TextBlock Grid.Column="1" FontWeight="Bold" Text="{Binding GainRaw}"/>
+              </Grid>
+              <Slider Minimum="256" Maximum="2047" Value="{Binding GainRaw}"/>
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Classes="pri" Content="抓一幀" Command="{Binding GrabOneCommand}"/>
+                <Button Classes="ghost" Content="套用並再抓" Command="{Binding ApplyAndGrabCommand}"/>
+              </StackPanel>
+              <TextBlock Classes="muted" Text="{Binding CaptureStatus}"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="#0f1115" CornerRadius="10" MinHeight="230">
+              <TextBlock Foreground="#8b949e" FontSize="12" HorizontalAlignment="Center"
+                         VerticalAlignment="Center" TextAlignment="Center"
+                         Text="縮圖預覽&#10;（待 grab GET_FRAME_PREVIEW 命令）"/>
+            </Border>
+          </Grid>
+        </Border>
+
+        <!-- ── Step 3 對位 Mark ── -->
+        <Border Classes="panel" IsVisible="{Binding IsStep3}">
+          <StackPanel Spacing="10" MaxWidth="560" HorizontalAlignment="Left">
+            <CheckBox IsChecked="{Binding AlignEnable}" Content="啟用對位（AlignEnable）"/>
+            <Grid ColumnDefinitions="110,148,110,148" RowDefinitions="Auto,Auto,Auto">
+              <TextBlock Text="Refer X / Y" VerticalAlignment="Center" Classes="muted"
+                         ToolTip.Tip="Mark 範本中心在影像上的座標"/>
+              <NumericUpDown Grid.Column="1" Value="{Binding AlignReferX}" Increment="1" FormatString="0"/>
+              <NumericUpDown Grid.Column="3" Value="{Binding AlignReferY}" Increment="1" FormatString="0"/>
+              <TextBlock Grid.Row="1" Text="搜尋窗 W / H" VerticalAlignment="Center" Classes="muted"
+                         ToolTip.Tip="在此範圍內找 Mark；比範本大 3–5 倍即可"/>
+              <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding AlignSearchW}" Increment="10" FormatString="0"/>
+              <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding AlignSearchH}" Increment="10" FormatString="0"/>
+              <TextBlock Grid.Row="2" Text="範本檔" VerticalAlignment="Center" Classes="muted"
+                         ToolTip.Tip="golden 範本影像（相對配方資料夾）；LOAD_RECIPE 時自動 base64 送 IP"/>
+              <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding AlignPatternPath}"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="pri" Content="儲存 Mark" Command="{Binding SaveAlignCommand}"/>
+              <Button Classes="ghost" Content="▶ 試對位" IsEnabled="False"
+                      ToolTip.Tip="需實拍影像流程（6 相機到貨後接 CHECK_ALIGN）"/>
+            </StackPanel>
+            <TextBlock Classes="muted" Text="{Binding AlignStatus}"/>
+            <TextBlock Classes="muted" FontSize="11"
+                       Text="每台 CCD 各教各的 Mark；視覺框選教學（在影像上拖框）為下一版，現以數值設定。"/>
+          </StackPanel>
+        </Border>
+
+        <!-- ── Step 4 調參與缺陷（嵌入單 CCD 檢測工作台）── -->
+        <StackPanel IsVisible="{Binding IsStep4}" Spacing="8">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="muted" VerticalAlignment="Center"
+                       Text="完整檢測鏈（載圖/框 ROI/參數/Test/缺陷）；調完按右側標記完成"/>
+            <Button Grid.Column="1" Classes="ghost" Content="✓ 此相機調參完成"
+                    Command="{Binding MarkTunedCommand}"/>
+          </Grid>
+          <Border Classes="panel" Padding="6" MinHeight="420">
+            <views:SingleCcdSetupView DataContext="{Binding SingleCcd}"/>
+          </Border>
+        </StackPanel>
+
+        <!-- ── Step 5 套用到其他相機 ── -->
+        <Border Classes="panel" IsVisible="{Binding IsStep5}">
+          <Grid ColumnDefinitions="*,1.2*">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="muted" Text="複製什麼"/>
+              <CheckBox IsChecked="{Binding CopyDetectParams}" Content="檢測參數（27 欄全套）"/>
+              <CheckBox IsChecked="{Binding CopyExposureGain}" Content="曝光 / 增益"/>
+              <CheckBox IsChecked="{Binding CopyAlignMark}" Content="對位 Mark"
+                        ToolTip.Tip="預設不複製：每台起始點不同，Mark 各教各的"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="6">
+              <TextBlock Classes="muted" Text="套用到誰"/>
+              <ItemsControl ItemsSource="{Binding CopyTargets}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CopyTarget">
+                    <Border Classes="card" Margin="0,0,0,4">
+                      <Grid ColumnDefinitions="Auto,70,*,Auto">
+                        <CheckBox IsChecked="{Binding Selected}" IsEnabled="{Binding CanSelect}"/>
+                        <TextBlock Grid.Column="1" FontWeight="Bold" Text="{Binding CcdId}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Classes="muted" Text="{Binding Meta}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding Result}" VerticalAlignment="Center"/>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Button Classes="pri" Content="套用" Command="{Binding ApplyToTargetsCommand}"
+                      HorizontalAlignment="Left"/>
+              <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding CopyStatus}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

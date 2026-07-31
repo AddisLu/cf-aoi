@@ -126,3 +126,26 @@ public sealed class InverseBoolConverter : IValueConverter
     public object Convert(object? v, Type t, object? p, CultureInfo c) => v is not true;
     public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => v is not true;
 }
+
+/// <summary>工作台：槽位狀態 → 左框色（綠=已綁 琥珀=未綁 紅=MAC不符 灰=離線/空）。</summary>
+public sealed class SlotKindToBrushConverter : IValueConverter
+{
+    public static readonly SlotKindToBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c) => v switch
+    {
+        ViewModels.SlotBindKind.Bound       => new SolidColorBrush(Color.Parse("#16a34a")),
+        ViewModels.SlotBindKind.MacMismatch => new SolidColorBrush(Color.Parse("#dc2626")),
+        ViewModels.SlotBindKind.Declared    => new SolidColorBrush(Color.Parse("#d97706")),
+        _                                   => new SolidColorBrush(Color.Parse("#9ca3af")),
+    };
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
+/// <summary>工作台：步驟完成點（true=綠、false=淡灰）。</summary>
+public sealed class StepDotBrushConverter : IValueConverter
+{
+    public static readonly StepDotBrushConverter Instance = new();
+    public object Convert(object? v, Type t, object? p, CultureInfo c)
+        => new SolidColorBrush(v is true ? Color.Parse("#16a34a") : Color.Parse("#e5e7eb"));
+    public object ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}

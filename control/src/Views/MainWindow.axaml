@@ -115,6 +115,9 @@
             <Border Height="1" Background="{DynamicResource Line}" Margin="6,10"/>
             <TextBlock Text="配方 / 檢測" FontFamily="{DynamicResource HeadFont}" FontSize="10" FontWeight="SemiBold"
                        Foreground="{DynamicResource Txt3}" Margin="10,2,0,4"/>
+            <Button Classes="nav" Classes.active="{Binding IsWorkbench}"
+                    Command="{Binding NavigateCommand}" CommandParameter="workbench"
+                    ToolTip.Tip="操作員五步驟動線：綁定→取像→對位→調參→套用" Content="相機工作台"/>
             <Button Classes="nav" Classes.active="{Binding IsZone}"
                     Command="{Binding NavigateCommand}" CommandParameter="zone" Content="配方編輯"/>
             <Button Classes="nav" Classes.active="{Binding IsStep1}"
@@ -269,6 +272,11 @@
         </Grid>
 
         <!-- ============ Step 1 ============ -->
+        <!-- ============ 相機工作台（操作員五步驟動線） ============ -->
+        <Panel IsVisible="{Binding IsWorkbench}">
+          <views:CameraWorkbenchView DataContext="{Binding Workbench}"/>
+        </Panel>
+
         <Panel IsVisible="{Binding IsStep1}">
           <views:Step1View DataContext="{Binding Step1}"/>
         </Panel>
