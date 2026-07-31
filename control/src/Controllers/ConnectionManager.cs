@@ -46,9 +46,18 @@ public sealed partial class ConnectionManager : ObservableObject, IDisposable
     //   逾時太短/單次即斷 → 網路抖動就假斷線、log 洗版、連線反覆重建（實測手機熱點下每 4 秒一次）。
     //   逾時太長/門檻太高 → 真的斷線時偵測變慢。
     // 現值：5s 逾時 × 連續 2 次失敗 → 最慢約 12.5s 判定斷線，對狀態燈而言可接受。
-    private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan ConnectTimeout   = TimeSpan.FromSeconds(4);
-    private const int MaxConsecutiveFails = 2;
+    private TimeSpan _heartbeatTimeout   = TimeSpan.FromSeconds(5);
+    private TimeSpan _connectTimeout     = TimeSpan.FromSeconds(4);
+    private int      _maxConsecutiveFails = 2;
+    private int      _beatIntervalMs      = 2500;
+
+    /// <summary>selftest 專用：把時間常數縮到毫秒級，讓門檻邏輯可在秒級自動化驗證。須在 Start() 前呼叫；生產路徑不用。</summary>
+    internal void ConfigureForTest(TimeSpan heartbeatTimeout, TimeSpan connectTimeout,
+                                   int maxConsecutiveFails, int beatIntervalMs)
+    {
+        _heartbeatTimeout = heartbeatTimeout; _connectTimeout = connectTimeout;
+        _maxConsecutiveFails = maxConsecutiveFails; _beatIntervalMs = beatIntervalMs;
+    }
 
     private async Task HeartbeatLoop(string name, IHeartbeatClient client,
                                      Func<NodeConfig?> nodeOf, Action<bool> setStatus, CancellationToken ct)
@@ -73,10 +82,10 @@ public sealed partial class ConnectionManager : ObservableObject, IDisposable
                     {
                         if (!client.IsConnected)
                         {
-                            using var cc = new CancellationTokenSource(ConnectTimeout);
+                            using var cc = new CancellationTokenSource(_connectTimeout);
                             await client.ConnectAsync(node.Host, node.Port, cc.Token);
                         }
-                        using var hb = new CancellationTokenSource(HeartbeatTimeout);
+                        using var hb = new CancellationTokenSource(_heartbeatTimeout);
                         var resp = await client.CheckHealthAsync(hb.Token);
                         healthy = resp?["status"]?.GetValue<string>() == "OK";
                     }
@@ -90,7 +99,7 @@ public sealed partial class ConnectionManager : ObservableObject, IDisposable
                     else
                     {
                         ++consecutiveFails;
-                        if (consecutiveFails >= MaxConsecutiveFails)
+                        if (consecutiveFails >= _maxConsecutiveFails)
                         {
                             client.Disconnect();            // 關閉壞掉的 socket → 下回合重連
                             ok = false;
@@ -110,7 +119,7 @@ public sealed partial class ConnectionManager : ObservableObject, IDisposable
             prev = ok;
             setStatus(ok);
 
-            try { await Task.Delay(2500, ct); } catch { break; }
+            try { await Task.Delay(_beatIntervalMs, ct); } catch { break; }
         }
     }
 

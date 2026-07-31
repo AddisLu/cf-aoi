@@ -36,7 +36,9 @@ public static class SelfTest
                 case "send":   return await SendTest(rest, cfg, log);
                 case "fft":    return FftTest(rest);
                 case "store":  return await StoreTest(rest);
-                case "heartbeat": return await HeartbeatTest(rest);
+                case "heartbeat": return rest.Length > 0 && rest[0] == "auto"
+                                         ? await HeartbeatAutoTest()
+                                         : await HeartbeatTest(rest);
                 case "sort":   return await SortTest();
                 case "patches": return await PatchClassifyTest();
                 case "settings": return SettingsTest();
@@ -997,6 +999,112 @@ public static class SelfTest
     }
 
     // ---- 連線心跳偵測（綠↔紅 + 自動重連）----
+    // ★8 自動化驗證（--selftest heartbeat auto）：假 IP server 可控「回應/停擺」，
+    // 驗「單次逾時不翻線、連續 2 次才斷、恢復後自動重連」門檻邏輯。
+    // 時間常數經 ConfigureForTest 縮到毫秒級（400ms 逾時 × 150ms 間隔），全程約 6 秒。
+    private static async Task<int> HeartbeatAutoTest()
+    {
+        int pass = 0, fail = 0;
+        void Check(bool ok, string name)
+        {
+            if (ok) { pass++; Console.WriteLine($"  ✓ {name}"); }
+            else    { fail++; Console.WriteLine($"  ✗ {name}"); }
+        }
+        async Task<bool> WaitUntil(Func<bool> cond, int timeoutMs)
+        {
+            var t0 = Environment.TickCount64;
+            while (Environment.TickCount64 - t0 < timeoutMs)
+            {
+                if (cond()) return true;
+                await Task.Delay(30);
+            }
+            return cond();
+        }
+
+        // ---- 假 IP server：stall==0 正常回 OK；>0 吃掉 N 次不回；-1 全部停擺 ----
+        int stall = 0;
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var serverCts = new System.Threading.CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            while (!serverCts.IsCancellationRequested)
+            {
+                System.Net.Sockets.TcpClient? c;
+                try { c = await listener.AcceptTcpClientAsync(serverCts.Token); } catch { break; }
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var cl = c;
+                        var st = cl.GetStream();
+                        var rd = new System.IO.StreamReader(st);
+                        var wr = new System.IO.StreamWriter(st) { AutoFlush = true };
+                        while (true)
+                        {
+                            var line = await rd.ReadLineAsync();
+                            if (line is null) break;
+                            var mode = System.Threading.Volatile.Read(ref stall);
+                            if (mode == -1) continue;                                   // 停擺：收下不回
+                            if (mode > 0) { System.Threading.Interlocked.Decrement(ref stall); continue; }
+                            await wr.WriteLineAsync("{\"status\":\"OK\"}");
+                        }
+                    }
+                    catch { }
+                });
+            }
+        });
+
+        var cfg = new Models.SystemConfigModel();
+        cfg.Nodes["IpOffline"] = new Models.NodeConfig { Host = "127.0.0.1", Port = port };
+        cfg.ActiveIpNode = "IpOffline";
+        var log = new LogService();
+        var errors = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var infos  = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        log.Logged += e =>
+        {
+            if (e.Message.Contains("連線中斷")) errors.Enqueue(e.Message);
+            if (e.Message.Contains("已重新連線") || e.Message.Contains("已連線")) infos.Enqueue(e.Message);
+        };
+        using var conn = new Controllers.ConnectionManager();
+        conn.ConfigureForTest(TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(400),
+                              maxConsecutiveFails: 2, beatIntervalMs: 150);
+        conn.Start(cfg, log);
+
+        // Phase 1：健康 server → 綠
+        Check(await WaitUntil(() => conn.IsIpConnected, 5000), "Phase1 假 IP 健康 → IsIpConnected=true");
+
+        // Phase 2：單次逾時 → 不翻線、不記斷線 log（★8 的核心語意）
+        int errBefore = errors.Count;
+        System.Threading.Volatile.Write(ref stall, 1);
+        bool stayedGreen = true;
+        var t1 = Environment.TickCount64;
+        while (Environment.TickCount64 - t1 < 1500)                 // 涵蓋失敗那拍 + 恢復拍
+        {
+            if (!conn.IsIpConnected) { stayedGreen = false; break; }
+            await Task.Delay(20);
+        }
+        Check(stayedGreen, "Phase2 單次逾時 → 全程維持綠燈（未達 2 次門檻不翻線）");
+        Check(errors.Count == errBefore, "Phase2 單次逾時 → 無「連線中斷」log（不洗版）");
+
+        // Phase 3：全面停擺 → 連續 2 次失敗 → 翻紅 + 記 log
+        System.Threading.Volatile.Write(ref stall, -1);
+        Check(await WaitUntil(() => !conn.IsIpConnected, 5000), "Phase3 連續失敗 ≥2 → IsIpConnected=false");
+        Check(await WaitUntil(() => errors.Count > errBefore, 2000), "Phase3 有「連線中斷」log");
+
+        // Phase 4：恢復 → 自動重連 → 綠 + 記重連 log
+        int infoBefore = infos.Count;
+        System.Threading.Volatile.Write(ref stall, 0);
+        Check(await WaitUntil(() => conn.IsIpConnected, 8000), "Phase4 server 恢復 → 自動重連 IsIpConnected=true");
+        Check(await WaitUntil(() => infos.Count > infoBefore, 2000), "Phase4 有「已重新連線」log");
+
+        serverCts.Cancel();
+        listener.Stop();
+        Console.WriteLine($"結果: {pass} pass, {fail} fail");
+        return fail == 0 ? 0 : 1;
+    }
+
     private static async Task<int> HeartbeatTest(string[] a)
     {
         int secs = a.Length > 0 && int.TryParse(a[0], out var s) ? s : 30;
