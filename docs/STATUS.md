@@ -710,7 +710,8 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 
 **尚未驗（誠實標註）：** 37 台同時（相機未到貨）／`edge_check` 逐 slice 真玻璃邊（本次無玻璃、`enabled=0`）／
 **真面板缺陷正確性**（現為 free-run 無 encoder 觸發、無相對運動 → 線掃的 Y 軸是「時間」不是「位置」，
-拍到的是同一條線的時間紀錄，非真實 2D 面板影像；需接 encoder 行觸發或讓工件移動）／上位機 8787 經交換機端到端。
+拍到的是同一條線的時間紀錄，非真實 2D 面板影像；需接 encoder 行觸發或讓工件移動）／
+~~上位機 8787 經交換機端到端~~ → **✅ 2026-07-31 完整生產迴圈總演練 L3**（見「6 相機前收口 sprint」項 E）。
 
 ### 追加：當日尾聲兩筆修正（2026-07-30 18:16／18:27）— ★7 **L3 ✓**／★8 **L2**（皆 2026-07-31 補驗）
 
@@ -780,6 +781,23 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
   （103 次失敗全在 GRAB_STOP 後 IP 依設計退出之後 = 預期 teardown）。
   ③ 注入守門：`SEND_IMAGE_STREAM_BEGIN`/`REVIEW_LOCAL_IMAGE` → ERR；`SEND_IMAGE_FOR_REVIEW`
   帶 payload 被拒後**同連線後續 CHECK_HEALTH 仍 OK**（先讀完 payload 再拒 → 框架不失步）。
+
+**E — 完整生產迴圈總演練（同日追加，L3 ✓）**：模擬器 → **真 Control（Mac，App 實跑）** →
+2 台真相機（經 5945）→ Spark **rdma-process** → 結果回上位機。這條鏈**今日 8200 改完才第一次可行**
+（先前 rdma-process 不開 8200，CF_GET_RESULT 連不到 IP）：
+
+| CF_ 命令 | 結果 |
+|---|---|
+| `CF_READY` | OK 1ms |
+| `CF_LOAD_RECIPE\|DEFAULT\|E2EPANEL\|…` | **OK 3890ms**（= 真 IP LOAD_RECIPE + 真 Grab ARM 冷啟預熱，重活全在此）|
+| `CF_GRAB_START\|40000` | **OK 57ms**（已 ARM → ms 級觸發，含 Mac→damac 網路往返）|
+| `CF_GET_RESULT` | **OK 2340ms**，回真實 `CCD00_*/CCD01_*` 結果夾+缺陷數（Control→rdma-process 8200 `LIST_DEFECT_FOLDERS` 鏈）|
+| `CF_STOP` | **OK 1560ms**，Grab 停+IP 乾淨退出（★1 修法生產路徑再驗）|
+
+對帳：**113 幀連續串流 recv ok=113 err=0**（本輪 build 產物帶舊 appsettings fpp=0 → 實跑連續模式，
+反而多驗了「連續串流中 GET_RESULT/STOP」）；佇列峰值 0、背壓 0、113 個結果夾落地 `/tmp/e2e_out/20260731/`。
+⚠️ 誠實界線：fpp=5 的「收滿自動停」在此演練未走到（fpp 傳遞本身 grabtrigger L2 + verify_step3_trigger L3 已驗）；
+真上位機協議認帳仍 = L4。
 
 **⏭ 仍開（記錄，非本次範圍）：** IP/Grab ControlServer 單客戶端序列處理（診斷通道與 Control 併用會排隊；
 非阻斷）／★8 真網路 Mac 目視／★6 Control log 面板目視／damac 三處殘留副本待手動刪（rm 指令見 7/31 對話）。
