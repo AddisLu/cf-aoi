@@ -14,6 +14,11 @@ echo "[1/3] dotnet publish（self-contained osx-arm64）…"
 (cd "$SRC" && dotnet publish -c Release -r osx-arm64 --self-contained true -o publish/osx-arm64 >/dev/null)
 
 echo "[2/3] 組 .app bundle → $APP"
+# 先「溫和退出」執行中的舊實例（AppleEvent → Avalonia 正常 shutdown）。
+# ⚠️ 不可用 pkill/SIGTERM 硬殺：會在 Avalonia 原生渲染層（AvnGlRenderingSession 解構）
+# 觸發 SIGSEGV，跳出 macOS 崩潰回報視窗（2026-07-31 實測，crash log 已確認）。
+osascript -e 'tell application "CF-AOI Control" to quit' 2>/dev/null || true
+sleep 2
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp -R "$PUB/." "$APP/Contents/MacOS/"
@@ -29,6 +34,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>CfAoiControl</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
