@@ -47,7 +47,7 @@
 | 配方單一資料來源 RecipeStore | **L2** | `--selftest store`：三處同步 + 存檔 XML 含改後值。(草稿 L2 ✓) |
 | ShareSetting（全域，appsettings.json） | **L2** | `--selftest settings`：JSON round-trip + 只覆寫該節點 + AiRootPath 預設空。(草稿 L2 ✓) |
 | RecipeSetting 面板（per-recipe XML 編輯/存讀） | **L2** | `--selftest settings`：per-recipe XML round-trip + 不存在回預設 + MaxDefectCountPass 預設 10000。(草稿 L2 ✓) |
-| 連線心跳偵測（CHECK_HEALTH） | **L2** | **2026-07-31 起有自動化 selftest**：`--selftest heartbeat auto`（假 IP server 可控停擺）7/7 驗「單次逾時不翻線／連續 2 次才斷／恢復自動重連」（5s×2 門檻 = 2026-07-30 commit `2423b6b`，見 Switch 章節 ★8）。舊 `--selftest heartbeat` 手動 harness 保留。真網路目視（抖動不誤翻紅）待 Mac → L3。 |
+| 連線心跳偵測（CHECK_HEALTH） | **L3 ✓（2026-07-31）** | 自動化 selftest：`--selftest heartbeat auto`（假 IP server 可控停擺）7/7 驗「單次逾時不翻線／連續 2 次才斷／恢復自動重連」（5s×2 門檻 = commit `2423b6b`）。**Mac 目視 ✓**：真 Control↔真 Spark IP——綠穩定、真斷 12s 判定一次不洗版、自動重連（見 Switch 章節 ★8）。舊 `--selftest heartbeat` 手動 harness 保留。 |
 | DefectSort（看小圖人工分類 TrueDefect/Particle） | **L2** | `--selftest patches`（filter/即時持久化/統計/UTF-8）+ `--selftest sort` 通過。使用者 Mac 跑過（中文亂碼、1122 重複等 bug 已修）。**(原草稿 L3→L2：Control 分類 UI 的 selftest 為假 IP server；filter/即時存最新版待 Mac 複測。IP 側遠端命令另計為 L3，見 IP 表)** |
 | SystemSettings 相機陣列（運算單元帶 / 宣告陣列 / 偵測相機）| **L2(selftest)/L1(目視)** | `--selftest topology`+`camera` PASS（拓樸載入/依 compute_unit 分群/處理 N 真/負載估算公式/連線規則；LIST_CAMERAS 分群+KPI、離線不假造）。塊1/2；版面待 Mac 目視。宣告(config) 與 偵測(runtime) 分開、不假 merge（約束②）。|
 | RoiImageView（影像/ROI 共用控制項，塊3-3a）| **L1** | 從 Step1View 抽出，行為一致（StyledProperty 介面，EditZone 可注入/AllZones 畫全部 ROI）；`--selftest singleccd` 驗 EditZone 連動。縮放/平移/框選/導航/量 Pitch **互動待 Mac 目視**。|
@@ -436,7 +436,7 @@ slot 可能在收端 memcpy 出來之前就被重寫。無背壓時收端排空�
 | ★3 | `frame_seq` 跨片歸零 | **✅ 已修並驗證** | 3 片 × 3 張 × 2 台 = 18 幀：**seq 跳躍 0 筆**（修正前每個片界 1 筆）、18 個輸出夾 `CCD00_000002`…`CCD01_000017` **全不同名**（修正前第 2/3 片會覆蓋第 1 片結果）、dropped=0。|
 | ★4 | `GET_CAM_NODES` 回錯相機 | **✅ 已修並驗證** | `cam_id=0 → width 4096`、`cam_id=1 → width 8160`（各自真值；修正前兩台都回 4096）、`cam_id=99 → ERR unknown cam_id`、回應加回聲 `cam_id`。|
 | ★5 | `cam_id!=0` 守門擋死第二台 | **✅ 已修並驗證** | `SET_CAM_PARAMS` `cam_id=0/1` 皆 **OK**（actual 正確回讀）、`cam_id=99 → ERR unknown`、`cam_id=-1 → ERR invalid`。並移除 TUNE_MEAN 在陣列已開時 fallback 到 primary 的靜默錯套。失敗路徑回歸 10/10（腳本中唯一「FAIL」是它在斷言舊 bug 行為 `cam_id=1→ERR`）。|
-| ★6 | `CF_LOAD_RECIPE` 吞例外 | **✅ 已修；訊息需 UI 目視** | `catch(Exception ex)` → `Log.Error` 帶型別+訊息；IP 拒絕載入另 `Log.Warn` 帶 IP 的 error。`dotnet build` 0 警告 0 錯誤。**Control 的 LogService 只寫記憶體+UI、不落檔** → 訊息內容須在 Control log 面板目視確認。|
+| ★6 | `CF_LOAD_RECIPE` 吞例外 | **✅ 已修並目視驗證（2026-07-31）** | `catch(Exception ex)` → `Log.Error` 帶型別+訊息；IP 拒絕載入另 `Log.Warn` 帶 IP 的 error。**Mac 目視 ✓**：IP 斷線中送 CF_LOAD_RECIPE → log 面板顯示「CF_LOAD_RECIPE 失敗（recipe='DEFAULT' panel='VISUALTEST'）：InvalidOperationException:…」（修正前僅無資訊的 "load recipe failed"）。|
 
 回歸：`verify_step3_trigger.py`（2 台）**6/6 全 PASS**；正常負載 43 幀 **err=0**。
 
@@ -748,7 +748,11 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 - **修法 L2（2026-07-31 自動化 selftest）**：新增 `--selftest heartbeat auto`（假 IP server 可控回應/停擺，
   時間常數經 `ConfigureForTest` 縮到毫秒級）**7/7 PASS ×3 輪**——Phase1 健康→綠；Phase2 **單次逾時全程綠燈
   + 無「連線中斷」log**（★8 核心語意）；Phase3 連續 ≥2 失敗→紅+log；Phase4 恢復→自動重連+log。
-  回歸 upstream/grabtrigger/store/settings 全 PASS。**真網路目視（熱點抖動不誤翻紅／真斷 ~12.5s 翻紅）仍待 Mac → L3**。
+  回歸 upstream/grabtrigger/store/settings 全 PASS。
+- **→ L3 ✓（2026-07-31 同日 Mac 目視，真 Control App ↔ 真 Spark IP）**：Addis 截圖確認——
+  ① 連線後綠燈穩定、log 僅一條「IP 已連線」；② 真停 IP 後 **12s**（10:36:14 停 → 10:36:26 判定）
+  翻紅且**單獨一條**「IP 連線中斷」（舊 bug 每 4s 洗版不再）；③ 10:36:46「IP 已重新連線」自動恢復。
+  （原始重現環境「手機熱點高抖動長時間觀察」不再現；公司 LAN 下穩定性已由目視+selftest 雙重覆蓋。）
 
 ---
 
@@ -800,7 +804,10 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 真上位機協議認帳仍 = L4。
 
 **⏭ 仍開（記錄，非本次範圍）：** IP/Grab ControlServer 單客戶端序列處理（診斷通道與 Control 併用會排隊；
-非阻斷）／★8 真網路 Mac 目視／★6 Control log 面板目視／damac 三處殘留副本待手動刪（rm 指令見 7/31 對話）。
+非阻斷）／damac 三處殘留副本待手動刪（rm 指令見 7/31 對話）。
+（~~★8 真網路目視／★6 log 面板目視~~ → **同日 Mac 目視完成**，見 ★8 節與 ★1–★6 修正表。）
+⚠️ **附帶發現（待確認）**：關閉 5945 後 **damac Tailscale 完全失聯**（100% loss）——疑似 damac 網路上行
+也接在 5945 上。若屬實，需入 runbook：「關交換機 = damac 離線」；建議 damac 管理網改走獨立路徑。
 
 ---
 
