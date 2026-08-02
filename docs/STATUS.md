@@ -876,7 +876,7 @@ X8 rdma_common 兩份 wire 同、行為已分歧（文件敘述改「wire 凍結
 **文件對齊（同日完成）**：docs/CLAUDE.md 全面修訂（詳見其標頭 2026-08-02 註記）；
 grab/ip/control 三組 CLAUDE.md＋程式完整說明依各自漂移清單修正；tools 兩檔查證零漂移未動。
 
-### B1 已修（2026-08-02，**L1 — 未實機驗**）
+### B1 已修（2026-08-02，**L2 — 自動化測試過，未上真相機**）
 
 `grab_loop()` 拆為 try/catch 薄殼 + `grab_loop_body()`：攔 `GenericException`/`std::exception`/`...`
 三層，例外不再逸出 thread 進入點 → **拔線只停該台，其餘相機續跑、行程存活**（修前 6 台陪葬）。
@@ -888,9 +888,18 @@ grab/ip/control 三組 CLAUDE.md＋程式完整說明依各自漂移清單修正
 任何「是否收完」判斷都要先看 `faulted==0`。
 ⚠️ **Control 尚未消費 `faulted`**（心跳只看 OK/ERR），UI 不會亮警示 = 待接 K 系列項。
 
-**L1→L3 補驗**（damac + ≥2 台相機，步驟見 code_review_20260802.md「修復記錄」節）：
+**L2 證據**（`grab/test/b1_fault_containment/`，pylon stub 注入例外，不需相機）：
+6 情境 20 項斷言全過，**macOS clang + Ubuntu 24.04 gcc 13.3 兩套 toolchain 皆然**——
+拔線在 ARM 當下 / 取像途中 / frame_cb 自己擲 / 收尾 `StopGrabbing` 也擲 / 正常收滿不誤標 /
+重新 start 清旗標。**反向對照**：拿掉 try/catch 重編，測試在第 1 項就被
+`terminate called after throwing GenICam::GenericException` 以 SIGABRT(134) 殺掉
+→ 確認測試抓得到，非怎樣都綠。另驗 `cam_manager.cpp` 在真 nlohmann 下編過、
+status JSON 在錯誤訊息含引號/反斜線時仍能被 `json::parse` 還原（故用 nlohmann 不手工拼字串）。
+
+**L2→L3 補驗**（damac + ≥2 台相機，步驟見 code_review_20260802.md「修復記錄」節）：
 GRAB_START 後拔一台網線 → `pgrep -x cfaoi_grab` 仍在 + `CHECK_HEALTH` 回 `faulted=1` 且指到正確
 cam_id + 另一台 `grabbed`/`sent_frames` 持續增加。
+⚠️ stub 不涵蓋真 pylon API 契約與真相機行為——**L3 仍不可略過**。
 
 ---
 

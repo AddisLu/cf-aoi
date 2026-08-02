@@ -16,7 +16,7 @@
 
 | # | 端 | 問題 | 位置 | 觸發情境 |
 |---|---|------|------|---------|
-| ~~**B1**~~ **已修 L1** | grab | `grab_loop` 對 pylon 例外零防護：一台拔線/斷電 → `GenericException` 逸出 thread → `std::terminate` **全行程死亡**（其餘 5 台陪葬、8100/RDMA 全斷）。`TimeoutHandling_Return` 只吞逾時不吞裝置移除 | cam_pylon.cpp:142-201 | 任一台線材/供電/交換機出狀況（×6 機率）|
+| ~~**B1**~~ **已修 L2** | grab | `grab_loop` 對 pylon 例外零防護：一台拔線/斷電 → `GenericException` 逸出 thread → `std::terminate` **全行程死亡**（其餘 5 台陪葬、8100/RDMA 全斷）。`TimeoutHandling_Return` 只吞逾時不吞裝置移除 | cam_pylon.cpp:142-201 | 任一台線材/供電/交換機出狀況（×6 機率）|
 | **B4** | grab | `--cam-count ALL` 無「應到幾台」概念：cam_map 6 筆、只列舉到 5 台 → ARM 回 OK **靜默跑 5 台**（fail-fast 只保護 want>0）。與已修 ★7 不同根因 | cam_manager.cpp:247-251 | 到貨日某台 link 未起（忘下 speed 1000 / 未上電）。**運維面先改 runbook 用 `--cam-count 6`** |
 | **X1** | control | `GET_CAM_NODES` **不送 cam_id** → 永遠讀 cam0 且無錯誤提示（Grab 端 ★4 已修另一半：cam_id 必填+回聲，Control 送 null、回聲也不讀）| GrabClient.cs:129-131,133-147；呼叫點 SystemSettingsViewModel.cs:361 | runbook §5 逐台健檢：選 CCD05 按「讀取機器層參數」顯示的是 cam0 |
 | **B6** | grab | idle 路徑 `GET_CAM_NODES`/`TUNE_MEAN` 的 `get_or_open_primary` fallback **無視 cam_map**：idle 第一發 cam_id=3 查詢 → 開列舉第一台、回聲卻是 3 = 靜默錯台；TUNE_MEAN 更把錯台量測**寫進 cam_id=3 的 cam_config 槽** | main.cpp:451,496,502；cam_manager.cpp:299-311 | runbook §5「逐台健檢（idle）」正是此情境 |
@@ -193,8 +193,12 @@
 ⚠️ **Control 端尚未消費 `faulted` 欄位**（只用 CHECK_HEALTH 的 OK/ERR 判燈）→ 目前掉線只在
 Grab stdout 與 8100 回應可見，UI 不會亮警示。屬 K 系列待接項。
 
-**驗證狀態 L1**：Mac 無 pylon 只過了 header 語法檢查；damac 當時不可達。
-**補驗步驟**（damac，需 ≥2 台相機）：
+**驗證狀態 L2**：`grab/test/b1_fault_containment/`（pylon stub 注入例外，任何機器可跑、不需相機）
+6 情境 20 項斷言全過，macOS clang + Ubuntu 24.04 gcc 13.3 兩套 toolchain 皆然。
+反向對照：拿掉 try/catch 重編 → 測試在第 1 項即被 terminate 以 SIGABRT(134) 殺掉（確認抓得到）。
+⚠️ stub 只驗例外圍堵結構，**不驗真 pylon API 契約與真相機行為 → L3 不可略過**。
+
+**L2→L3 補驗步驟**（damac，需 ≥2 台相機）：
 ```bash
 ./build/cfaoi_grab --rdma-dest <ip:port> --cam-count 2   # GRAB_ARM + GRAB_START 後
 # 拔掉其中一台的網線／關該台 PoE

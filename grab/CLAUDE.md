@@ -256,3 +256,6 @@ grab/
      間歇掉幀，違反本專案「不靜默假成功」原則。恢復＝人為 GRAB_STOP → 排除 → GRAB_ARM。
    - ⚠️ 連帶紀律：故障台 `is_running()==false`，與「收滿 N 張正常停」外觀相同 →
      **任何「是否收完」的判斷都必須先看 `faulted_count()==0`**。
+   **改動 `grab_loop` 後請重跑迴歸測試**：`grab/test/b1_fault_containment/`（pylon stub 注入例外，
+   任何機器可跑、不需相機）。該測試失效時的表現是**整支被 terminate 殺掉**而非回報 FAIL——
+   跟產線失效模式一致，所以「有跑完」本身就是證據。
