@@ -1,6 +1,6 @@
 # CF-AOI 現況儀表板
 
-> 生成於 **2026-08-02 20:03**（commit `b344617`，branch `claude/worktree-checkbox-chinese-input-9ebc98`）。
+> 生成於 **2026-08-02 20:45**（commit `024a8e2`，branch `main`）。
 > ⚠️ **這個檔是 `scripts/gen_dashboard.py` 生成的，不要手改**——重跑腳本即更新。
 > 它的存在理由：回答「現在做到哪、下一步做什麼」不該需要翻 14 萬字的 STATUS.md。
 
@@ -54,14 +54,14 @@
 
 | commit | 日期 | 內容 |
 |---|---|---|
+| `024a8e2` | 2026-08-02 | docs(status) 教材索引化 + 一頁地圖 + 儀表板入帳（含刻意不做的 mermaid 延遲載入與量測數據） |
+| `a2f36a2` | 2026-08-02 | feat(教材/docs) 一頁式系統地圖 + 新人模式 + 現況儀表板生成器 |
 | `b344617` | 2026-08-02 | refactor(教材) 看碼改索引版：拿掉 1.74MB 內嵌源碼，改開真實檔案（4.95→3.01MB） |
 | `f5aaacd` | 2026-08-02 | test(grab) B1 例外圍堵迴歸測試（L1→L2）：pylon stub 注入例外 + 反向對照 |
 | `b83fc55` | 2026-08-02 | fix(grab) B1：拔線不再殺整個行程——grab thread 例外三層攔截 + faulted 狀態上報 8100 |
 | `53c0e20` | 2026-08-02 | feat(training) Cursor 化 P5+P6：右側 dock（看碼／AI／診斷）+ auto debug 知識庫 |
 | `6612074` | 2026-08-02 | feat(training) Cursor 化 P4：Tab 引導式閱讀（ghost text） |
 | `02eb254` | 2026-08-02 | feat(training) Cursor 化 P3：⌘P / ⌘K / ⌘⇧F 三分工（sigil 前綴切模式） |
-| `b363fcf` | 2026-08-02 | feat(training) Cursor 化 P2：編輯器分頁列 + 修暗色語法色可讀性 |
-| `9a35dec` | 2026-08-02 | feat(training) Cursor 化 P1：暗色為預設主題（亮色仍可一鍵切換） |
 
 ## 規模：程式碼 vs 文件
 
@@ -74,7 +74,7 @@
 
 | 文件 | 行 | 字 |
 |---|---:|---:|
-| `docs/STATUS.md` | 1,193 | 98,042 |
+| `docs/STATUS.md` | 1,214 | 98,915 |
 | `docs/ip_程式完整說明.md` | 915 | 49,348 |
 | `docs/control_程式完整說明.md` | 835 | 40,483 |
 | `ip/CLAUDE.md` | 478 | 26,134 |
@@ -84,7 +84,7 @@
 | `control/CLAUDE.md` | 280 | 13,458 |
 | `grab/CLAUDE.md` | 262 | 11,683 |
 | `docs/6cam_setup_runbook.md` | 124 | 5,622 |
-| **合計** | | **314,417** |
+| **合計** | | **315,290** |
 
 <small>約每行程式碼配 **15 個中文字**的散文（另有教材 HTML 約 93,000 字未計入）。維護成本目前由一個人付，帶新人的收益還沒到帳——擴充文件前先想清楚這筆帳。</small>
 
