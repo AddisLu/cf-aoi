@@ -876,6 +876,27 @@ X8 rdma_common 兩份 wire 同、行為已分歧（文件敘述改「wire 凍結
 **文件對齊（同日完成）**：docs/CLAUDE.md 全面修訂（詳見其標頭 2026-08-02 註記）；
 grab/ip/control 三組 CLAUDE.md＋程式完整說明依各自漂移清單修正；tools 兩檔查證零漂移未動。
 
+### 教材與文件動線改版（2026-08-02）
+
+**教材 `cf-aoi-training.html` 4.95 → 3.02 MB，看碼改索引版。** 拿掉內嵌的 1.74 MB 源碼全文
+（`window.SRC_FILES`），改為只存索引＋開真實檔案的 `vscode://` 連結。兩個理由：
+① 快照當天就過時——B1 修好當天，教材裡的 `cam_pylon.cpp` 仍是修前版本，還帶著
+「本函式無 try/catch → 全行程死亡」的錯誤警告；② srcdata 是單行 1.74 MB，每次重生一顆新
+git blob，教材已 commit 26 次、`.git` 因此達 52 MB，掛 pre-commit 自動重生只會讓成本每天複利。
+四台機器都 clone 同一個 repo，內嵌副本本就冗餘。**代價**：離線機器上點看碼不會有內容
+（但那三台本來也不在上面讀碼），檔內搜尋與 Peek 移交 VS Code。
+
+**新增**：`map`「一頁看懂 CF-AOI」章（設為預設落地頁，把散在 ch0/ch1/ch2/r4 約 14,000 字
+壓成一個螢幕）；🎓 新人模式開關（預設收起 7 個純新人章，只影響左欄可見性）。
+
+**新增 `scripts/gen_dashboard.py` → `docs/DASHBOARD.md`**：從 code_review + git + repo 現況
+生成「現在做到哪、下一步做什麼」一頁表。生成的，不會過時。首次讀數：該修的（P0–P2）
+**40 條**，其中 P0 10 條、P1 8 條。`docs/CLAUDE.md` §9 已加索引。
+
+**量過但刻意不做**：mermaidlib（2.5 MB，佔檔案一半）延遲解析——實測 domInteractive
+僅 1015→917ms（省 10%），不值得為此改 vendor 載入方式並重構圖引擎、拿 25 張圖冒險。
+那 1 秒主要來自章節 HTML 與 app 層，不在 mermaid。
+
 ### B1 已修（2026-08-02，**L2 — 自動化測試過，未上真相機**）
 
 `grab_loop()` 拆為 try/catch 薄殼 + `grab_loop_body()`：攔 `GenericException`/`std::exception`/`...`
