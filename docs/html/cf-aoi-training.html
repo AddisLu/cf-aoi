@@ -34,6 +34,12 @@
   --crit-soft: #3b1f1a;
   --code-bg: #1e1e1e;     /* VS Code 編輯器底 */
   --code-ink: #d4d4d4;
+  /* 看碼面板語法色（VS Code Dark+ 對映）。原本硬編亮色系深藍/深紫，
+     畫在暗色 --panel 上幾乎看不見——看碼是本書核心功能，故 token 化分主題定義。 */
+  --syn-k: #569cd6;       /* 關鍵字 */
+  --syn-s: #ce9178;       /* 字串 */
+  --syn-p: #c586c0;       /* 前處理/指示詞 */
+  --syn-c: #6a9955;       /* 註解 */
   --radius: 6px;          /* Cursor 圓角較銳利（原 12px） */
   --shadow: 0 1px 3px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.35);
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
@@ -45,6 +51,7 @@
   --accent-soft: #0d2c4d; --ok: #4ec9b0; --ok-soft: #10312b; --warn: #dcdcaa;
   --warn-soft: #332f18; --crit: #f48771; --crit-soft: #3b1f1a;
   --code-bg: #1e1e1e; --code-ink: #d4d4d4;
+  --syn-k: #569cd6; --syn-s: #ce9178; --syn-p: #c586c0; --syn-c: #6a9955;
   --shadow: 0 1px 3px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.35);
 }
 :root[data-theme="light"] {
@@ -53,6 +60,7 @@
   --accent-soft: #e4f2f5; --ok: #2b8a3e; --ok-soft: #e7f4ea; --warn: #b35c00;
   --warn-soft: #fdf1e2; --crit: #c92a2a; --crit-soft: #fceaea;
   --code-bg: #22333d; --code-ink: #d3e5ee;
+  --syn-k: #0b62a0; --syn-s: #a05516; --syn-p: #7a4fa0; --syn-c: #6a8a5f;
   --shadow: 0 1px 2px rgba(30,47,55,.05), 0 6px 20px rgba(30,47,55,.05);
 }
 * { box-sizing: border-box; }
@@ -464,26 +472,56 @@ nav.side .navitem.dimmed:hover { opacity: .85; }
 .actor.g { background: var(--warn-soft); color: var(--warn); }
 .actor.u { background: var(--crit-soft); color: var(--crit); }
 
-/* ══ MIL 式外殼：頂部導覽列 / 麵包屑 ══ */
+/* ══ 頂部標題列（2026-07-31：改中性暗色，對齊 Cursor 的 title bar）══ */
+:root { --hdr: 52px; --tabh: 35px; --chrome: 87px; }   /* 頂列 + 分頁列 = 內容起點 */
 .topbar {
-  position: sticky; top: 0; z-index: 40; height: 52px;
+  position: sticky; top: 0; z-index: 40; height: var(--hdr);
   display: flex; align-items: center; gap: 22px; padding: 0 22px;
-  background: color-mix(in srgb, var(--accent) 92%, #063540);
-  color: #fff; box-shadow: 0 1px 8px rgba(23,37,44,.22);
+  background: var(--panel); color: var(--ink);
+  border-bottom: 1px solid var(--line);
 }
 .tb-brand { font-weight: 800; font-size: 15px; letter-spacing: .03em; white-space: nowrap; }
-.tb-brand span { font-weight: 400; opacity: .85; }
-.tb-tabs { display: flex; gap: 4px; }
-.tb-tab {
-  background: none; border: none; color: #fff; opacity: .78; cursor: pointer;
-  font-family: var(--sans); font-size: 13.5px; padding: 5px 13px; border-radius: 7px;
+.tb-brand span { font-weight: 400; color: var(--ink-3); }
+/* 模式 tab（📖內容/🗂索引/🩺Log）已由編輯器分頁列取代；DOM 與 setTab() 保留不動，只隱藏視覺。 */
+.tb-tabs { display: none; }
+.tb-crumb { flex: 1; font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-crumb b { font-weight: 650; color: var(--ink); }
+.tb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
+
+/* ══ 編輯器分頁列（VS Code 語意：預覽頁斜體可被取代、釘選頁常駐、可拖曳排序）══ */
+.tabbar {
+  position: sticky; top: var(--hdr); z-index: 39;
+  display: flex; align-items: stretch; height: var(--tabh);
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
 }
-.tb-tab:hover { opacity: 1; background: rgba(255,255,255,.14); }
-.tb-tab.active { opacity: 1; background: rgba(255,255,255,.22); font-weight: 700; }
-.tb-crumb { flex: 1; font-size: 12.5px; opacity: .92; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tb-crumb b { font-weight: 650; }
-.tb-meta { font-family: var(--mono); font-size: 10.5px; opacity: .65; white-space: nowrap; }
-nav.side { top: 52px; height: calc(100vh - 52px); }
+.tabbar::-webkit-scrollbar { display: none; }
+.etab {
+  display: flex; align-items: center; gap: 7px; padding: 0 8px 0 13px;
+  border-right: 1px solid var(--line); background: var(--panel2);
+  color: var(--ink-3); font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  max-width: 240px; flex-shrink: 0; position: relative; user-select: none;
+}
+.etab:hover { color: var(--ink-2); }
+.etab.active { background: var(--bg); color: var(--ink); }
+.etab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--accent); }
+.etab.preview .et-t { font-style: italic; }
+.et-ico { font-size: 12px; flex-shrink: 0; }
+.et-t { overflow: hidden; text-overflow: ellipsis; }
+.et-x {
+  border: none; background: none; color: inherit; cursor: pointer; opacity: 0;
+  font-size: 12px; line-height: 1; padding: 3px 5px; border-radius: 4px; flex-shrink: 0;
+}
+.etab:hover .et-x, .etab.active .et-x { opacity: .6; }
+.et-x:hover { opacity: 1 !important; background: rgba(127,127,127,.28); }
+.etab.dragging { opacity: .4; }
+.etab.dragover { box-shadow: inset 2px 0 0 var(--accent); }
+.tabbar-hint {
+  margin-left: auto; align-self: center; padding: 0 12px; font-size: 11px;
+  color: var(--ink-3); white-space: nowrap; flex-shrink: 0;
+}
+.tabbar-hint kbd { font-family: var(--mono); font-size: 10px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+nav.side { top: var(--chrome); height: calc(100vh - var(--chrome)); }
 .navgroup { cursor: pointer; user-select: none; }
 .navgroup::before { content: "▾ "; font-size: 9px; color: var(--ink-3); }
 .navgroup.collapsed::before { content: "▸ "; }
@@ -491,7 +529,7 @@ nav.side { top: 52px; height: calc(100vh - 52px); }
 /* ══ 程式碼檢視器（頁內看碼，不用去翻）══ */
 :root { --cpw: min(640px, 52vw); }
 .codepanel {
-  position: fixed; top: 52px; right: 0; bottom: 0; width: var(--cpw); z-index: 50;
+  position: fixed; top: var(--chrome); right: 0; bottom: 0; width: var(--cpw); z-index: 50;
   background: var(--panel); border-left: 1px solid var(--line);
   box-shadow: -6px 0 24px rgba(23,37,44,.12); display: flex; flex-direction: column;
 }
@@ -577,13 +615,13 @@ nav.side { top: 52px; height: calc(100vh - 52px); }
 }
 .cl .lc { flex: 1; padding-right: 16px; }
 .cl.hl { background: color-mix(in srgb, var(--warn-soft) 80%, transparent); box-shadow: inset 3px 0 0 var(--warn); }
-.tok-c { color: #6a8a5f; font-style: italic; }
+.tok-c { color: var(--syn-c); font-style: italic; }
 .cl .mref { color: var(--accent); font-style: normal; font-weight: 600; cursor: pointer;
   border-bottom: 1px dotted var(--accent); }
 .cl .mref:hover { background: var(--accent-soft); }
-.tok-s { color: #a05516; }
-.tok-p { color: #7a4fa0; }
-.tok-k { color: #0b62a0; font-weight: 600; }
+.tok-s { color: var(--syn-s); }
+.tok-p { color: var(--syn-p); }
+.tok-k { color: var(--syn-k); font-weight: 600; }
 a.srclink, span.xref {
   color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent);
   cursor: pointer; font-weight: 550;
@@ -639,10 +677,10 @@ body.cp-open #toTop { right: calc(var(--cpw) + 18px); }
 #readProg { position: fixed; top: 52px; left: 0; height: 3px; width: 0; z-index: 41; background: var(--accent); opacity: .75; }
 .tb-tools { display: flex; gap: 2px; align-items: center; }
 .tb-btn {
-  background: none; border: none; color: #fff; opacity: .78; cursor: pointer;
-  font-family: var(--sans); font-size: 13.5px; padding: 4px 9px; border-radius: 7px; line-height: 1.3;
+  background: none; border: none; color: var(--ink-2); opacity: .85; cursor: pointer;
+  font-family: var(--sans); font-size: 13.5px; padding: 4px 9px; border-radius: 5px; line-height: 1.3;
 }
-.tb-btn:hover { opacity: 1; background: rgba(255,255,255,.14); }
+.tb-btn:hover { opacity: 1; background: var(--panel2); color: var(--ink); }
 .tb-btn:disabled { opacity: .3; cursor: default; background: none; }
 .minitoc {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline;
@@ -729,6 +767,7 @@ a.qgo:hover { background: var(--accent-soft); }
     <button class="tb-btn" id="kbdBtn" title="鍵盤快捷鍵（按 ? 也可開啟）">⌨</button>
   </div>
 </header>
+<div class="tabbar" id="tabbar" role="tablist" aria-label="開啟中的章節分頁"></div>
 <div class="app">
 <nav class="side" id="sidenav">
   <div class="brand">
@@ -5779,6 +5818,137 @@ document.addEventListener('keydown', e => {
     if (id && !location.hash) { try { history.replaceState(null, '', '#' + id); } catch (err) {} }
   }
   onScroll();
+}
+
+/* ── K. 編輯器分頁列（2026-07-31 Cursor 化）────────────────────────────────
+   VS Code 語意：側欄單擊/⌘P/←→ = 預覽分頁（斜體，只留一個，會被下一次預覽取代
+   → 隨手瀏覽不會累積一堆分頁）；雙擊 = 釘選常駐。中鍵或 ✕ 關閉，可拖曳排序。
+   實作沿用本檔慣例：包 show() 第三層，前兩層（麵包屑/返回堆疊/pushState）原樣照跑。
+   逃生門：localStorage cfaoi.cursorui=false 或網址 ?classic=1 → 整層不啟用。 */
+const TABBAR = $$('tabbar');
+const cursorOff = LS.get('cursorui', true) === false || /[?&]classic=1/.test(location.search);
+if (TABBAR && !cursorOff) {
+  const tabIcon = id => /^g\d/.test(id) ? '🚀' : /^p\d/.test(id) ? '🔍' : /^r\d/.test(id) ? '📖'
+                      : /^ch\d/.test(id) ? '🎓' : id === 'idx' ? '🗂' : id === 'logan' ? '🩺'
+                      : id === 'quiz' ? '✅' : '⚙️';
+  let tabs = (LS.get('tabs', []) || []).filter(t => t && t.id && document.getElementById(t.id));
+  const saveTabs = () => LS.set('tabs', tabs);
+
+  function ensureTab(id, opt) {
+    opt = opt || {};
+    if (!id || !document.getElementById(id)) return;
+    const i = tabs.findIndex(t => t.id === id);
+    if (i >= 0) { if (opt.pin && !tabs[i].pinned) { tabs[i].pinned = true; saveTabs(); } return; }
+    if (opt.pin) tabs.push({ id: id, pinned: true });
+    else {
+      const p = tabs.findIndex(t => !t.pinned);         // 全域只允許一個預覽分頁
+      if (p >= 0) tabs.splice(p, 1, { id: id, pinned: false });
+      else tabs.push({ id: id, pinned: false });
+    }
+    if (tabs.length > 12) {                             // LRU 上限：淘汰最舊的非作用分頁
+      const cur = curId();
+      const victim = tabs.findIndex(t => t.id !== cur && t.id !== id);
+      if (victim >= 0) tabs.splice(victim, 1);
+    }
+    saveTabs();
+  }
+
+  function closeTab(id) {
+    const i = tabs.findIndex(t => t.id === id);
+    if (i < 0) return;
+    const wasActive = curId() === id;
+    tabs.splice(i, 1); saveTabs();
+    if (wasActive && tabs.length) show(tabs[Math.min(i, tabs.length - 1)].id);
+    else renderTabs();
+  }
+
+  function renderTabs() {
+    const cur = curId();
+    TABBAR.textContent = '';
+    TABBAR.hidden = !tabs.length;
+    tabs.forEach(t => {
+      const el = document.createElement('div');
+      el.className = 'etab' + (t.id === cur ? ' active' : '') + (t.pinned ? '' : ' preview');
+      el.dataset.id = t.id; el.draggable = true;
+      el.setAttribute('role', 'tab');
+      el.title = titleOf(t.id) + (t.pinned ? '' : '（預覽分頁 — 雙擊釘選）');
+      const ico = document.createElement('span'); ico.className = 'et-ico'; ico.textContent = tabIcon(t.id);
+      const txt = document.createElement('span'); txt.className = 'et-t'; txt.textContent = titleOf(t.id);
+      const x = document.createElement('button'); x.className = 'et-x'; x.textContent = '✕';
+      x.title = '關閉（中鍵亦可）'; x.setAttribute('aria-label', '關閉分頁');
+      el.append(ico, txt, x);
+      TABBAR.appendChild(el);
+    });
+    if (tabs.length > 1) {
+      const hint = document.createElement('span');
+      hint.className = 'tabbar-hint';
+      hint.innerHTML = '<kbd>⌃Tab</kbd> 切分頁';
+      TABBAR.appendChild(hint);
+    }
+    const act = TABBAR.querySelector('.etab.active');
+    if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  TABBAR.addEventListener('click', e => {
+    const el = e.target.closest('.etab'); if (!el) return;
+    if (e.target.closest('.et-x')) { e.stopPropagation(); closeTab(el.dataset.id); return; }
+    if (el.dataset.id !== curId()) show(el.dataset.id);
+  });
+  TABBAR.addEventListener('dblclick', e => {
+    const el = e.target.closest('.etab'); if (!el) return;
+    ensureTab(el.dataset.id, { pin: true }); renderTabs();
+  });
+  TABBAR.addEventListener('auxclick', e => {
+    if (e.button !== 1) return;
+    const el = e.target.closest('.etab'); if (!el) return;
+    e.preventDefault(); closeTab(el.dataset.id);
+  });
+
+  let dragId = null;
+  TABBAR.addEventListener('dragstart', e => {
+    const el = e.target.closest('.etab'); if (!el) return;
+    dragId = el.dataset.id; el.classList.add('dragging');
+    try { e.dataTransfer.setData('text/plain', dragId); e.dataTransfer.effectAllowed = 'move'; } catch (err) {}
+  });
+  TABBAR.addEventListener('dragend', () => {
+    dragId = null;
+    TABBAR.querySelectorAll('.etab').forEach(x => x.classList.remove('dragging', 'dragover'));
+  });
+  TABBAR.addEventListener('dragover', e => {
+    const el = e.target.closest('.etab'); if (!el || !dragId) return;
+    e.preventDefault();
+    TABBAR.querySelectorAll('.etab').forEach(x => x.classList.toggle('dragover', x === el));
+  });
+  TABBAR.addEventListener('drop', e => {
+    const el = e.target.closest('.etab'); if (!el || !dragId) return;
+    e.preventDefault();
+    const from = tabs.findIndex(t => t.id === dragId), to = tabs.findIndex(t => t.id === el.dataset.id);
+    if (from >= 0 && to >= 0 && from !== to) tabs.splice(to, 0, tabs.splice(from, 1)[0]);
+    saveTabs(); renderTabs();
+  });
+
+  /* 側欄雙擊 = 直接釘選（單擊維持預覽分頁語意） */
+  document.addEventListener('dblclick', e => {
+    const it = e.target.closest('nav.side .navitem'); if (!it || !it.dataset.target) return;
+    ensureTab(it.dataset.target, { pin: true }); renderTabs();
+  });
+
+  /* ⌃Tab / ⌃⇧Tab：在已開分頁間循環（←/→ 仍走全書順序，兩者互不干擾） */
+  document.addEventListener('keydown', e => {
+    if (!e.ctrlKey || e.key !== 'Tab' || tabs.length < 2) return;
+    e.preventDefault();
+    const i = tabs.findIndex(t => t.id === curId());
+    const n = ((i < 0 ? 0 : i) + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length;
+    show(tabs[n].id);
+  });
+
+  /* show() 第三層：確保分頁存在 + 重繪（不回呼 show，無遞迴） */
+  const _showTabs = show;
+  show = function(id) { ensureTab(id); _showTabs(id); renderTabs(); };
+
+  /* 開機：把目前章節（深連結 > 續讀，已由 block J 決定）釘成第一個分頁 */
+  ensureTab(curId() || LS.get('lastPage', 'ch0'), { pin: true });
+  renderTabs();
 }
 })();
 </script>
