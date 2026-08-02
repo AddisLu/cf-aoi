@@ -97,6 +97,9 @@ inline void apply_blob(std::vector<DefectInfo>& defects,
     }
 
     // ② 鄰近合併（union-find by center distance，同型 bright/dark）
+    // ⚠️ 已知限制（docs/code_review_20260802.md I18）：下方是 O(n²) 全對比對。缺陷爆量時
+    //    （pitch 設錯 → 觸頂 10000 顆）單 zone 約 5×10⁷ 次迭代，會把消費執行緒卡住秒級 →
+    //    FrameQueue 積滿 → 背壓全鏈。正常量（個位數~數百顆）無感；需防護時可加 grid-bucket 或上限。
     if (merge_distance > 0 && defects.size() > 1) {
         const long md2 = (long)merge_distance * (long)merge_distance;
         const int n = (int)defects.size();

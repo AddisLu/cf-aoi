@@ -172,6 +172,9 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) { _log.Error($"LOAD_RECIPE: {ex.Message}"); }
     }
 
+    /// <summary>主控台的 GET_RESULT 鈕（本地手動觸發，非上位機路徑）。
+    /// ⚠️ 已知限制（docs/code_review_20260802.md K12）：狀態列顯示 CF_GET_RESULT，實際送的是 GET_STATUS，
+    /// 與上位機 CF_GET_RESULT（走 ListDefectFoldersAsync）不是同一件事。</summary>
     [RelayCommand]
     private async Task CfGetResult()
     {

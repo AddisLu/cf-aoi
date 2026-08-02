@@ -244,6 +244,8 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
                 "重插拔或加減相機後會對到別台（Gap #21）。正式陣列請建立 cam_map.json。\n");
     }
 
+    // ⚠️ 已知限制（docs/code_review_20260802.md B4）：want<=0（ALL）無「應到幾台」基準——
+    //   即使 cam_map 有 6 筆、只列舉到 5 台也照開照回 OK（fail-fast 只保護 want>0 的路徑）。
     size_t n = (want <= 0) ? picks.size() : std::min<size_t>((size_t)want, picks.size());
     if (want > 0 && picks.size() < (size_t)want) {
         err = "可用相機 " + std::to_string(picks.size()) + " 台 < 要求 " + std::to_string(want) + " 台";

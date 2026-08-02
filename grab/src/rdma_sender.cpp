@@ -88,6 +88,8 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
     // 實測（8160×5000、rdma_nslot_test）：含 CRC 39.2 幀/s vs 關 CRC 90.3 幀/s（2.3×）。
     h.crc32        = payload_crc32;
 
+    // ⚠️ 已知限制（docs/code_review_20260802.md B2，= 審計 P0-7「上線前必修」）：斷線後每一幀在此
+    //   靜默丟棄——dropped 不加、CHECK_HEALTH 無 error 欄位，僅 sent_frames 凍結可察覺；無自動重連。
     if (!connected_) return;
 
     // N-buffer pipeline：本幀用緩衝 buf_idx；保留 ≤ n_buf_ 筆 in-flight。
@@ -134,8 +136,10 @@ void RdmaSender::send_frame(uint16_t cam_id, uint64_t frame_seq, uint32_t panel_
 }
 
 void RdmaSender::disconnect() {
+    // ⚠️ 已知限制（docs/code_review_20260802.md B3）：connected_ 已因送/poll 失敗轉 false 時，
+    //   此處直接返回——QP/MR/event channel 不清理；之後重 connect 會覆蓋 RcConn 指標（資源洩漏）。
     if (!connected_) return;
-    // 排空剩餘 in-flight WRITE 完成（確保最後幾幀資料確實送達後才關連線）
+    // 排空剩餘 in-flight SEND 完成（確保最後幾幀資料確實送達後才關連線；舊註解寫 WRITE 為 ★2 前殘留）
     try { while (posted_ > 0) { conn_.poll_one(); --posted_; } }
     catch (...) { /* 對端可能已斷，忽略殘餘完成 */ }
     posted_ = 0;

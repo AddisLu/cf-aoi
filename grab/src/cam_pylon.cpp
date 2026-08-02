@@ -123,6 +123,10 @@ void CamPylon::start(uint16_t cam_id) {
     thread_    = std::thread(&CamPylon::grab_loop, this);
 }
 
+// stop — 順序：① 豎 stop_flag_ ② join 取像 thread ③ StopGrabbing/Close/delete + PylonTerminate
+//（ref-counted，其他已開相機不受影響）。stop 後同一物件可再 open/start。
+// join 無逾時：若 frame_cb 正阻塞在 RDMA 背壓（rdma_sender poll_one），此處會等到它解除為止
+//（⚠️ 收端 wedge 時 = docs/code_review_20260802.md B5 卡死鏈的一環，stop_flag_ 解不了 poll_one）。
 void CamPylon::stop() {
     stop_flag_ = true;
     if (thread_.joinable()) thread_.join();
@@ -139,6 +143,9 @@ void CamPylon::stop() {
     }
 }
 
+// grab_loop — 取像 thread 本體（每台一條；std::thread 進入點）。停止方式：stop() 豎 stop_flag_ 後 join。
+// ⚠️ 已知限制（docs/code_review_20260802.md B1）：本函式無 try/catch——相機拔線/斷電時
+//   RetrieveResult/StartGrabbing 擲出的 GenericException 會逸出 thread 進入點 → std::terminate 全行程死亡。
 void CamPylon::grab_loop() {
     CInstantCamera* c = cam(camera_ptr_);
     c->MaxNumBuffer = 16;
@@ -157,7 +164,9 @@ void CamPylon::grab_loop() {
             ++grabbed_;
             ++log_frames;
 
-            // drop 偵測：兩種取較大
+            // drop 偵測：BlockID 缺口 + GetNumberOfSkippedImages **相加**（舊註解「兩種取較大」有誤）。
+            // 兩來源語意不同：BlockID 缺口=相機端跳號（線路/相機丟幀）；SkippedImages=pylon 驅動端
+            // 因緩衝滿丟棄。極端情境同一幀可能被兩邊各計一次（偏保守=寧多報勿漏報）。
             uint64_t skipped = res->GetNumberOfSkippedImages();
             int64_t  bid     = (int64_t)res->GetBlockID();
             if (prev_block >= 0 && bid > prev_block + 1)

@@ -64,6 +64,8 @@ public sealed class ArrayTopologyModel
         var path = ResolveExisting(basePath, "array_topology.json")
                    ?? ResolveExisting(basePath, "array_topology.example.json");
         if (path is null) return new ArrayTopologyModel();
+        // ⚠️ 已知限制（docs/code_review_20260802.md K13）：JSON 壞掉（手編 37 槽時漏逗號等）
+        // 會被靜默吞成空拓樸，UI 只顯示「0 槽」而查不到是哪一行壞。
         try { return Parse(File.ReadAllText(path)); }
         catch { return new ArrayTopologyModel(); }
     }

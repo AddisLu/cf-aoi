@@ -14,6 +14,10 @@ public static class PitchEstimator
         bool OkX, int PitchX, string ConfX, double SnrX,
         bool OkY, int PitchY, string ConfY, double SnrY);
 
+    /// <summary>估算 PitchX/PitchY。刻意只取**影像中間 1/3 區域**：邊緣常有黑邊/治具/漸暈，
+    /// 會污染頻譜；中央區才是穩定的重複網格。各方向取約 10 條線分別估算後取**中位數**
+    /// （非平均）——單條線碰到缺陷或雜訊會給出離群值，中位數可直接濾掉。
+    /// 全部失敗時回退到常見值（26/19）並標 ok=false，讓 UI 知道這是猜的。</summary>
     public static Result Estimate(byte[] px, int w, int h)
     {
         int y0 = h / 3, y1 = 2 * h / 3, x0 = w / 3, x1 = 2 * w / 3;
@@ -59,7 +63,13 @@ public static class PitchEstimator
         return (true, pitch, conf, snr);
     }
 
-    // 對單一訊號 FFT，回主頻對應週期(pixel) + SNR。
+    /// <summary>對單一訊號 FFT，回主頻對應週期(pixel) + SNR。
+    /// 幾個非讀碼不能懂的約束：
+    ///   • 補零到 2 的冪（radix-2 FFT 的前提）；補零只影響頻率解析度，不改主頻位置。
+    ///   • 忽略前 minIdx 格（DC 與極低頻）：整體亮度與大範圍不均會在低頻形成巨大峰值，
+    ///     不濾掉的話永遠選到它、算出荒謬的大 pitch。
+    ///   • pitch = P / peak：週期(px) = 取樣長度 ÷ 峰值頻率索引。
+    ///   • SNR = 峰值 / 全頻譜均值，用來標「高/中/低」信心度（非物理量，只作相對比較）。</summary>
     private static bool FindPitch(double[] signal, out double pitch, out double snr)
     {
         pitch = 0; snr = 0;

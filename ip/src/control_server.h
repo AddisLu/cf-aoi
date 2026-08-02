@@ -9,17 +9,46 @@
  * 協議：newline-delimited JSON 命令，每行一個 {"cmd":..,"seq":..,"params":{..}}。
  * 回應：一行 JSON {"seq":..,"status":"OK"|"ERR",...}。
  *
- * 命令：
- *   LOAD_RECIPE              params{recipe, panel_id}     → 呼叫 load_recipe handler
- *   GET_STATUS               → 回 status_provider() 的 JSON
- *   CHECK_HEALTH             → {"status":"OK","ai":bool}
- *   SEND_IMAGE_STREAM_BEGIN  params{panel_id, count?}     → 重置序號，回 OK
- *   SEND_IMAGE_FOR_REVIEW    params{panel_id,cam_id,width,height,frame_seq,payload_bytes,
- *                                   pixel_format?,system_id?,last?}
- *                            命令行（\n 結尾）後緊接 payload_bytes 個 raw bytes（Mono8 影像）。
- *                            → 建 FrameHeader 推入 FrameQueue，回 OK。
+ * 命令（**15 個**，實作見 control_server.cpp::handle_client 的 if-else 鏈）：
  *
- * 收到的影像進共用 FrameQueue，由 TcpImageSource 消費 → 與 pipeline 解耦。
+ * ── 基本 / 配方 ──────────────────────────────────────────────────────────────
+ *   CHECK_HEALTH             → {"status":"OK","ai":bool}（Control 心跳；每次往返都要快）
+ *   GET_STATUS               → 回 status_provider() 的 JSON（各模式自填：queue/recv/edge/zones…）
+ *   LOAD_RECIPE              params{recipe, recipe_xml(跨機優先), panel_id,
+ *                                   recipe_saving{…}, share_flags{…}, golden_png_base64?}
+ *                            → 解析存圖/旗標/對位設定 + 呼叫 load_recipe handler（三域守門）
+ *
+ * ── 影像注入（**僅 offline-tcp**；rdma 模式由 set_image_ingest_enabled(false) 誠實 ERR 擋掉）──
+ *   SEND_IMAGE_STREAM_BEGIN  → 重置 frame_seq，回 OK
+ *   SEND_IMAGE_FOR_REVIEW    params{panel_id,cam_id,width,height,frame_seq,payload_bytes,
+ *                                   system_id?,last?,no_wait?,debug?,crc32?}
+ *                            命令行（\n 結尾）後緊接 payload_bytes 個 raw bytes（Mono8 影像）。
+ *                            → 驗證(尺寸/magic/CRC) → 建 FrameHeader 推入 FrameQueue
+ *                            → 等 deliver_result 回結果（no_wait=true 則入隊即 ACK）
+ *   REVIEW_LOCAL_IMAGE       params{path, panel_id?, debug?}
+ *                            → 讀 IP 本機磁碟全解析度影像跑同一條檢測路徑（免傳大圖，bit-exact）
+ *
+ * ── 對位（Gap #1；每片一次，CF_CHECK_ALIGN/CF_SET_ALIGN 鏈）────────────────────
+ *   CHECK_ALIGN              params{width,height,payload_bytes,panel_id} + 緊接搜尋 ROI raw bytes
+ *                            → run_align → {shift_x,shift_y,score,angle_deg}；
+ *                              score 不足 → **回 ERR（誠實失敗，不回假 0 位移）**，由上位機決策
+ *   SET_ALIGN                params{shift_x,shift_y} → 套回所有 zones 的 aligned_*
+ *
+ * ── 缺陷遠端歸檔 DefectSort（影像在 IP 端硬碟，Control 不假設看得到）──────────
+ *   LIST_DEFECT_FOLDERS      params{date} → panel 夾清單 + defect_count（CF_GET_RESULT 鏈也走這條）
+ *   SORT_DEFECTS             params{date,output_subdir,by_id_folder,selected_folders[]}
+ *   LIST_DEFECT_PATCHES      params{date,folder_name} → 小圖 metadata（座標/型別/current_class）
+ *   GET_DEFECT_PATCHES_BATCH params{date,folder_name,patch_ids[]} → PNG bytes(base64) 批次回傳
+ *   SAVE_DEFECT_CLASSIFICATION params{date,folder_name,classifications[]} → 分類落地 + classification.json
+ *
+ * ── 遠端檔案瀏覽（離線調參選圖用）──────────────────────────────────────────
+ *   LIST_DIR                 params{path（支援 ~ 展開）} → 子目錄 + 影像檔清單
+ *   GET_IMAGE_PREVIEW        params{path,max_width} → 縮圖 PNG(base64) + 全解析度尺寸
+ *                            ★ 縮圖是 display-only，**絕不進檢測**（檢測走 REVIEW_LOCAL_IMAGE 全解析度）
+ *
+ * 未知 cmd → 回 ERR（不靜默忽略）。收到的影像進共用 FrameQueue，由 TcpImageSource 消費 → 與 pipeline 解耦。
+ * ⚠️ 單客戶端序列處理：accept 後在同一 thread 跑 handle_client 直到斷線 → Control 佔住連線時，
+ *    第二個工具（診斷腳本）只會排隊等待而非收到錯誤（已知限制，非阻斷）。
  * ============================================================================
  */
 

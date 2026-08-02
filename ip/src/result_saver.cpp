@@ -368,7 +368,11 @@ int save(const InspectionResult& r,
     };
     cv::Mat gray(h, w, CV_8UC1, const_cast<uint8_t*>(img));
     const std::string ip_tag = ip_tag_from_panel(r.panel_id, ip_name);  // 檔名 IpName 段，與資料夾一致
-    const int frame_h = r.frame_height > 0 ? r.frame_height : h;  // Slice = GlobalPosY / frame 高
+    // Slice = GlobalPosY / frame 高
+    // ⚠️ 已知限制（docs/code_review_20260802.md I15）：`InspectionResult::frame_height` **全 repo 無人賦值**
+    //    → 恆走 fallback `h`（= 本張影像高）→ 檔名 `Slice{ff}` 恆為 00、無資訊量（DefectSort 解析得到 0）。
+    //    正解：rdma-process 由 hdr.sliceIndex 帶入、stitch 模式由單 slice 高帶入。
+    const int frame_h = r.frame_height > 0 ? r.frame_height : h;
     const int half_w = save_width  / 2;
     const int half_h = save_height / 2;
     const std::vector<int> png_fast = {cv::IMWRITE_PNG_COMPRESSION, 1};  // 低壓縮 = 快

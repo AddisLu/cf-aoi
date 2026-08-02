@@ -153,6 +153,9 @@ public partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int upstreamPort;
     [ObservableProperty] private string testResult = "";
 
+    /// <summary>測試 IP 連線。
+    /// ⚠️ 已知限制（docs/code_review_20260802.md K7）：直接把**共用的** IpClient 連到輸入的位址，
+    /// 測試成功後心跳/後續命令都會沿用該位址（appsettings 的 ActiveIp 未變），且本頁欄位改了不會存檔。</summary>
     [RelayCommand]
     private async Task TestConnection()
     {

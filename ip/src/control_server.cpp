@@ -421,6 +421,9 @@ void ControlServer::handle_client(int fd) {
             std::string recipe_xml = params.value("recipe_xml", "");  // 跨機：配方內容
             std::string panel = params.value("panel_id", "");
             // recipe_saving / share_flags / align_roi：選填；缺省 = 保留預設值（向下相容）
+            // ⚠️ 已知限制（docs/code_review_20260802.md I6）：本區塊**先寫入**這些設定，之後才呼叫
+            //    load_recipe_ 做三域守門驗證；守門拒載時 zones 維持舊值、但 saving/ioi/share_flags/align
+            //    已被換成失敗 recipe 的內容 → 狀態撕裂（舊 zones × 新設定）。正解：全部解析成功後一次 commit。
             {
                 std::lock_guard<std::mutex> slk(saving_cfg_mtx_);
                 if (params.contains("recipe_saving")) {
@@ -883,6 +886,9 @@ void ControlServer::handle_client(int fd) {
             uint32_t payload_bytes = params.value("payload_bytes", 0u);
             std::string panel     = params.value("panel_id", "");
 
+            // ⚠️ 已知限制（docs/code_review_20260802.md I11）：此處**缺** SEND_IMAGE_FOR_REVIEW 那組
+            //    kMaxDim=16384 上限，且 width*height 為 uint32 乘法會迴繞 → 惡意/畸形尺寸可通過檢查，
+            //    之後 cv::Mat(height,width,...) 指向小 buffer → matchTemplate 越界讀。應補上限 + 64-bit 比對。
             if (width == 0 || height == 0 || payload_bytes == 0 || payload_bytes != width * height) {
                 char eb[128];
                 std::snprintf(eb, sizeof(eb),

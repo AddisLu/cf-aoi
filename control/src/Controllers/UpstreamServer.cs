@@ -81,6 +81,8 @@ public sealed class UpstreamServer : IDisposable
         }
         catch (Exception ex) { _log?.Invoke($"[Upstream] 無法監聽 {_port}: {ex.Message}"); return; }
 
+        // ⚠️ 已知限制（docs/code_review_20260802.md K10）：接受多條上位機連線且各自獨立處理——
+        // 任一條斷開就會 OnConnectedChanged(false) 把燈轉紅（即使真上位機仍連著），且命令會併發進入共用狀態。
         while (!ct.IsCancellationRequested)
         {
             TcpClient client;

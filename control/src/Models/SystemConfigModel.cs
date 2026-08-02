@@ -16,6 +16,8 @@ public sealed class NodeConfig
 
 public sealed class UpstreamServerConfig
 {
+    // ⚠️ 已知限制（docs/code_review_20260802.md K16）：預設值 8000 與「上位機固定 8787」的不變式不符——
+    // appsettings.json 現有明確設 8787 故無感，但缺檔/缺此節點的新部署會靜默聽在 8000。
     public int ListenPort { get; set; } = 8000;
     public bool Optional { get; set; } = true;
 }

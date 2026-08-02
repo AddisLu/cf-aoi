@@ -64,6 +64,10 @@ public:
 
     // 提交一幀（主路徑，payload 以 move 轉入，不 copy）。
     // ring 滿 → drop + WARN（不阻塞）。
+    // ⚠️ 判定用 `next_head == tail_`（保留一格區分空/滿）→ **實際可用容量 = n_slots - 1**；
+    //    n_slots==1 時恆滿、100% drop（buffer 計算器最低會回 1，低記憶體機器要注意）。
+    //    另：writer thread 取出時 swap 走 slot.data，故「啟動一次配置」的預配置在第二輪後失效
+    //    （會重新配置一次），屬效能面、不影響正確性。（docs/code_review_20260802.md I16）
     void submit(const std::string& panel_id, uint32_t width, uint32_t height,
                 std::vector<uint8_t> payload) {
         if (!running_.load()) return;

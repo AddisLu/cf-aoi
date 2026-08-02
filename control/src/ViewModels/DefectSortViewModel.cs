@@ -69,6 +69,8 @@ public partial class DefectSortViewModel : ViewModelBase
     [ObservableProperty] private bool isSorting;
 
     // IP 的日期資料夾為 yyyyMMdd（對齊 legacy frmSortDefect / MainProc），命令也用此格式。
+    // ⚠️ 已知限制（docs/code_review_20260802.md K15）：這是「當下」的日期選擇值，非 Parse 當時的快照——
+    // Parse 後改了 DatePicker 再操作既有列表，送出的 date 會與列表內容不同批。
     private string DateStr => (SelectedDate ?? DateTimeOffset.Now).ToString("yyyyMMdd");
 
     [RelayCommand]
@@ -224,6 +226,10 @@ public partial class DefectSortViewModel : ViewModelBase
         finally { IsLoadingPatches = false; }
     }
 
+    /// <summary>分批取回縮圖 PNG（network-clean：小圖在運算端，只能經 TCP 拿 bytes）。
+    /// **為何分批 50 張**：一次要幾百張會讓單一 JSON 回應肥到數十 MB（IpClient 逐 byte 讀整行），
+    /// 逐張又會有數百次往返延遲；50 張是折衷。單批失敗只跳過該批（continue）不中斷整個資料夾，
+    /// 因為缺幾張縮圖仍可繼續分類。解碼後以 PostToUi 回 UI 執行緒設值（Bitmap 綁在畫面上）。</summary>
     private async Task LoadThumbnailsAsync(string folder)
     {
         var ip = _svc.Connection.Ip;
@@ -309,6 +315,8 @@ public partial class DefectSortViewModel : ViewModelBase
     }
 
     // 即時把單張分類存回 IP（fire-and-forget；IP 端命令循序處理、IpClient 內部加鎖序列化）。
+    // 不 await 是刻意的：操作員連續按 T/P 的手速遠快於一次 TCP 往返，等待會讓標註卡頓；
+    // 由 IpClient 的命令鎖保證送出順序，失敗僅記 log（下次按「存分類」可整批重送補救）。
     private void PersistOne(PatchItem p)
     {
         var ip = _svc.Connection.Ip;

@@ -28,6 +28,12 @@ cv::Mat rotate_template(const cv::Mat& tmpl, double angle_deg) {
 
 }  // namespace
 
+// 回傳的 ShiftX/Y 語意（接線時最容易搞錯的一點）：
+//   = 「golden Mark 在 search_roi 中的中心」−「search_roi 的幾何中心」（單位 px，含 sub-pixel）。
+//   即：Control 端必須把 search_roi 裁在「Mark 應該出現的位置」為中心，回傳值才是純偏移量。
+//   下游 SET_ALIGN 以 round(shift) 套成 aligned_* = roi_* + shift（apply_align_shift）。
+// 失敗策略（釘點 3）：score < threshold → ok=false + error_msg，**不回任何位移值**——
+//   寧可讓上位機收到 ERR 自行決策（停線/放行/重試），也不回 (0,0) 假裝已對位（會變靜默錯位檢測）。
 AlignResult run_align(const cv::Mat& search_roi, const AlignRoiConfig& cfg) {
     AlignResult res;
 

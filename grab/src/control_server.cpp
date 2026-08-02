@@ -17,6 +17,9 @@
 using json = nlohmann::json;
 
 // ---- 連線讀輔助（與 IP 端 control_server.cpp 相同模式）----
+// 阻塞式 recv 累積進緩衝、以 '\n' 切行（尾端 '\r' 相容 CRLF）。
+// ⚠️ 已知限制（docs/code_review_20260802.md B16）：buf 無上限——客戶端持續送不含 '\n' 的資料會無限累積。
+// ⚠️ 已知限制（B10）：recv 為永久阻塞；stop() 只關 listen fd，解除不了已連線 client 的 recv（溫和退出會卡）。
 namespace {
 
 struct ConnReader {
@@ -104,6 +107,8 @@ void ControlServer::run() {
         int fd = ::accept(listen_fd_, (sockaddr*)&peer, &plen);
         if (fd < 0) {
             if (running_) perror("[ctrl] accept");
+            // ⚠️ 已知限制（docs/code_review_20260802.md B11）：暫時性錯誤（EINTR/ECONNABORTED/EMFILE）
+            // 也會走到這裡永久退出 accept 迴圈 → 8100 靜默死亡而行程續活（取像照跑、命令連不上）。
             break;
         }
         char ip[INET_ADDRSTRLEN];
@@ -115,6 +120,16 @@ void ControlServer::run() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// handle_client — 單客戶端命令迴圈（11 命令 dispatch；一次服一個 client，序列處理——
+// 所有命令 handler 都跑在這條 thread 上，彼此天然序列化，不需對 mac_map_ 等再加鎖）。
+// 錯誤語意約定：
+//   - 缺 params 而分支直接取 req["params"] 者（LOAD_RECIPE / SET_CAM_PARAMS / TUNE_MEAN）：
+//     nlohmann 對剛插入的 null 呼叫 .value() 會擲 type_error → 外層 catch 回 ERR "parse error"
+//     （誠實 ERR、不 crash；訊息歸類稍粗但可接受）。
+//   - cam_id 邊界：這層只擋明顯非法（<0）；「該 cam_id 是否存在」由 main.cpp handler 對照
+//     實際相機清單判定（★5 修法：不可在這層寫死 cam_id==0，否則第二台起全被擋死）。
+// ---------------------------------------------------------------------------
 void ControlServer::handle_client(int fd) {
     ConnReader reader(fd);
     std::string line;
@@ -138,6 +153,8 @@ void ControlServer::handle_client(int fd) {
                 }
 
             } else if (cmd == "LOAD_RECIPE") {
+                // 更新 panel_id/panel_hash（不取像）。params 缺席 → 擲例外 → ERR（見函式頭約定）。
+                // ⚠️ 已知限制（B18）：無 handler 時仍回 OK（靜默成功反模式；實務上 main.cpp 必接線）。
                 std::string recipe   = req["params"].value("recipe",   "");
                 std::string panel_id = req["params"].value("panel_id", "");
                 if (recipe_fn_) recipe_fn_(recipe, panel_id);
@@ -158,6 +175,8 @@ void ControlServer::handle_client(int fd) {
                 printf("[ctrl] GRAB_ARM → %s\n", resp["status"].get<std::string>().c_str());
 
             } else if (cmd == "GRAB_START") {
+                // timeout_ms 這裡有解析、有印 log，但 main.cpp 的 handler 目前忽略它
+                // （⚠️ docs/code_review_20260802.md B8：Grab 端無 per-panel watchdog，逾時控管在上位機）。
                 int timeout_ms = 40000;
                 int frames_per_panel = 0;   // 0 = 連續（legacy）；>0 = 每台收滿 N 張自動停
                 if (req.contains("params")) {
@@ -181,6 +200,7 @@ void ControlServer::handle_client(int fd) {
                        resp["status"].get<std::string>().c_str());
 
             } else if (cmd == "GRAB_STOP") {
+                // ⚠️ 已知限制（B18）：無 handler 時仍回 OK（同 LOAD_RECIPE 註記）。
                 if (stop_fn_) stop_fn_();
                 resp["status"] = "OK";
                 printf("[ctrl] GRAB_STOP\n");
@@ -193,6 +213,10 @@ void ControlServer::handle_client(int fd) {
 
                 // cam_id 的有效性由 handler 對照實際相機清單判定（這裡只擋明顯非法值）；
                 // 舊版寫死 cam_id != 0 → ERR，導致第二台起完全無法調曝光/增益。
+                // 邊界出處（Gap #2 Stage 0：probe_cam_nodes 對 raL8192-12gm 實測）：
+                //   exposure_us ∈ [2,10000]µs——下限=相機最小曝光；上限為保護值（線掃 3000 行
+                //   × 10000µs = 30s/幀，已遠超 TUNE_MEAN 自適應逾時上限 15s，再大無意義）。
+                //   gain_raw ∈ [256,2047]——GainRaw 節點實測 min/max（256 = 0dB 基準）。
                 if (cam_id < 0) {
                     resp["status"] = "ERR";
                     resp["error"]  = "invalid cam_id " + std::to_string(cam_id);
@@ -227,6 +251,7 @@ void ControlServer::handle_client(int fd) {
                 }
 
             } else if (cmd == "GET_CAM_PARAMS") {
+                // 依 cam_id 讀該台實際曝光/增益；該台未開 → handler 回 cam_config.json 條目（main.cpp）。
                 int cam_id = req.contains("params")
                              ? req["params"].value("cam_id", 0) : 0;
 
@@ -252,6 +277,7 @@ void ControlServer::handle_client(int fd) {
                 }
 
             } else if (cmd == "LIST_CAMERAS") {
+                // 唯讀列舉（不開相機、不改相機）+ cam_map annotate；串流中並存已實測不掉幀（STATUS）。
                 if (!list_cam_fn_) {
                     resp["status"] = "ERR";
                     resp["error"]  = "no handler";
@@ -263,6 +289,7 @@ void ControlServer::handle_client(int fd) {
                 }
 
             } else if (cmd == "GET_CAM_NODES") {
+                // ★4 修法：依 cam_id 路由 + 回聲；未知 cam_id 回 ERR（不再靜默回第一台的值）。
                 int cam_id = req.contains("params")
                              ? req["params"].value("cam_id", 0) : 0;
                 if (!get_nodes_fn_) {
@@ -304,6 +331,8 @@ void ControlServer::handle_client(int fd) {
                 }
 
             } else if (cmd == "TUNE_MEAN") {
+                // 邊界同 SET_CAM_PARAMS（出處見該分支註解）。params 缺席 → 擲例外 → ERR（函式頭約定）。
+                // ⚠️ 測完曝光/增益會留在相機與 cam_config（runbook §5：調參後務必 SET_CAM_PARAMS 復原）。
                 auto& prms    = req["params"];
                 int   cam_id  = prms.value("cam_id",      0);
                 float exp_us  = prms.value("exposure_us", 0.0f);

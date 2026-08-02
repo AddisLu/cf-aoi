@@ -99,6 +99,8 @@ private:
     std::atomic<bool> running_{false};
     std::thread thread_;
 
+    // ⚠️ 已知限制（docs/code_review_20260802.md B13）：plain uint64 由 grab thread 寫、
+    // ctrl thread（CHECK_HEALTH）無鎖讀——監控用途 x86 實務可用，正式屬 data race。
     uint64_t grabbed_ = 0;
     uint64_t dropped_ = 0;
     uint64_t max_frames_ = 0;   // 0 = 不限；>0 = 收滿自動停（每片 N 張）

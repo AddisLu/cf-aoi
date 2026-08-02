@@ -87,6 +87,9 @@ static void print_align_roi_xml(const std::string& output_path,
                                 int orig_x, int orig_y, int orig_w, int orig_h,
                                 int search_margin)
 {
+    // 契約（對應 ip/src/align_engine 的 M_AlignRoi 語意）：
+    //   ReferX/Y = Mark 矩形「中心」（run_align 的搜尋窗以 Refer 為中心裁切，補零不 clamp）；
+    //   SearchWidth/Height = Mark 尺寸 × search-margin（對位搜尋餘裕，預設 3 倍）。
     int refer_x = orig_x + orig_w / 2;
     int refer_y = orig_y + orig_h / 2;
     int sw      = orig_w * search_margin;
@@ -188,6 +191,10 @@ int main(int argc, char** argv) {
             if (sel.width < 4 || sel.height < 4) {
                 std::cerr << "框選區域太小（< 4×4 px），請重新框選\n"; continue;
             }
+            // ⚠️ 已知限制（docs/code_review_20260802.md T1）：此裁切取自「縮放後」顯示圖 g_gray——
+            //   影像 >2000px（線掃 8192 寬必縮放）時存出的 golden 是縮小版，與下方以 inv_scale
+            //   還原的全解析度 XML 座標不同尺度 → 對位分數會偏低甚至失敗。
+            //   正式產 golden 請用 CLI --mark-rect（從 gray_full 原圖裁切，尺度正確）。
             cv::Mat crop = g_gray(sel).clone();
             if (!cv::imwrite(output_path, crop)) {
                 std::cerr << "存檔失敗：" << output_path << "\n"; continue;

@@ -2,8 +2,12 @@
 // rdma_common.h  —  librdmacm + ibverbs 的精簡 RC（Reliable Connection）連線樣板
 // -----------------------------------------------------------------------------
 // 用途：
-//   把「建立一條可靠 RDMA 連線、註冊記憶體、做 RDMA 寫入」這套樣板抽出來，
+//   把「建立一條可靠 RDMA 連線、註冊記憶體、收發資料」這套樣板抽出來，
 //   讓 server（Spark）與 client（測試 PC）的測試程式共用，不必各自重寫。
+//
+// ⚠️ 同源雙副本：本檔與 ip/src/image_source/rdma_common.h 是同一份樣板的兩份拷貝，
+//   wire/行為相關改動（如 post_recv 的 wr_id 參數）必須兩份同步——只改一份會編不過或行為分歧
+//   （★2 修正時實際踩過，見 STATUS「Switch 到貨日」★2 專節配套改動）。
 //
 // 為什麼用 rdma_cm（librdmacm）而不是純 ibverbs：
 //   RoCE v2 要正確連線，得處理 GID、路徑、QP 狀態機（INIT→RTR→RTS）等繁瑣細節。
@@ -14,10 +18,10 @@
 //   CQ（Completion Queue）：完成佇列，每個送/收動作完成後在此產生一筆 wc。
 //   QP（Queue Pair）：一對送/收佇列，等同一條連線的端點。
 //   MR（Memory Region）：把一段記憶體註冊給網卡 DMA，產生 lkey（本地）/rkey（給遠端）。
-//   WRITE_WITH_IMM：RDMA 寫入並附帶 4 bytes 立即值；遠端會收到一筆完成事件（含 imm），
-//                   我們用它讓 server 知道「資料到了、這是第幾幀」。
+//   WRITE_WITH_IMM：RDMA 寫入並附帶 4 bytes 立即值；遠端會收到一筆完成事件（含 imm）。
+//                   ⚠️ 資料路徑已於 2026-07-30 棄用（改 SEND/RECV，見下方 MrInfoEx 註解）——此詞條僅供考古。
 //
-// 注意：此為 v0 範本，請在實機以你環境的 rdma-core 版本編譯後微調（API 大致穩定）。
+// 注意：源自 phase1 v0 範本；已於 damac↔Spark 實機驗證（rdma-core API 穩定，SEND 版全鏈 err=0）。
 // =============================================================================
 #pragma once
 #include <rdma/rdma_cma.h>          // rdma_cm：rdma_create_id / resolve / connect / accept
@@ -78,6 +82,8 @@ struct RcConn {
         ibv_qp_init_attr qa{};
         qa.send_cq = cq; qa.recv_cq = cq;              // 送與收完成都進同一個 CQ
         qa.qp_type = IBV_QPT_RC;                       // RC：可靠連線（保證到達、有序）
+        // ⚠️ 已知限制（docs/code_review_20260802.md B15）：max_send_wr=32 是 in-flight 上限，
+        //   但 RdmaSender::connect 未驗 n_slots<=32——IP 端 --rdma-slots 開超過 32 會 post_send ENOMEM。
         qa.cap.max_send_wr = 32; qa.cap.max_recv_wr = 32; // 同時在途的送/收 WR 上限
         qa.cap.max_send_sge = 1; qa.cap.max_recv_sge = 1; // 每個 WR 的散佈/聚集片段數
         RC_CHECK(rdma_create_qp(cm, pd, &qa) == 0, "rdma_create_qp");
@@ -88,6 +94,9 @@ struct RcConn {
     //   IBV_ACCESS_LOCAL_WRITE  本地可寫（收資料/送來源都需要）
     //   IBV_ACCESS_REMOTE_WRITE 允許遠端 RDMA 寫入（server 的 GPU buffer 需要）
     // 註冊 GPU 記憶體（cudaMalloc 的指標）能成功，靠的是 nvidia_peermem 模組。
+    // ⚠️ GB10（DGX Spark）不適用 nvidia_peermem（modprobe 回 EINVAL）——IP 端改
+    //   cudaHostAlloc(Portable|Mapped) pinned host memory，見 grab/CLAUDE.md 不變式 6。
+    //   Grab 端註冊的是一般 host txbuf，不觸發此路徑（下行 RC_CHECK 訊息為 phase1 殘留=已知文件債）。
     // -------------------------------------------------------------------------
     ibv_mr* reg(void* buf, size_t len, int access) {
         ibv_mr* mr = ibv_reg_mr(pd, buf, len, access);
@@ -127,6 +136,8 @@ struct RcConn {
     void connect(const char* server_ip, const char* port) {
         ec = rdma_create_event_channel(); RC_CHECK(ec, "rdma_create_event_channel");
         RC_CHECK(rdma_create_id(ec, &id, nullptr, RDMA_PS_TCP) == 0, "rdma_create_id");
+        // ⚠️ 已知限制（docs/code_review_20260802.md B14）：getaddrinfo 回傳未檢查、ai 未 freeaddrinfo——
+        //   主機名解析失敗時 ai=nullptr 直接解參考（段錯）。填 IP 位址（現行用法）不會踩；serve() 同病。
         addrinfo* ai = nullptr; getaddrinfo(server_ip, port, nullptr, &ai);
         RC_CHECK(rdma_resolve_addr(id, nullptr, ai->ai_addr, 2000) == 0, "rdma_resolve_addr");
         wait_event(RDMA_CM_EVENT_ADDR_RESOLVED);
@@ -148,7 +159,8 @@ struct RcConn {
     }
 
     // ---- 收發訊息 -----------------------------------------------------------
-    // 預掛一個 RECV：對端的 SEND 會把資料放進此 buf（RDMA WRITE_WITH_IMM 則只消耗 WR、不用此 buf）。
+    // 預掛一個 RECV：對端的 SEND 會把資料放進此 buf（現行資料路徑；已棄用的 WRITE_WITH_IMM
+    // 則只消耗 WR、不用此 buf）。
     // wr_id：完成事件會原樣帶回（wc.wr_id）。資料路徑用它標記「這筆落在哪個 slot」。
     void post_recv(ibv_mr* mr, void* buf, uint32_t len, uint64_t wr_id = 1) {
         ibv_sge sge{ (uint64_t)buf, len, mr->lkey };   // 描述一段本地記憶體（位址/長度/lkey）
@@ -164,8 +176,9 @@ struct RcConn {
         ibv_send_wr* bad = nullptr;
         RC_CHECK(ibv_post_send(id->qp, &wr, &bad) == 0, "ibv_post_send");
     }
-    // RDMA_WRITE_WITH_IMM：把本地 buf 直接寫到遠端 raddr（用對端給的 rkey），
-    // 並附帶 imm 立即值。遠端會收到一筆「收完成」帶這個 imm（我們塞 frameSeq）。
+    // ⚠️ 已棄用（★2 根治：2026-07-30 資料路徑改 SEND/RECV，理由見檔頭 MrInfoEx 註解）——僅供考古，
+    //   資料路徑勿再使用：RNR credit 擋不住 WRITE 的 payload 落地，會覆寫收端正在讀的 slot（實機 CRC 損毀）。
+    // 原語意：把本地 buf 直接寫到遠端 raddr（用對端給的 rkey），附帶 imm 立即值（當年塞 frameSeq）。
     void post_write_imm(ibv_mr* mr, void* buf, uint32_t len, uint64_t raddr, uint32_t rkey, uint32_t imm) {
         ibv_sge sge{ (uint64_t)buf, len, mr->lkey };
         ibv_send_wr wr{}; wr.wr_id = 3; wr.sg_list = &sge; wr.num_sge = 1;
@@ -177,6 +190,9 @@ struct RcConn {
         RC_CHECK(ibv_post_send(id->qp, &wr, &bad) == 0, "ibv_post_send(write_imm)");
     }
     // 阻塞輪詢「一筆」完成；狀態非 SUCCESS 即視為錯誤。回傳整個 wc（含 opcode/imm）。
+    // ⚠️ 已知限制（docs/code_review_20260802.md B5）：busy-poll 無逾時、無中斷手段——RNR 無限重試
+    //   （收端活著但 wedge）時永久阻塞；GRAB_STOP 的 thread join 會被連帶卡死（stop_flag_ 解不了這裡）。
+    //   QP 進 error（對端行程死亡）則會回 flush error → 擲例外，上層 catch 得到。
     ibv_wc poll_one() {
         ibv_wc wc{};
         int n = 0;

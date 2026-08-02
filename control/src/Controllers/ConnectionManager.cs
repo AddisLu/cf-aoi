@@ -72,7 +72,10 @@ public sealed partial class ConnectionManager : ObservableObject, IDisposable
             {
                 if (client.IsBusy)
                 {
-                    ok = true;                              // 命令進行中 → 視為存活，跳過本回合心跳
+                    // 命令進行中（送大圖/等 GPU）本來就不該再插一支 CHECK_HEALTH 排隊，故視為存活。
+                    // ⚠️ 已知限制（docs/code_review_20260802.md K2）：若對端 wedge（收了命令永不回覆），
+                    // 命令鎖不會釋放 → IsBusy 恆真 → 心跳永遠判存活、綠燈長亮且不重連。
+                    ok = true;
                     consecutiveFails = 0;
                 }
                 else

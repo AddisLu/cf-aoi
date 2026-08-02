@@ -28,6 +28,8 @@ public static class UpstreamWiring
         {
             try
             {
+                // ⚠️ 已知限制（docs/code_review_20260802.md K5）：本回呼在 UpstreamServer 的 TCP 執行緒上執行，
+                // 而 Select() 會同步改動 UI 綁定的共用集合（RecipeStore/ZoneParamEditor.Rois）——未經 Dispatcher marshal。
                 svc.RecipeStore.Select(recipe);
                 var xml = svc.Recipes.ToXmlString(svc.RecipeStore.Recipe);
                 // #16/#32 + 存圖設定：per-recipe RecipeSaving 經 recipe_saving 一併送 IP
@@ -96,6 +98,8 @@ public static class UpstreamWiring
         };
 
         // CF_GET_RESULT → 由 IP 列舉缺陷結果夾組「路徑,逗號 + 缺陷數,逗號」(非 JSON，對齊契約)
+        // ⚠️ 已知限制（docs/code_review_20260802.md K1）：下方 catch 把例外吞成「空結果」，
+        // 且 UpstreamServer 對本命令一律回 OK → IP 離線時上位機會把「查詢失敗」誤讀成「本批 0 筆結果」。
         up.OnGetResult = async () =>
         {
             try

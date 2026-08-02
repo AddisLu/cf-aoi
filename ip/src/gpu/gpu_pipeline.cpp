@@ -73,6 +73,12 @@ public:
 
     bool isZeroCopy() const { return use_zero_copy; }
 
+    // 尺寸相同 → 完全重用（跨 frame 持久 buffer，這是穩態下的常態路徑）。
+    // ⚠️ 已知限制（docs/code_review_20260802.md I9）：尺寸一變就整套 free+malloc（含較貴的
+    //    cudaMallocHost）→ 混解析度相機或多 zone 不同裁切尺寸時會**每幀/每 zone** 重配，吞吐掉且易碎片化。
+    // ⚠️ 已知限制（同上 I4）：d_input 重配後位址常被回收重用，而 cuda_kernels.cu 的 texture 快取
+    //    只以「指標是否相同」判斷是否重建 → 可能沿用舊 width/height/pitch 的 texture object
+    //    （幾何錯位/越界讀，且錯得一致 → verify 兩跑比對抓不到）。修法：快取鍵納入尺寸，或此處釋放時銷毀 texture。
     void allocate(int w, int h, int max_defects) {
         if (allocated && width == (size_t)w && height == (size_t)h) return;
         if (allocated) deallocate();
@@ -330,6 +336,12 @@ public:
                            w, h, blockDim, stream);
 
         // Step 6: Blob analysis
+        // ⚠️ 已知限制（docs/code_review_20260802.md I3；註記於呼叫端，kernel 檔屬禁改區不加註）：
+        //    launchFastBlobAnalysis 內的 kernelSparseCollectDefects 帶**硬編碼過濾**
+        //    （min_blob_size=1 / max_blob_size=300 / max_aspect_ratio=5.0 + density 規則），
+        //    先於 recipe 的 BlobMin/MaxSize（CPU defect_rules）生效 → size>300 的大缺陷與細長刮傷
+        //    在此就被丟棄、recipe 參數看不到它們；mode2 多尺度「補大顆 Defect」也因此被部分抵銷。
+        //    修法應參數化該 wrapper 引數（接進 ZoneConfig），不需改 kernel 本體。
         CUDA_CHECK(cudaMemsetAsync(gpu_mem.getDefectCountPtr(), 0, sizeof(int), stream));
         launchFastBlobAnalysis(gpu_mem.getInputPtr(), gpu_mem.getBinaryPtr(),
                               gpu_mem.getLabelsPtr(), gpu_mem.getDefectsPtr(),

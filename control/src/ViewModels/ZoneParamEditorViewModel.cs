@@ -21,17 +21,26 @@ public sealed partial class RoiCheckItem : ObservableObject
     [ObservableProperty] private bool isChecked = true;
 }
 
-/// <summary>目標 ROI 參照（可切換），ParamRow 透過它讀寫「當前選取 ROI」。</summary>
+/// <summary>目標 ROI 參照（可切換），ParamRow 透過它讀寫「當前選取 ROI」。
+/// 刻意用一個**可變欄位的容器**而非直接持有 ZoneSettingModel：34 個 ParamRow 共用這一個 ZoneRef 實例，
+/// 切換選取 ROI 時只要改 `_target.Zone` 一處，全部列自動指向新 zone（不必逐列重建/重綁）。</summary>
 public sealed class ZoneRef { public ZoneSettingModel? Zone; }
 
 /// <summary>
 /// 中間參數列：CheckBox(批次勾選) + Label + 輸入(text/bool/combo) + Update。
 /// 值直接讀寫「當前選取 ROI」(ZoneRef.Zone)，編輯即時生效（單一資料來源）。
+///
+/// **為何用反射**：34 個欄位型別各異（int/double/float/bool/enum/string），若逐欄手寫綁定就是 34 段
+/// 幾乎相同的樣板碼，且每次配方新增欄位都要改 UI。改為「一列 = 一個 PropertyInfo 代理」後，
+/// 新增參數只需在 BuildParamRows 加一行 Add(...)，View 完全不用動（資料驅動表單）。
+/// **為何能即時同步**：讀寫的是 RecipeStore 裡那個**唯一**的 ZoneSettingModel 實例（不是副本），
+/// 所以這裡一改，快速調參欄／主視窗預覽／影像上的 ROI 框全部同步（不變式 8 單一資料來源）；
+/// 反向由外部改值時，VM 訂閱 zone 的 PropertyChanged → RaiseChanged() 讓本列輸入框刷新。
 /// </summary>
 public sealed partial class ParamRow : ObservableObject
 {
-    private readonly ZoneRef _ref;
-    private readonly PropertyInfo _pi;
+    private readonly ZoneRef _ref;    // 共用的「目前選取 ROI」參照（見上）
+    private readonly PropertyInfo _pi; // 本列代理的 ZoneSettingModel 屬性（建構時以名稱反射取得，之後重複使用不再查表）
 
     public string Display { get; }
     public bool IpConsumed { get; }
@@ -52,9 +61,14 @@ public sealed partial class ParamRow : ObservableObject
     public bool IsBool => Kind == "bool";
     public bool IsCombo => Kind is "enumPre" or "enumWay" or "compare";
 
+    // 三個 XxxValue 屬性對應三種輸入控制項（IsText/IsBool/IsCombo 決定顯示哪一個），
+    // 但底層都是同一支 PropertyInfo：getter 從當前 zone 讀、setter 寫回當前 zone（即時生效，不需按 Update；
+    // Update 鈕是另一件事＝把本列的值「批次套用到其他勾選的 ROI」）。
+    // 未選 ROI（_ref.Zone == null）時一律讀空/不寫入，避免 NullReference。
     public string TextValue
     {
         get => _ref.Zone is null ? "" : _pi.GetValue(_ref.Zone)?.ToString() ?? "";
+        // 吞例外：型別轉換或唯讀屬性導致的 SetValue 失敗不該讓整個輸入框崩潰（末尾仍 OnPropertyChanged 讓 UI 回填實際值）。
         set { if (_ref.Zone != null) { try { _pi.SetValue(_ref.Zone, Convert(value)); } catch { } } OnPropertyChanged(); }
     }
     public bool BoolValue
@@ -78,6 +92,9 @@ public sealed partial class ParamRow : ObservableObject
         }
     }
 
+    /// <summary>把輸入框字串轉成該屬性的實際型別（反射 SetValue 要求型別完全相符，不能塞 string）。
+    /// ⚠️ 已知限制（docs/code_review_20260802.md K11）：TryParse 失敗時**默默回退 0**（無提示、不保留原值），
+    /// 且未指定 InvariantCulture——輸入「1,4」或誤貼字元會讓閾值/Pitch 變 0 而使用者無感。</summary>
     private object Convert(string v)
     {
         var t = _pi.PropertyType;
@@ -85,12 +102,17 @@ public sealed partial class ParamRow : ObservableObject
         if (t == typeof(double)) return double.TryParse(v, out var d) ? d : 0.0;
         if (t == typeof(float)) return float.TryParse(v, out var f) ? f : 0f;
         if (t == typeof(bool)) return bool.TryParse(v, out var b) && b;
-        return v;
+        return v;   // string 型別（AlgorithmWay/Adjustment…）原樣寫入
     }
 
+    /// <summary>把「本列在當前 ROI 的值」複製到另一個 ROI——批次 Update 的最小單位
+    /// （同一支 PropertyInfo 讀來源、寫目標 → 型別天然一致，不經字串轉換）。</summary>
     public void ApplyTo(ZoneSettingModel target)
     { if (_ref.Zone != null) _pi.SetValue(target, _pi.GetValue(_ref.Zone)); }
     public string ValueString => _ref.Zone is null ? "" : _pi.GetValue(_ref.Zone)?.ToString() ?? "";
+    /// <summary>強制三個 XxxValue 重新求值——用於「值從外部被改了」的場合（切換選取 ROI、
+    /// zone 的 PropertyChanged、批次套用後）。因為值不存在本物件裡（都是即時反射讀 zone），
+    /// 沒有 setter 被呼叫，UI 不會自己知道要刷新。</summary>
     public void RaiseChanged()
     {
         OnPropertyChanged(nameof(TextValue));
@@ -199,6 +221,8 @@ public partial class ZoneParamEditorViewModel : ViewModelBase
         StatusMessage = $"載入 {Store.SelectedRecipe}：{Rois.Count} 個 ROI";
     }
 
+    /// <summary>切換選取 ROI：改共用 ZoneRef 一處 → 34 列同時指向新 zone（見 ZoneRef 註解），
+    /// 再 RaiseChanged 讓輸入框顯示新值；EditZone 同步通知影像控制項換框。</summary>
     partial void OnSelectedRoiChanged(RoiCheckItem? value)
     {
         // 退訂舊 zone、訂新 zone（外部如 Step1 改值時，中間欄位即時刷新）

@@ -63,6 +63,8 @@ struct CamCfg {
     int   gain_raw    = 256;     // Stage 0 actual: min raw = 0dB 基準
 };
 
+// ⚠️ 已知限制（docs/code_review_20260802.md B12）：檔案存在但 JSON 壞掉時 catch(...) 靜默回
+//   出廠預設（70µs/256）——與 cam_map 的 fail-fast 哲學不一致；save_cam_config 寫失敗亦全吞。
 static CamCfg load_cam_config(const std::string& path, int cam_id) {
     CamCfg cfg;
     try {
@@ -292,6 +294,8 @@ int main(int argc, char** argv) {
         // 開相機陣列（冪等：台數符合直接重用；fail-fast：任一台失敗全關）
         if (!mgr.open_all(cam_count, serial, pkt_size, err)) return false;
         // 單台模式沿用 --cam-id（legacy：FrameHeader.camId 可自訂）；多台依列舉順序 0..N-1
+        // ⚠️ 已知限制（docs/code_review_20260802.md B7）：有 cam_map 時這行仍會把 MAC 綁定查回的
+        //   cam_id 蓋成 CLI 值（預設 0）→ 單台隔離測試時 camId／cam_config 歸屬對錯台。
         if (cam_count == 1 && !mgr.empty()) mgr.entries().front().cam_id = cam_id;
 
         // 每台套用 cam_config.json 對應條目的曝光/增益（read-back actual 後 re-save）
@@ -331,6 +335,8 @@ int main(int argc, char** argv) {
     // GRAB_START = 觸發本體：已 ARM → 只做切片歸零 + start_all（ms 級）。
     // 未 ARM → 自動先 ARM（相容 nc 手動測試；代價 = 冷啟秒級，產線流程應先 ARM）。
     // frames_per_panel（命令參數優先，其次 --frames-per-panel CLI）>0 → 每台收滿自動停。
+    // ⚠️ 已知限制（docs/code_review_20260802.md B8）：timeout_ms 在此被忽略——收滿無 watchdog，
+    //   任一台 0 幀時 panel 永不完成（running 永 ≥1），逾時控管完全依賴上位機。
     ctrl.set_grab_start([&](int /*timeout_ms*/, int frames_per_panel,
                             std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
@@ -447,6 +453,8 @@ int main(int argc, char** argv) {
     ctrl.set_get_nodes_handler([&](int cid, std::string& js, std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
         // 依 cam_id 路由；陣列未開時退回 primary（單台 legacy 行為不變）
+        // ⚠️ 已知限制（docs/code_review_20260802.md B6）：idle（陣列未開）第一發會開「列舉第一台」
+        //   並以請求的 cam_id 回聲——有 cam_map 且該台非第一台時 = 靜默回錯台（★4 的 idle 殘留孔）。
         CamPylon* c = mgr.get(cid);
         if (!c && mgr.empty()) c = mgr.get_or_open_primary(serial, pkt_size);
         if (!c) { err = "unknown cam_id " + std::to_string(cid); return false; }
@@ -493,6 +501,8 @@ int main(int argc, char** argv) {
         if (grabbing) { err = "取像中，請先 GRAB_STOP 再調參預覽"; return false; }
         CamPylon* c = mgr.get(cid);
         // 陣列已開時不得 fallback 到 primary，否則 cam1 的調參會靜默套到 cam0
+        // ⚠️ 已知限制（B6）：idle 第一發同 GET_CAM_NODES 會開列舉第一台；且量測後 save_cam_config(cid)
+        //   會把「錯台的實測值」寫進請求 cam_id 的設定槽（下次 ARM 套錯）。
         if (!c && mgr.empty()) c = mgr.get_or_open_primary(serial, pkt_size);
         if (!c) {
             err = mgr.empty() ? "開相機失敗" : ("unknown cam_id " + std::to_string(cid));
@@ -503,6 +513,8 @@ int main(int argc, char** argv) {
         return c->grab_one_mean(mean, err);
     });
 
+    // ⚠️ 已知限制（docs/code_review_20260802.md B9）：只回全陣列總和（grabbed/dropped/running），
+    //   無 per-cam 明細——6 台時無法從 8100 定位哪台少幀，只能翻 stdout log。
     ctrl.set_status_provider([&]() -> std::string {
         bool g, a;
         size_t cams, running;

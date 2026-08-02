@@ -186,6 +186,9 @@ bool parse_args(int argc, char** argv, Args& a) {
 }
 
 // 計算 zone 在影像內的有效 ROI rect（對位後用 eff_*，全幅或夾在影像範圍內）。
+// ⚠️ 已知限制（docs/code_review_20260802.md I8）：legacy 全 panel 拼接座標 recipe（ROI Y 可達 146k）
+//    餵給 rdma-process 逐 slice 影像時，超出本 slice 的 zone 會被 clamp 塌成 1px 長條照跑
+//    → 恆 0 缺陷、無錯誤 = 該區實際未檢測；正解需依 sliceIndex 平移座標並 skip 不相交 zone。
 cv::Rect zone_rect(const ZoneConfig& z, int w, int h) {
     if (z.is_full_frame()) return cv::Rect(0, 0, w, h);
     int x1 = std::clamp(z.eff_start_x(), 0, w - 1);
@@ -1107,9 +1110,14 @@ int main(int argc, char** argv) {
 
         while (rdma_src.next_frame(hdr, payload)) {
             // ① 新的一片（slice0）→ 該台的遺失計數歸零
+            // ⚠️ 已知限制（docs/code_review_20260802.md I7）：連續模式 grab 送 totalSlice=1 →
+            //    此歸零條件永不成立，一次 CRC 失敗後該 cam 之後每幀都被標 panel_incomplete（誤報方向，保守）。
             if (hdr.totalSlice > 1 && hdr.sliceIndex == 0) loss_by_cam[hdr.camId] = FrameLossInfo{};
 
             // ② 吸收收端記錄的遺失（CRC 失敗時 header 可信 → 可歸屬到 cam/slice）
+            // ⚠️ 已知限制（docs/code_review_20260802.md I1）：標記只能「向後傳播」給同 cam 之後的幀 →
+            //    (a) 末 slice 遺失時該片再無後續幀 → 沒有任何 ResultInfo 帶 frame_loss（標記蒸發）；
+            //    (b) ①先歸零②才吸收 → 片界的遺失會被記到新片（舊片漏報、新片誤報）。應 ②先於①。
             for (const auto& lf : rdma_src.take_lost()) {
                 ++total_lost;
                 if (lf.header_ok) {
@@ -1131,6 +1139,9 @@ int main(int argc, char** argv) {
 
             // ③ seq 跳號備援：frame_seq 已保證全域單調（見 grab main.cpp），
             //    跳號 = 有幀沒到達消費端。這條抓得到「收端根本沒 poll 到」的遺失。
+            // ⚠️ 已知限制（docs/code_review_20260802.md I2）：下方拿「本次區間 gap」比「session 累計
+            //    total_lost」，量綱不一致 → 早期累積數筆 CRC 失敗後，之後 ≤ 該累計值的真跳號會被
+            //    整個略過（靜默漏檢）；且 total_lost=gap 會覆寫累計帳。應改用「上次檢查點以來的區間量」比對。
             if (last_seq_seen != 0 && hdr.frameSeq > last_seq_seen + 1) {
                 uint64_t gap = hdr.frameSeq - last_seq_seen - 1;
                 // 已由 take_lost() 歸屬過的不重複計入

@@ -378,6 +378,9 @@ public partial class Step1ViewModel : ViewModelBase
     [RelayCommand] private void ClassifyOk() => FileSelectedDefect("ok");
     [RelayCommand] private void ClassifyNg() => FileSelectedDefect("ng");
 
+    /// <summary>把選中缺陷裁 100×100 存成 OK/NG 樣本（本機 OutputDir）。
+    /// ⚠️ 已知限制（docs/code_review_20260802.md K17）：遠端影像模式下 SelectedImagePath 是 IP 機路徑、
+    /// 本機 File.Exists 為 false → 直接 return，按鈕看起來沒反應也不會提示。</summary>
     private void FileSelectedDefect(string klass)
     {
         if (SelectedDefect is null || !File.Exists(SelectedImagePath)) return;

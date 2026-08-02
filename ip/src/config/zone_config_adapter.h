@@ -11,14 +11,26 @@
  *   2. legacy RecipeInfo.xml 的 Recipe/DetectRoiList → from_recipe_xml() → 多 zone
  *
  * legacy DetectRoi → ZoneConfig 對應（已逐檔驗證原始碼）：
- *   BrightThreshold → BTH        DarkThreshold → DTH      （僅 AlgorithmCompare=="DIV"）
+ *   BrightThreshold → BTH        DarkThreshold → DTH      （同名欄位，**依演算法域解讀**，見下）
  *   PitchX → pitch_x             PitchY → pitch_y
  *   SearchX → search_range_x     SearchY → search_range_y
- *   fast_search_range = clamp(SearchY, 0, 2)
+ *   fast_search_range = clamp(SearchY, 0, 2)               （mode0 DIV kernel 實吃的垂直局部搜尋）
+ *   PitchTime → pitch_times      ChooseAmount → choose_amount   （SUB/DIV-voting 投票路數與門檻）
+ *   MeanLowThreshold → mean_low_threshold                  （DIV-voting 暗區棄權 dark_eps）
+ *   M_ImagePreproc → preproc_remap   SmoothTimes2 → smooth_times2   （SUB/融合前處理）
+ *   Blob{Min,Max}Size/BlobAllMergeDistance → blob_*        （Step E CPU 後處理，所有模式）
  *   StartX/StartY/EndX/EndY → ROI 範圍（-1 = 全幅）
  *
- * ⚠️ 只接受 DIV 模式：gpu_algo kernel 是比例式（center/mean₈ vs BTH/DTH），
- *    legacy DIV 同定義域故可直接對應；SUB 模式是灰階差、轉比例需背景灰階 → 直接拒絕。
+ * ★ 三域守門（2026-06-23 SUB 管線移植後；**取代舊「只接受 DIV」的敘述**，詳見 ip/CLAUDE.md §5）：
+ *    權威欄位是 <M_AlgorithmWayCompare>（legacy enum），**不是** stale 的 <AlgorithmCompare> 字串——
+ *    舊守門只比字串，曾被「掛 DIV 字串、實為 SUB」的 recipe 騙過 → 靜默假 PASS（血淚教訓，勿回退）。
+ *      含 Sub                    → algo_mode=1 SUB（BTH/DTH = 灰階差，如 +17/−16）
+ *      含 Div + 投票標記(star/way) → algo_mode=2 DIV-voting 融合（BTH/DTH = 比值域 BTH>1>DTH>0）
+ *      含 Div / AlgorithmCompare="DIV" → algo_mode=0 DIV（比例式；DarkThreshold<0 = 域值誤標 → 拒載）
+ *      皆判不出                   → 拋 RecipeError 拒載（不靜默預設）
+ *    BTH/DTH **不做任何跨域近似轉換**（SUB 灰階差轉比例需依賴背景灰階，無固定公式）。
+ *    ⚠️ 已知限制（docs/code_review_20260802.md I5）：legacy enum 值全為 Awc_*_Way_*_Div（皆含 "Way"）
+ *       → 任何帶 awc 的 legacy DIV recipe 都路由到 mode2，純 mode0 幾乎不可達；語意待裁示。
  *
  * ZoneConfig 是純 CPU 結構（不依賴 CUDA），由 GpuPipeline 映射成 KernelParams。
  * ============================================================================
@@ -137,7 +149,8 @@ struct IoiRect {
     int start_x = -1, start_y = -1, end_x = -1, end_y = -1;
 };
 
-// from_recipe_xml 遇到非 DIV 模式或解析失敗時丟出此例外。
+// from_recipe_xml 無法判定演算法域、域值錯配（DIV 但 DTH<0）、或解析失敗（無 DetectRoi）時丟出此例外。
+// 呼叫端一律「拒載 + 報錯 + 記 recipe_load incident」，**不得靜默套用預設值繼續跑**（假 PASS 教訓）。
 class RecipeError : public std::runtime_error {
 public:
     explicit RecipeError(const std::string& msg) : std::runtime_error(msg) {}
@@ -153,7 +166,9 @@ OpticalParams load_optical_params(const std::string& ini_path);
 
 // 解析 legacy RecipeInfo.xml（序列化的 Recipe），回傳 DetectRoiList 每個 DetectRoi 一個 ZoneConfig。
 // defaults 提供 recipe 未涵蓋之欄位（multiscale/LSC/block_dim 等），通常傳入 from_ini 的結果。
-// 任一 zone 的 AlgorithmCompare != "DIV" → 丟 RecipeError。
+// ⚠️ 任一 zone **判不出演算法域**（M_AlgorithmWayCompare 不含 Sub/Div 且無 AlgorithmCompare="DIV"）
+//    或域值錯配（標 DIV 但 DarkThreshold<0）→ 丟 RecipeError 拒載（三域守門，見檔頭）。
+//    「非 DIV 一律拒絕」是**舊行為**，SUB/DIV-voting 現為合法域，勿依此舊假設寫程式。
 std::vector<ZoneConfig> from_recipe_xml(const std::string& xml_path,
                                         const ZoneConfig& defaults = ZoneConfig{});
 

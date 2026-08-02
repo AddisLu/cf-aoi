@@ -107,6 +107,9 @@ public sealed partial class RecipeStore : ObservableObject
     /// <summary>存 per-recipe RecipeSetting.xml（主視窗 RecipeSetting 面板「儲存」用）。</summary>
     public void SaveRecipeSetting() => _recipes.SaveRecipeSetting(SelectedRecipe, RecipeSaving);
 
+    /// <summary>重掃配方目錄重建下拉清單（DEFAULT 恆在第一個，即使資料夾還沒建）。
+    /// ⚠️ 已知限制（docs/code_review_20260802.md K14）：先 Clear 再重建的期間，
+    /// 綁定此清單的 ComboBox 可能把 SelectedRecipe 回寫成 null，而 Select() 對 null 未設防護。</summary>
     public void RefreshNames()
     {
         RecipeNames.Clear();

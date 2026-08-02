@@ -135,6 +135,11 @@ void RdmaImageSource::recv_thread_fn() {
         try {
             got = conn_.poll_one_nonblock(wc);
         } catch (const std::exception& e) {
+            // ⚠️ 已知限制（docs/code_review_20260802.md I10）：任何非 SUCCESS 的 WC（poll_one_nonblock
+            //    會丟例外）都在此 break → recv_thread 死亡、queue close、整個 session 結束，且該幀
+            //    不進 lost_ 帳（只有 stderr，無 incident 歸類）。典型觸發：相機幀 > slot 尺寸
+            //    （INI width/height 設得比實際小）→ IBV_WC_LOC_LEN_ERR。
+            //    正解：可歸屬的錯誤 → record_lost + incident + repost 後續跑；僅 QP 級不可恢復才退出。
             if (running_.load())
                 fprintf(stderr, "[rdma_source] poll 失敗：%s\n", e.what());
             break;

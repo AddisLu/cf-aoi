@@ -14,7 +14,7 @@
 
 class RdmaSender {
 public:
-    // connect：向 IP server 建立 RDMA 連線，並完成 single-slot MrInfo 握手。
+    // connect：向 IP server 建立 RDMA 連線，並完成 MrInfoEx N-slot 握手（驗 n_slots/slot_size）。
     // max_payload_bytes：一幀最大影像位元組數（由 pylon PayloadSize 取得）。
     // 成功回傳 true；失敗印 stderr 並回傳 false。
     bool connect(const char* spark_ip, const char* port, size_t max_payload_bytes);
@@ -50,7 +50,9 @@ private:
     std::vector<uint8_t> ctrl_buf_;
     size_t   frame_cap_   = 0;       // 每幀緩衝大小 = sizeof(FrameHeader)+max_payload
     uint32_t n_buf_       = 1;       // 送端緩衝數（= remote n_slots）
-    uint32_t posted_      = 0;       // 已 post 未 poll 的 WRITE 數（pipeline 深度，≤ n_buf_）
+    uint32_t posted_      = 0;       // 已 post 未 poll 的 SEND 數（pipeline 深度，≤ n_buf_；舊註解寫 WRITE 為 ★2 改法前殘留）
+    // ⚠️ 已知限制（docs/code_review_20260802.md B13）：connected_/sent_* 由 frame_cb（send_mtx 內）寫、
+    // status/do_arm（state_mtx 內）讀——兩把不同的鎖，監控用途 x86 實務可用，正式屬 data race。
     bool     connected_   = false;
     uint64_t sent_frames_ = 0;
     uint64_t sent_bytes_  = 0;
