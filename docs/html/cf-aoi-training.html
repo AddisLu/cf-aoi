@@ -3264,7 +3264,11 @@ for i in range(5):
   <div class="kbd-card" role="dialog" aria-label="鍵盤快捷鍵">
     <h3>⌨ 鍵盤快捷鍵</h3>
     <table>
-      <tr><td><kbd>⌘K / Ctrl+K</kbd></td><td>全域命令面板（搜章節／函式／破案卡）</td></tr>
+      <tr><td><kbd>⌘P</kbd></td><td>快速前往章節／標題／術語（面板內打 <kbd>&gt;</kbd> 換命令、<kbd>%</kbd> 全文、<kbd>@</kbd> 函式）</td></tr>
+      <tr><td><kbd>⌘K</kbd> / <kbd>⌘⇧P</kbd></td><td>命令面板（切主題／字級／列印／關閉其他分頁…）</td></tr>
+      <tr><td><kbd>⌘⇧F</kbd></td><td>全文搜尋整本教材（命中後自動捲到該段並閃動）</td></tr>
+      <tr><td><kbd>⌃Tab</kbd> / <kbd>⌃⇧Tab</kbd></td><td>在已開分頁間循環切換</td></tr>
+      <tr><td><kbd>雙擊分頁</kbd></td><td>把預覽分頁（斜體）釘選為常駐分頁</td></tr>
       <tr><td><kbd>選取程式碼</kbd></td><td>浮出「🤖 問 AI」——打包成提問複製，貼到任何 LLM</td></tr>
       <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>上一章 / 下一章</td></tr>
       <tr><td><kbd>Alt + ←</kbd></td><td>返回跳轉前的位置（點連結跳走之後）</td></tr>
@@ -3279,9 +3283,10 @@ for i in range(5):
 
 <div class="cmdk-backdrop" id="cmdkBack" hidden>
   <div class="cmdk" role="dialog" aria-label="全域命令面板">
-    <input id="cmdkInput" placeholder="搜尋章節、標題、函式、破案卡…（例：爆量、F1 bug、deliver_result）" autocomplete="off">
+    <input id="cmdkInput" placeholder="前往章節、標題、術語…（打 &gt; 命令 · % 全文 · @ 函式）" autocomplete="off">
     <div class="cmdk-list" id="cmdkList"></div>
-    <div class="cmdk-foot"><span>↑↓ 選擇</span><span>Enter 前往</span><span>Esc 關閉</span><span style="margin-left:auto">⌘K / Ctrl+K 隨時呼出</span></div>
+    <div class="cmdk-foot"><span>↑↓ 選擇</span><span>Enter 前往</span><span>Esc 關閉</span>
+      <span style="margin-left:auto">⌘P 章節 · ⌘K 命令 · ⌘⇧F 全文</span></div>
   </div>
 </div>
 
@@ -5502,19 +5507,48 @@ function r3Init() {
 }
 r3Init();
 
-/* ── ⌘K 命令面板：全域模糊搜尋（內建引擎，等效 Fuse.js 子集）── */
+/* ── 命令面板：⌘P 章節 / ⌘K 命令 / ⌘⇧F 全文（同一引擎，用 sigil 前綴切模式）──
+   仿 VS Code：面板內直接改開頭符號就換模式，三個快捷鍵只是預填不同 sigil。
+     （無）＝ go 章節/標題/術語（≥3 字才加函式）   > ＝ 命令   % ＝ 全文   @ ＝ 函式符號 */
 const cmdkEntries = [];
 {
   const groupIcon = id => /^g\d/.test(id) ? '🚀' : /^p\d/.test(id) ? '🔍' : /^r\d/.test(id) ? '📖' : /^ch\d/.test(id) ? '🎓' : '⚙️';
   chapters.forEach(s => {
-    cmdkEntries.push({ icon: groupIcon(s.id), t: s.dataset.title || s.id, sub: (groupOf[s.id] || ''), go: s.id });
+    cmdkEntries.push({ icon: groupIcon(s.id), t: s.dataset.title || s.id, sub: (groupOf[s.id] || ''), go: s.id, k: 'chap' });
     s.querySelectorAll('h3, h4').forEach(h => {
       const txt = h.textContent.trim().replace(/\s+/g, ' ').slice(0, 60);
       if (txt.length < 3) return;
-      cmdkEntries.push({ icon: '¶', t: txt, sub: s.dataset.title || s.id, go: s.id, el: h });
+      cmdkEntries.push({ icon: '¶', t: txt, sub: s.dataset.title || s.id, go: s.id, el: h, k: 'head' });
     });
   });
-  TERMS.forEach(([t, go]) => cmdkEntries.push({ icon: '🏷', t, sub: '術語', go }));
+  TERMS.forEach(([t, go]) => cmdkEntries.push({ icon: '🏷', t, sub: '術語', go, k: 'term' }));
+}
+/* 命令清單（> 模式）；run() 回傳 false 代表不關面板 */
+const CMDS = [
+  { icon: '🌓', t: '切換深／淺色主題', sub: '主題', run: () => $('themeBtn').click() },
+  { icon: '🔤', t: '放大字級', sub: '檢視', run: () => $('fsPlus').click() },
+  { icon: '🔡', t: '縮小字級', sub: '檢視', run: () => $('fsMinus').click() },
+  { icon: '⌨', t: '鍵盤快捷鍵說明', sub: '說明', run: () => $('kbdBtn').click() },
+  { icon: '🗂', t: '開啟索引頁', sub: '導覽', run: () => show('idx') },
+  { icon: '🩺', t: '開啟 Log 分析器', sub: '導覽', run: () => show('logan') },
+  { icon: '✅', t: '開啟認證考題', sub: '導覽', run: () => show('quiz') },
+  { icon: '🚨', t: '破案之路（我遇到 bug 了）', sub: '實戰', run: () => show('p1') },
+  { icon: '🖨', t: '列印本頁', sub: '檢視', run: () => window.print() },
+  { icon: '🔗', t: '複製本章連結', sub: '分享', run: () => {
+      try { navigator.clipboard.writeText(location.href); } catch (e) {} } },
+  { icon: '🧹', t: '關閉其他分頁', sub: '分頁', run: () => {
+      try { const cur = (chapters.find(s => s.classList.contains('visible')) || {}).id;
+        localStorage.setItem('cfaoi.tabs', JSON.stringify([{ id: cur, pinned: true }]));
+        location.reload(); } catch (e) {} } },
+  { icon: '↩', t: '回到經典版面（關閉 Cursor 化）', sub: '設定', run: () => {
+      try { localStorage.setItem('cfaoi.cursorui', 'false'); location.reload(); } catch (e) {} } },
+];
+function parseMode(raw) {
+  const s = (raw || '').trim();
+  if (s[0] === '>') return { mode: 'cmd',  q: s.slice(1).trim().toLowerCase() };
+  if (s[0] === '%') return { mode: 'text', q: s.slice(1).trim().toLowerCase() };
+  if (s[0] === '@') return { mode: 'sym',  q: s.slice(1).trim().toLowerCase() };
+  return { mode: 'go', q: s.toLowerCase() };
 }
 function fuzzy(q, text) {
   const tl = text.toLowerCase();
@@ -5532,14 +5566,42 @@ function fuzzy(q, text) {
 }
 let cmdkSel = 0, cmdkHits = [];
 function cmdkRender() {
-  const q = $('cmdkInput').value.trim().toLowerCase();
+  const { mode, q } = parseMode($('cmdkInput').value);
   cmdkHits = [];
-  if (q.length >= 1) {
+  if (mode === 'cmd') {                       // ── > 命令模式
+    for (const c of CMDS) {
+      if (!q) { cmdkHits.push({ ...c, s: 0 }); continue; }
+      const m = fuzzy(q, c.t);
+      if (m) cmdkHits.push({ ...c, ...m });
+    }
+    cmdkHits.sort((a, b) => b.s - a.s);
+    cmdkHits = cmdkHits.slice(0, 12);
+  } else if (mode === 'text') {               // ── % 全文模式（重用側欄搜尋的索引）
+    if (q.length >= 2) {
+      for (const e of searchIdx) {
+        const pos = e.text.toLowerCase().indexOf(q);
+        if (pos < 0) continue;
+        const frag = e.text.slice(Math.max(0, pos - 24), pos + 46).replace(/\s+/g, ' ');
+        cmdkHits.push({ icon: '🔎', t: e.title || e.id, sub: '…' + frag + '…', go: e.id, locate: q, s: 100 - pos * 0.001 });
+        if (cmdkHits.length >= 12) break;
+      }
+    }
+  } else if (mode === 'sym') {                // ── @ 函式符號模式（1 字即進場）
+    if (q.length >= 1) {
+      for (const f of FN) {
+        const m = fuzzy(q, f.n);
+        if (m) cmdkHits.push({ icon: 'ƒ', t: f.n, sub: f.p.split('/').pop() + ':' + f.l, fn: f, s: m.s, pos: m.pos });
+        if (cmdkHits.length > 400) break;
+      }
+      cmdkHits.sort((a, b) => b.s - a.s);
+      cmdkHits = cmdkHits.slice(0, 12);
+    }
+  } else if (q.length >= 1) {                 // ── 預設 go 模式：章節/標題/術語（≥3 字才加函式）
     for (const e of cmdkEntries) {
       const m = fuzzy(q, e.t);
       if (m) cmdkHits.push({ ...e, ...m });
     }
-    if (q.length >= 3) {   // 函式索引（量大，3 字才進場）
+    if (q.length >= 3) {
       for (const f of FN) {
         const m = fuzzy(q, f.n);
         if (m) cmdkHits.push({ icon: 'ƒ', t: f.n, sub: f.p.split('/').pop() + ':' + f.l, fn: f, s: m.s - 5, pos: m.pos });
@@ -5548,13 +5610,14 @@ function cmdkRender() {
     }
     cmdkHits.sort((a, b) => b.s - a.s);
     cmdkHits = cmdkHits.slice(0, 12);
-  } else {
+  } else {                                    // ── 空輸入：常用入口 + 模式提示
     cmdkHits = [
       { icon: '🚨', t: '我遇到 bug 了 → 破案之路', sub: '實戰', go: 'p1' },
       { icon: '🩺', t: 'Log 分析器', sub: '載入 _diag 自動診斷', go: 'logan' },
       { icon: '🚀', t: 'Day 1 環境建置', sub: '上手', go: 'g1' },
       { icon: '📖', t: 'IP 程式參考手冊', sub: '參考', go: 'r1' },
       { icon: '🏷', t: '詞彙表 / 索引', sub: '', go: 'idx' },
+      { icon: '›', t: '打 > 執行命令 · % 全文搜尋 · @ 找函式', sub: '模式', go: null },
     ];
   }
   cmdkSel = 0;
@@ -5571,6 +5634,8 @@ function cmdkRender() {
 }
 function cmdkGo(i) {
   const h = cmdkHits[i]; if (!h) return;
+  if (h.run) { cmdkClose(); h.run(); return; }          // > 命令
+  if (!h.go && !h.fn) return;                            // 純提示列，不動作
   cmdkClose();
   if (h.fn) { openCode(h.fn.p, h.fn.l); return; }
   show(h.go);
@@ -5579,10 +5644,40 @@ function cmdkGo(i) {
     h.el.classList.remove('flash-target'); void h.el.offsetWidth;
     h.el.classList.add('flash-target');
   });
+  if (h.locate) requestAnimationFrame(() => locateInChapter(h.go, h.locate));
 }
-function cmdkOpen() { $('cmdkBack').hidden = false; $('cmdkInput').value = ''; cmdkRender(); $('cmdkInput').focus(); }
+/* % 全文命中後在章內定位：找到第一個含該字串的區塊，捲過去並閃一下 */
+function locateInChapter(id, needle) {
+  const sec = document.getElementById(id); if (!sec || !needle) return;
+  const walk = document.createTreeWalker(sec, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walk.nextNode())) {
+    if (n.nodeValue && n.nodeValue.toLowerCase().includes(needle)) {
+      const el = n.parentElement; if (!el) continue;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.remove('flash-target'); void el.offsetWidth;
+      el.classList.add('flash-target');
+      return;
+    }
+  }
+}
+const CMDK_PH = {
+  go:   '前往章節、標題、術語…（打 > 命令 · % 全文 · @ 函式）',
+  cmd:  '執行命令…（切主題／字級／列印／關閉其他分頁…）',
+  text: '全文搜尋整本教材…（至少 2 個字）',
+  sym:  '搜尋函式／類別／kernel（720 個索引）…',
+};
+function cmdkOpen(sigil) {
+  $('cmdkBack').hidden = false;
+  $('cmdkInput').value = sigil || '';
+  cmdkRender(); $('cmdkInput').focus();
+  $('cmdkInput').setSelectionRange(999, 999);
+}
 function cmdkClose() { $('cmdkBack').hidden = true; }
-$('cmdkInput').addEventListener('input', cmdkRender);
+$('cmdkInput').addEventListener('input', () => {
+  cmdkRender();
+  $('cmdkInput').placeholder = CMDK_PH[parseMode($('cmdkInput').value).mode] || CMDK_PH.go;
+});
 $('cmdkInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { e.preventDefault(); cmdkSel = Math.min(cmdkSel + 1, cmdkHits.length - 1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkSel = Math.max(cmdkSel - 1, 0); }
@@ -5595,7 +5690,14 @@ $('cmdkInput').addEventListener('keydown', e => {
 $('cmdkList').addEventListener('click', e => { const it = e.target.closest('.cmdk-item[data-i]'); if (it) cmdkGo(+it.dataset.i); });
 $('cmdkBack').addEventListener('click', e => { if (e.target === $('cmdkBack')) cmdkClose(); });
 document.addEventListener('keydown', e => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('cmdkBack').hidden ? cmdkOpen() : cmdkClose(); }
+  const mod = e.metaKey || e.ctrlKey;
+  const k = (e.key || '').toLowerCase();
+  if (mod && k === 'k') { e.preventDefault(); $('cmdkBack').hidden ? cmdkOpen('>') : cmdkClose(); }
+  else if (mod && k === 'p') {                       // ⌘P：快速開章節（⌘⇧P = 命令，同 VS Code）
+    e.preventDefault();                              // ⚠ 蓋掉瀏覽器列印 → CMDS 有「列印本頁」補償
+    $('cmdkBack').hidden ? cmdkOpen(e.shiftKey ? '>' : '') : cmdkClose();
+  }
+  else if (mod && e.shiftKey && k === 'f') { e.preventDefault(); $('cmdkBack').hidden ? cmdkOpen('%') : cmdkClose(); }
   if (e.key === 'Escape' && !$('cmdkBack').hidden) cmdkClose();
 });
 
