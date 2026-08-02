@@ -244,3 +244,15 @@ grab/
    - 無映射檔 → 退回舊行為 + 明確 WARN（僅限開發；正式陣列必須有映射）
    **為何**：cam_id 決定 `cam_config.json` 的曝光/增益、`FrameHeader.camId`、
    IP 端輸出夾 `CCD{camId}`。2026-07-30 實測：接上第二台後 raL8192 由 cam_id 0 變成 1。
+
+9. **任何 thread 進入點都必須包 try/catch，例外不得逸出（B1，2026-08-02）**：
+   `std::thread` 的進入函式若讓例外逸出 → `std::terminate` → **整個行程死亡**。
+   多相機架構下這代表「一台拔線 = 6 台陪葬 + 8100/RDMA 全斷」。
+   - `CamPylon::grab_loop()` 已改為 try/catch 薄殼（攔 `GenericException`/`std::exception`/`...`），
+     實際迴圈在 `grab_loop_body()`；收尾的 `StopGrabbing()` 另包 try/catch（斷線後它自己會擲）。
+   - **失敗要標記，不要吞掉**：攔到後豎 `faulted_` + 存訊息，經 `CamManager::faults()` 上到 8100
+     `faulted`/`faulted_cams`。靜默 catch 等於把硬體故障變成「莫名少幀」。
+   - **不自動重連**：重連要重跑 open→參數→RDMA 全鏈；靜默重連會讓「線鬆了」變成無人察覺的
+     間歇掉幀，違反本專案「不靜默假成功」原則。恢復＝人為 GRAB_STOP → 排除 → GRAB_ARM。
+   - ⚠️ 連帶紀律：故障台 `is_running()==false`，與「收滿 N 張正常停」外觀相同 →
+     **任何「是否收完」的判斷都必須先看 `faulted_count()==0`**。

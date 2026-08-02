@@ -14,8 +14,11 @@
 >    `TUNE_MEAN` 還會把量到的曝光**寫進指定 cam_id 的設定槽** → §5 健檢請**先 `GRAB_ARM` 再逐台查**。
 > 4. **單台隔離排障時 `--cam-count 1` 會讓 `--cam-id` 蓋掉 MAC 綁定**（B7）：該台會以 `camId=0` 送圖
 >    並套用 CCD00 的曝光 → 單台測試結果要自行換算，勿直接當該槽位的結論。
-> 5. **一台相機拔線/斷電會讓整個 cfaoi_grab 行程死亡**（B1，pylon 例外未攔）：6 台同時中斷。
->    現場動線材前先 `GRAB_STOP`；若行程消失，先查是否有人碰線。
+> 5. ~~一台相機拔線/斷電會讓整個 cfaoi_grab 行程死亡~~（B1 **已修，待實機補驗**）：現在只有**該台**
+>    停下，其餘相機續跑，行程存活。判讀改成——`running` 少一台**不代表它收滿了**，要看 8100
+>    `CHECK_HEALTH` 回應裡的 **`faulted` / `faulted_cams`**（含 cam_id + pylon 錯誤訊息）才知道是斷線。
+>    ⚠️ **Control UI 尚未顯示這個欄位**，現場請直接對 8100 查或看 Grab stdout 的
+>    「⚠️ camN 取像中止」。掉線的台**不會自動重連**，排除線路後要 `GRAB_STOP` → `GRAB_ARM`。
 > 6. **RDMA 送失敗後會靜默丟幀且 `dropped` 仍為 0**（B2）：對帳只信 **Spark 端 `recv ok/err`**，
 >    不要只看 Grab 的 `sent_frames`。
 

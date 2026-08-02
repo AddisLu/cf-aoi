@@ -118,6 +118,8 @@ void CamPylon::start(uint16_t cam_id) {
     cam_id_    = cam_id;
     stop_flag_ = false;
     running_   = true;
+    faulted_   = false;                       // B1：新一輪取像清掉上次的故障標記
+    { std::lock_guard<std::mutex> lk(fault_mtx_); fault_msg_.clear(); }
     grabbed_   = 0;
     dropped_   = 0;
     thread_    = std::thread(&CamPylon::grab_loop, this);
@@ -143,10 +145,50 @@ void CamPylon::stop() {
     }
 }
 
+// B1：記錄故障（grab thread 內呼叫；控制 thread 經 fault_message() 讀）。
+// 刻意收 const char* 而非 std::string：呼叫端在 catch handler 裡，任何配置記憶體的動作
+// （字串串接）若丟 bad_alloc 就會逸出 thread → 仍然 terminate。字串組裝改在這裡 try 起來，
+// 最壞情況只是丟失訊息文字，**faulted_ 旗標一定豎得起來**。
+void CamPylon::note_fault(const char* kind, const char* what) {
+    try {
+        std::lock_guard<std::mutex> lk(fault_mtx_);
+        fault_msg_ = std::string(kind) + (what ? what : "?");
+    } catch (...) {}
+    faulted_ = true;
+    fprintf(stderr, "[cam_pylon] ⚠️ cam%u 取像中止（本台故障，其餘相機續跑）：%s%s\n",
+            cam_id_, kind, what ? what : "?");
+}
+
 // grab_loop — 取像 thread 本體（每台一條；std::thread 進入點）。停止方式：stop() 豎 stop_flag_ 後 join。
-// ⚠️ 已知限制（docs/code_review_20260802.md B1）：本函式無 try/catch——相機拔線/斷電時
-//   RetrieveResult/StartGrabbing 擲出的 GenericException 會逸出 thread 進入點 → std::terminate 全行程死亡。
+//
+// B1 修法（docs/code_review_20260802.md，2026-08-02）：全函式包 try/catch。
+//   拔線/斷電/交換機掉埠時 StartGrabbing/RetrieveResult 會擲 GenericException；
+//   例外若逸出 thread 進入點 → std::terminate → **整個 cfaoi_grab 死亡（6 台陪葬 + 8100/RDMA 全斷）**。
+//   攔下來後：本台標記 faulted_ 並乾淨退出，其餘相機的 thread 不受影響繼續送幀。
+// ⚠️ 攔到例外後**不自動重連**——重連要重跑 open/參數/RDMA 全鏈，靜默重連會讓「線鬆了」變成無人察覺的
+//   間歇掉幀。恢復路徑仍是人為 GRAB_STOP → 排除線路 → GRAB_ARM（見 docs/6cam_setup_runbook.md）。
 void CamPylon::grab_loop() {
+    try {
+        grab_loop_body();
+    } catch (const GenericException& e) {
+        // 相機層例外：拔線/斷電/掉埠，以及逾時以外的傳輸錯誤
+        // （GenericException 繼承 std::exception → 必須排在下面那個 catch 之前）
+        note_fault("pylon: ", e.GetDescription());
+    } catch (const std::exception& e) {
+        // 非 pylon 例外（例如 frame_cb 內部：RDMA 送幀、記憶體配置）
+        note_fault("exception: ", e.what());
+    } catch (...) {
+        note_fault("unknown: ", "非 std::exception 的未知例外");
+    }
+
+    // 正常結束與故障結束共用收尾：StopGrabbing 在斷線後自己也會擲例外，必須吞掉，
+    // 否則 catch 完又在這裡逸出 thread 進入點 → 仍然 std::terminate（等於沒修）。
+    if (camera_ptr_) { try { cam(camera_ptr_)->StopGrabbing(); } catch (...) {} }
+    running_ = false;
+}
+
+// grab_loop_body — 原本的取像迴圈本體。**允許擲例外**，由 grab_loop() 統一攔。
+void CamPylon::grab_loop_body() {
     CInstantCamera* c = cam(camera_ptr_);
     c->MaxNumBuffer = 16;
     c->StartGrabbing(GrabStrategy_OneByOne);   // 持續，不限幀數
@@ -204,9 +246,6 @@ void CamPylon::grab_loop() {
             t_log = now;
         }
     }
-
-    c->StopGrabbing();
-    running_ = false;
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -70,6 +71,17 @@ public:
     uint64_t grabbed()    const { return grabbed_; }
     uint64_t dropped()    const { return dropped_; }
 
+    // ---- B1：取像 thread 故障狀態（docs/code_review_20260802.md B1 修法）----
+    // grab_loop 攔到例外（拔線/斷電/交換機掉埠、或 frame_cb 內部丟出）後：
+    //   ① 標記 faulted_ 並存下訊息 ② 該台 thread 乾淨退出 ③ **其餘相機不受影響**。
+    // ⚠️ 故障後 is_running() 會變 false——與「收滿 N 張自動停」外觀相同，
+    //    呼叫端**必須用 is_faulted() 區分**，否則會把斷線當成正常收滿（靜默假完成）。
+    bool        is_faulted()    const { return faulted_.load(); }
+    std::string fault_message() const {
+        std::lock_guard<std::mutex> lk(fault_mtx_);
+        return fault_msg_;
+    }
+
     // Gap #2：曝光 / 增益（Stage 0 確認：ExposureTimeAbs µs, GainRaw int 256~2047）
     // 相機必須已 open()；acquisition 中可寫（TLParamsLocked=0）。
     // set_params: 寫 → read-back actual → 回傳 true/false
@@ -86,7 +98,11 @@ public:
     bool read_machine_params(MachineParams& mp, std::string& err);
 
 private:
-    void grab_loop();
+    void grab_loop();       // thread 進入點：try/catch 薄殼（B1；例外絕不逸出）
+    void grab_loop_body();  // 取像迴圈本體（允許擲例外，由 grab_loop 攔）
+    // B1：記錄故障訊息 + 豎 faulted_。收 const char*（呼叫端在 catch handler 內，
+    // 不可做任何會擲例外的配置動作，否則例外二次逸出仍會 terminate）。
+    void note_fault(const char* kind, const char* what);
 
     // pylon 物件用 void* 持有，避免 pylon headers 污染包含 cam_pylon.h 的非 pylon 檔案
     void*    camera_ptr_  = nullptr;  // CInstantCamera*
@@ -98,6 +114,11 @@ private:
     std::atomic<bool> stop_flag_{false};
     std::atomic<bool> running_{false};
     std::thread thread_;
+
+    // B1：故障旗標與訊息（grab thread 寫、控制 thread 讀 → atomic + mutex）
+    std::atomic<bool>  faulted_{false};
+    mutable std::mutex fault_mtx_;
+    std::string        fault_msg_;
 
     // ⚠️ 已知限制（docs/code_review_20260802.md B13）：plain uint64 由 grab thread 寫、
     // ctrl thread（CHECK_HEALTH）無鎖讀——監控用途 x86 實務可用，正式屬 data race。

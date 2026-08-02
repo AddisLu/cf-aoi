@@ -16,7 +16,7 @@
 
 | # | 端 | 問題 | 位置 | 觸發情境 |
 |---|---|------|------|---------|
-| **B1** | grab | `grab_loop` 對 pylon 例外零防護：一台拔線/斷電 → `GenericException` 逸出 thread → `std::terminate` **全行程死亡**（其餘 5 台陪葬、8100/RDMA 全斷）。`TimeoutHandling_Return` 只吞逾時不吞裝置移除 | cam_pylon.cpp:142-201 | 任一台線材/供電/交換機出狀況（×6 機率）|
+| ~~**B1**~~ **已修 L1** | grab | `grab_loop` 對 pylon 例外零防護：一台拔線/斷電 → `GenericException` 逸出 thread → `std::terminate` **全行程死亡**（其餘 5 台陪葬、8100/RDMA 全斷）。`TimeoutHandling_Return` 只吞逾時不吞裝置移除 | cam_pylon.cpp:142-201 | 任一台線材/供電/交換機出狀況（×6 機率）|
 | **B4** | grab | `--cam-count ALL` 無「應到幾台」概念：cam_map 6 筆、只列舉到 5 台 → ARM 回 OK **靜默跑 5 台**（fail-fast 只保護 want>0）。與已修 ★7 不同根因 | cam_manager.cpp:247-251 | 到貨日某台 link 未起（忘下 speed 1000 / 未上電）。**運維面先改 runbook 用 `--cam-count 6`** |
 | **X1** | control | `GET_CAM_NODES` **不送 cam_id** → 永遠讀 cam0 且無錯誤提示（Grab 端 ★4 已修另一半：cam_id 必填+回聲，Control 送 null、回聲也不讀）| GrabClient.cs:129-131,133-147；呼叫點 SystemSettingsViewModel.cs:361 | runbook §5 逐台健檢：選 CCD05 按「讀取機器層參數」顯示的是 cam0 |
 | **B6** | grab | idle 路徑 `GET_CAM_NODES`/`TUNE_MEAN` 的 `get_or_open_primary` fallback **無視 cam_map**：idle 第一發 cam_id=3 查詢 → 開列舉第一台、回聲卻是 3 = 靜默錯台；TUNE_MEAN 更把錯台量測**寫進 cam_id=3 的 cam_config 槽** | main.cpp:451,496,502；cam_manager.cpp:299-311 | runbook §5「逐台健檢（idle）」正是此情境 |
@@ -170,3 +170,36 @@
 - `grab/CLAUDE.md`+`docs/grab_程式完整說明.md`、`ip/CLAUDE.md`+`docs/ip_程式完整說明.md`、
   `control/CLAUDE.md`+`docs/control_程式完整說明.md`：依各自漂移清單全面修正（詳見各檔 2026-08-02 註記）。
 - `docs/tools_程式完整說明.md`+`tools/README.md`：查證幾乎零漂移，未改。
+
+## 修復記錄
+
+### B1 — 拔線導致全行程死亡（2026-08-02 修，**L1**）
+
+**修法**（`grab/src/cam_pylon.{h,cpp}`、`cam_manager.{h,cpp}`、`main.cpp`）：
+
+1. `grab_loop()` 拆成 **try/catch 薄殼 + `grab_loop_body()` 本體**。薄殼攔
+   `Pylon::GenericException` / `std::exception` / `...` 三層，例外**絕不逸出 thread 進入點**
+   → 不再 `std::terminate`。收尾的 `StopGrabbing()` 也另包 try/catch（斷線後它自己會擲）。
+2. 攔到例外 → `note_fault()` 豎 `faulted_` + 存訊息 + stderr 警告；**該台 thread 乾淨退出，
+   其餘相機的 thread 不受影響繼續送幀**。
+3. `CamPylon::is_faulted()/fault_message()`、`CamManager::faulted_count()/faults()` 上拋。
+4. 8100 `GET_STATUS`/`CHECK_HEALTH` 新增 **`faulted`（台數）+ `faulted_cams`（cam_id/ccd_id/err）**。
+
+**刻意不做**：斷線後**不自動重連**。重連要重跑 open→參數→RDMA 全鏈，靜默重連會把「線鬆了」
+變成無人察覺的間歇掉幀（與本專案「不靜默假成功」原則衝突）。恢復路徑仍是 GRAB_STOP → 排除線路 → GRAB_ARM。
+
+**留下的坑（新增，須列入判讀紀律）**：故障後該台 `is_running()==false`，與「收滿 N 張正常停」
+**外觀完全相同**。任何「是否收完」的判斷都必須先看 `faulted==0`，否則斷線會被當成正常收完。
+⚠️ **Control 端尚未消費 `faulted` 欄位**（只用 CHECK_HEALTH 的 OK/ERR 判燈）→ 目前掉線只在
+Grab stdout 與 8100 回應可見，UI 不會亮警示。屬 K 系列待接項。
+
+**驗證狀態 L1**：Mac 無 pylon 只過了 header 語法檢查；damac 當時不可達。
+**補驗步驟**（damac，需 ≥2 台相機）：
+```bash
+./build/cfaoi_grab --rdma-dest <ip:port> --cam-count 2   # GRAB_ARM + GRAB_START 後
+# 拔掉其中一台的網線／關該台 PoE
+pgrep -x cfaoi_grab                       # 期望：行程仍在（修前會消失）
+# 8100 送 CHECK_HEALTH，期望 data 內：
+#   faulted=1、faulted_cams[0].cam_id = 被拔的那台、err 含 pylon 訊息
+#   另一台 grabbed 持續增加、sent_frames 持續增加
+```

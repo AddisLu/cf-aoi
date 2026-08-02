@@ -179,10 +179,22 @@ Control 送 GRAB_START（params: timeout_ms?, frames_per_panel?）
      逾時控管完全依賴上位機/Control。
 ```
 
-### 4.4 取像迴圈（cam_pylon.cpp:142-201，每台一條 grab thread）
+### 4.4 取像迴圈（cam_pylon.cpp，每台一條 grab thread）
+
+**B1 修法（2026-08-02，L1）**：`grab_loop()` 現在是 **try/catch 薄殼**，實際迴圈在
+`grab_loop_body()`。薄殼攔 `GenericException` / `std::exception` / `...` 三層 →
+拔線/斷電的例外**不再逸出 thread 進入點**（修前 = `std::terminate` 全行程死亡、6 台陪葬）。
+攔到後 `note_fault()` 豎 `faulted_` + 存訊息，**該台退出、其餘相機續跑**；不自動重連。
+⚠️ 故障後 `is_running()==false`，與「收滿自動停」外觀相同 → 判斷收完與否要先看 `faulted`。
 
 ```
-grab_loop()
+grab_loop()                       ← thread 進入點，只有 try/catch + StopGrabbing 收尾
+  try { grab_loop_body() }
+  catch GenericException / std::exception / ...  → note_fault()（faulted_=true）
+  try { StopGrabbing() } catch(...)              ← 斷線時它自己也會擲，必須吞
+  running_ = false
+
+grab_loop_body()                  ← 原本的迴圈，允許擲例外
   MaxNumBuffer=16；StartGrabbing(GrabStrategy_OneByOne)
   while (!stop_flag && IsGrabbing):
     RetrieveResult(2000ms, TimeoutHandling_Return)
@@ -344,7 +356,7 @@ CRC 不符 0、seq 跳躍 0、背壓下 slots=2 亦 ok=20 err=0。
 
 | # | `cmd` | 輸入 params | 動作 / 回應 | dispatch 行 |
 |---|-------|------------|------------|------|
-| 1 | `CHECK_HEALTH` | 無 | `OK` + `data`={grabbing, armed, cams, running, frames_per_panel, grabbed, dropped, sent_frames, sent_bytes}（main.cpp:506-535，皆為總和無 per-cam 明細）| :132 |
+| 1 | `CHECK_HEALTH` | 無 | `OK` + `data`={grabbing, armed, cams, running, frames_per_panel, grabbed, dropped, sent_frames, sent_bytes, **faulted, faulted_cams**}。計數欄皆為總和無 per-cam 明細（B9）；`faulted_cams`=B1 修法新增，每筆 {cam_id, ccd_id, err}，是唯一能從 8100 定位「哪台掉線」的欄位 | :132 |
 | 2 | `LOAD_RECIPE` | `recipe`, `panel_id` | 更新 panel_id + panel_hash（atomic；不取像）；回 `OK` | :140 |
 | 3 | `GRAB_ARM` | 無 | 預熱：開陣列+套曝光增益+RDMA connect（冪等）；見 §4.2 | :148 |
 | 4 | `GRAB_START` | `timeout_ms?`（預設 40000，⚠️ 目前被 handler 忽略）, `frames_per_panel?`（0=連續）| 觸發：切片歸零 + start_all；未 ARM 自動先 ARM | :160 |

@@ -876,6 +876,22 @@ X8 rdma_common 兩份 wire 同、行為已分歧（文件敘述改「wire 凍結
 **文件對齊（同日完成）**：docs/CLAUDE.md 全面修訂（詳見其標頭 2026-08-02 註記）；
 grab/ip/control 三組 CLAUDE.md＋程式完整說明依各自漂移清單修正；tools 兩檔查證零漂移未動。
 
+### B1 已修（2026-08-02，**L1 — 未實機驗**）
+
+`grab_loop()` 拆為 try/catch 薄殼 + `grab_loop_body()`：攔 `GenericException`/`std::exception`/`...`
+三層，例外不再逸出 thread 進入點 → **拔線只停該台，其餘相機續跑、行程存活**（修前 6 台陪葬）。
+故障狀態經 `CamPylon::is_faulted()` → `CamManager::faults()` → 8100 `CHECK_HEALTH`/`GET_STATUS`
+新欄位 **`faulted` / `faulted_cams`**（cam_id + ccd_id + pylon 錯誤訊息）。
+刻意**不自動重連**（靜默重連＝把「線鬆了」變成無人察覺的間歇掉幀）。
+
+⚠️ **新判讀紀律**：故障後該台 `is_running()==false`，與「收滿 N 張正常停」外觀相同 →
+任何「是否收完」判斷都要先看 `faulted==0`。
+⚠️ **Control 尚未消費 `faulted`**（心跳只看 OK/ERR），UI 不會亮警示 = 待接 K 系列項。
+
+**L1→L3 補驗**（damac + ≥2 台相機，步驟見 code_review_20260802.md「修復記錄」節）：
+GRAB_START 後拔一台網線 → `pgrep -x cfaoi_grab` 仍在 + `CHECK_HEALTH` 回 `faulted=1` 且指到正確
+cam_id + 另一台 `grabbed`/`sent_frames` 持續增加。
+
 ---
 
 ## 權威 Gap 表（2026-06-17）：舊版 Reference → 現狀 → gap#

@@ -513,13 +513,15 @@ int main(int argc, char** argv) {
         return c->grab_one_mean(mean, err);
     });
 
-    // ⚠️ 已知限制（docs/code_review_20260802.md B9）：只回全陣列總和（grabbed/dropped/running），
-    //   無 per-cam 明細——6 台時無法從 8100 定位哪台少幀，只能翻 stdout log。
+    // ⚠️ 已知限制（docs/code_review_20260802.md B9）：計數仍只回全陣列總和（grabbed/dropped/running），
+    //   無 per-cam 幀數明細——6 台時無法從 8100 定位哪台「少幀但還活著」，只能翻 stdout log。
+    //   （B1 修法已補 faulted/faulted_cams：**掉線**的台可從 8100 直接定位到 cam_id + 原因。）
     ctrl.set_status_provider([&]() -> std::string {
         bool g, a;
         size_t cams, running;
         uint64_t grabbed, dropped, sent_f, sent_b;
         uint32_t tslice;
+        std::vector<CamManager::Fault> faults;
         {
             std::lock_guard<std::mutex> lk(state_mtx);
             g       = grabbing;
@@ -531,19 +533,32 @@ int main(int argc, char** argv) {
             sent_f  = sender.sent_frames();
             sent_b  = sender.sent_bytes();
             tslice  = total_slice.load(std::memory_order_relaxed);
+            faults  = mgr.faults();          // B1：拔線/斷電中止的台（本行程仍活著）
         }
         char buf[352];
         snprintf(buf, sizeof(buf),
                  "{\"grabbing\":%s,\"armed\":%s,\"cams\":%zu,\"running\":%zu,"
                  "\"frames_per_panel\":%u,\"grabbed\":%llu,\"dropped\":%llu,"
-                 "\"sent_frames\":%llu,\"sent_bytes\":%llu}",
+                 "\"sent_frames\":%llu,\"sent_bytes\":%llu",
                  g ? "true" : "false", a ? "true" : "false", cams, running,
                  tslice > 1 ? tslice : 0,
                  (unsigned long long)grabbed,
                  (unsigned long long)dropped,
                  (unsigned long long)sent_f,
                  (unsigned long long)sent_b);
-        return buf;
+
+        // B1：故障台明細另用 nlohmann 組（例外訊息含引號/反斜線，手工拼字串會產出壞 JSON）。
+        // faulted>0 = 有相機掉線但行程仍存活；running 少掉的台**不是**收滿，是斷了。
+        json fj = json::array();
+        for (const auto& f : faults) {
+            fj.push_back({{"cam_id", f.cam_id},
+                          {"ccd_id", f.ccd_id},
+                          {"err",    f.message}});
+        }
+        std::string out = buf;
+        out += ",\"faulted\":" + std::to_string(faults.size());
+        out += ",\"faulted_cams\":" + fj.dump() + "}";
+        return out;
     });
 
     // ---- 啟動 ----

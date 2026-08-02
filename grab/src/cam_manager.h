@@ -83,6 +83,17 @@ public:
     uint64_t total_dropped() const;
     size_t   running_count() const;    // 仍在取像的台數（收滿自動停後遞減）
 
+    // ---- B1：故障台彙總（拔線/斷電導致該台 grab thread 中止）----
+    // ⚠️ running_count() 遞減有兩種原因：收滿 N 張正常停 vs 故障中止。**兩者外觀相同**，
+    //    上位判斷（「全部收完了嗎」）必須先看 faulted_count()==0，否則會把斷線當成正常收完。
+    struct Fault {
+        uint16_t    cam_id = 0;
+        std::string ccd_id;    // 顯示標籤（無映射時為空）
+        std::string message;   // 相機層例外訊息
+    };
+    size_t             faulted_count() const;
+    std::vector<Fault> faults() const;
+
     std::vector<Entry>& entries() { return cams_; }
 
 private:

@@ -335,3 +335,20 @@ size_t CamManager::running_count() const {
     for (const auto& e : cams_) if (e.cam->is_running()) ++n;
     return n;
 }
+
+// B1：故障台彙總。故障後該台 is_running()==false，與「收滿自動停」外觀相同 →
+// 必須靠 is_faulted() 區分，否則斷線會被當成正常收完（靜默假完成）。
+size_t CamManager::faulted_count() const {
+    size_t n = 0;
+    for (const auto& e : cams_) if (e.cam->is_faulted()) ++n;
+    return n;
+}
+
+std::vector<CamManager::Fault> CamManager::faults() const {
+    std::vector<Fault> out;
+    for (const auto& e : cams_) {
+        if (!e.cam->is_faulted()) continue;
+        out.push_back(Fault{e.cam_id, e.ccd_id, e.cam->fault_message()});
+    }
+    return out;
+}
