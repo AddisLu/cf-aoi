@@ -5,11 +5,10 @@ verify_flight_src.py — 行車紀錄 incident `src` 欄位（出錯源碼 檔�
 STATUS「行車紀錄」列：`src` 欄位（FR_RECORD_INCIDENT 巨集帶入 __FILE__:__LINE__）原為 L1
 （已寫碼，待 Linux/Spark 重編 + 觸發 incident 確認 src 內容正確再升 L3）。
 
-本腳本經 offline-tcp 非破壞性觸發三種 incident，讀 <output>/_diag 確認每筆都帶
-repo 相對 `src`（ip/src/...:行號），且行號落在預期呼叫點：
-  bad_json         → ip/src/control_server.cpp:407
-  frame_validation → ip/src/control_server.cpp:534
-  recipe_load      → ip/src/main.cpp:357
+本腳本經 offline-tcp 非破壞性觸發三種 incident（bad_json / frame_validation / recipe_load），
+讀 <output>/_diag 確認每筆都帶 repo 相對 `src`（ip/src/...:行號），且該行號**正好命中**
+源碼中該 kind 的 `FR_RECORD_INCIDENT` 呼叫點——呼叫點由 `scan_call_sites()` 即時掃描 ip/src 取得，
+不再寫死行號（2026-08-02 改；原寫死值早已因改碼位移而失效，見 docs/code_review_20260802.md S6）。
 （cuda_fatal / uncaught_exception 屬破壞性，recorder 機制本身已於 2026-06-15 RTX2080 驗；此處驗新增的 src 欄位。）
 
 用法：
@@ -41,14 +40,36 @@ def send_raw(s, raw):
     s.sendall(raw)
     return json.loads(recv_line(s))
 
-# 預期 src 呼叫點（檔名須對；行號比對已知 FR_RECORD_INCIDENT 呼叫點集合，±3 行容編輯漂移）。
-# recipe_load 兩處呼叫點（2026-07-12「手冊對照」檔頭註解加入後行號位移）：main.cpp:426
-# （offline-file 啟動載入失敗）/ :593（offline-tcp LOAD_RECIPE handler）；本腳本的壞 XML 命中後者。
-EXPECT = {
-    "bad_json":         ("ip/src/control_server.cpp", {412}),
-    "frame_validation": ("ip/src/control_server.cpp", {539, 569}),
-    "recipe_load":      ("ip/src/main.cpp",            {426, 593}),
-}
+# 預期 src 呼叫點：**從源碼即時掃描推導**（2026-08-02 改）。
+# 原本寫死行號（bad_json 412 / frame_validation 539,569 / recipe_load 426,593），但每次改碼
+# （含只加註解）都會位移 → 複查時實測已與源碼不符（S6）。改為掃 ip/src 找 FR_RECORD_INCIDENT("kind",
+# 呼叫點，比對 src 是否**正好命中**其中之一（不再需要 ±3 容差）。
+# 驗的不變式不變且更強：incident.src 必須指向該 kind 的真實呼叫點，而非任意行號。
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+FR_CALL = re.compile(r'FR_RECORD_INCIDENT\s*\(\s*"([A-Za-z0-9_]+)"')
+
+def scan_call_sites():
+    """回傳 {kind: {(repo相對檔名, 行號), ...}}；掃不到源碼時回 {}（呼叫端會退回寬鬆檢查）。"""
+    sites = {}
+    for root, dirs, files in os.walk(os.path.join(REPO, "ip", "src")):
+        dirs[:] = [d for d in dirs if d not in ("build", ".git")]
+        for fn in files:
+            if not fn.endswith((".cpp", ".h", ".cu", ".cuh")):
+                continue
+            p = os.path.join(root, fn)
+            rel = os.path.relpath(p, REPO).replace(os.sep, "/")
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    for lineno, line in enumerate(f, 1):
+                        m = FR_CALL.search(line)
+                        if m:
+                            sites.setdefault(m.group(1), set()).add((rel, lineno))
+            except OSError:
+                pass
+    return sites
+
+# 本腳本觸發的三種 kind（觸發手法見 main()）
+EXPECT_KINDS = ["bad_json", "frame_validation", "recipe_load"]
 
 results = []
 def check(name, cond, detail):
@@ -102,15 +123,23 @@ def main():
           "; ".join(f"{e.get('kind')}={e.get('src')}" for e in incidents) or "no incidents")
 
     pat = re.compile(r"^(ip/src/[^:]+):(\d+)$")
-    for kind, (efile, elines) in EXPECT.items():
+    sites = scan_call_sites()          # 從源碼推導真實呼叫點（見檔案上方說明）
+    if not sites:
+        print("[warn] 掃不到 ip/src 源碼（非 repo 內執行？）→ 退回寬鬆檢查：只驗 src 格式")
+    for kind in EXPECT_KINDS:
         ev = next((e for e in incidents if e.get("kind") == kind), None)
         if ev is None:
             check(f"{kind}: 有事件且 src 正確", False, "找不到該 kind 事件")
             continue
         src = ev.get("src", "")
         m = pat.match(src)
-        ok = bool(m) and m.group(1) == efile and any(abs(int(m.group(2)) - L) <= 3 for L in elines)
-        check(f"{kind}: src={src}（期望 {efile}:{sorted(elines)}）", ok, f"src={src}")
+        expected = sites.get(kind, set())
+        if not sites:                   # 無源碼可比 → 只確認格式合法
+            ok, detail = bool(m), f"src={src}（未比對呼叫點：無源碼）"
+        else:
+            ok = bool(m) and (m.group(1), int(m.group(2))) in expected
+            detail = f"src={src}（該 kind 源碼呼叫點：{sorted(f'{f}:{l}' for f, l in expected) or '無'}）"
+        check(f"{kind}: src 命中真實 FR_RECORD_INCIDENT 呼叫點", ok, detail)
 
     # incident_*.json 完整現場也帶 src
     check("incident_*.json 完整現場亦含 src",
