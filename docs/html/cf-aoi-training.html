@@ -7,32 +7,46 @@
 </head>
 <body>
 <style>
+/* ═══ 設計決策沿革（勿誤讀為前後矛盾）═══════════════════════════════════════
+   2026-06 初版：亮底為唯一預設（產線/辦公環境閱讀舒適，當時使用者要求不用全黑底）。
+   2026-07-31 改版：使用者要求整體「更像 Cursor」→ 改為 **暗色預設 + 亮色可切換**
+     （非移除亮色；產線強光下按 ☀️ 一鍵切回，偏好存 localStorage `cfaoi.theme`）。
+     暗色值對映 VS Code / Cursor "Dark Modern"，讓看碼面板與教材同一個視覺語言。
+   兩組 token 皆為完整定義：:root = 暗色（預設），[data-theme="light"] = 亮色。
+   仍**不隨 OS 自動變色**——只認使用者主動切換，避免產線機器半夜自己變黑。
+   ══════════════════════════════════════════════════════════════════════════ */
 :root {
-  --bg: #f6f8f9;
-  --panel: #ffffff;
-  --panel2: #eef3f4;
-  --ink: #1e2f37;
-  --ink-2: #526670;
-  --ink-3: #8698a0;
-  --line: #e2e9eb;
-  --accent: #0f7285;
+  --bg: #1a1a1a;          /* 編輯器底 */
+  --panel: #181818;       /* 側欄／面板（比內容區更深，Cursor 的層次） */
+  --panel2: #202020;      /* 次級面：卡片、hover */
+  --ink: #cccccc;         /* 主文 */
+  --ink-2: #9d9d9d;       /* 次要 */
+  --ink-3: #6e6e6e;       /* 弱化：eyebrow、註記 */
+  --line: #2b2b2b;
+  --accent: #4a9eff;      /* Cursor 藍 */
   --accent-ink: #ffffff;
-  --accent-soft: #e4f2f5;
-  --ok: #2b8a3e;
-  --ok-soft: #e7f4ea;
-  --warn: #b35c00;
-  --warn-soft: #fdf1e2;
-  --crit: #c92a2a;
-  --crit-soft: #fceaea;
-  --code-bg: #22333d;
-  --code-ink: #d3e5ee;
-  --radius: 12px;
-  --shadow: 0 1px 2px rgba(30,47,55,.05), 0 6px 20px rgba(30,47,55,.05);
+  --accent-soft: #0d2c4d; /* 選中／高亮底 */
+  --ok: #4ec9b0;          /* VS Code token 色系 */
+  --ok-soft: #10312b;
+  --warn: #dcdcaa;
+  --warn-soft: #332f18;
+  --crit: #f48771;
+  --crit-soft: #3b1f1a;
+  --code-bg: #1e1e1e;     /* VS Code 編輯器底 */
+  --code-ink: #d4d4d4;
+  --radius: 6px;          /* Cursor 圓角較銳利（原 12px） */
+  --shadow: 0 1px 3px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.35);
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
   --sans: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Heiti TC", system-ui, -apple-system, sans-serif;
 }
-/* 設計決策：亮底為唯一預設（產線/辦公環境閱讀舒適、應使用者要求不用全黑底）。
-   深色僅在檢視器明確切換 data-theme="dark" 時生效（使用者主動選擇），不隨 OS 自動變黑。 */
+:root[data-theme="dark"] {
+  --bg: #1a1a1a; --panel: #181818; --panel2: #202020; --ink: #cccccc; --ink-2: #9d9d9d;
+  --ink-3: #6e6e6e; --line: #2b2b2b; --accent: #4a9eff; --accent-ink: #ffffff;
+  --accent-soft: #0d2c4d; --ok: #4ec9b0; --ok-soft: #10312b; --warn: #dcdcaa;
+  --warn-soft: #332f18; --crit: #f48771; --crit-soft: #3b1f1a;
+  --code-bg: #1e1e1e; --code-ink: #d4d4d4;
+  --shadow: 0 1px 3px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.35);
+}
 :root[data-theme="light"] {
   --bg: #f6f8f9; --panel: #ffffff; --panel2: #eef3f4; --ink: #1e2f37; --ink-2: #526670;
   --ink-3: #8698a0; --line: #e2e9eb; --accent: #0f7285; --accent-ink: #ffffff;
@@ -40,14 +54,6 @@
   --warn-soft: #fdf1e2; --crit: #c92a2a; --crit-soft: #fceaea;
   --code-bg: #22333d; --code-ink: #d3e5ee;
   --shadow: 0 1px 2px rgba(30,47,55,.05), 0 6px 20px rgba(30,47,55,.05);
-}
-:root[data-theme="dark"] {
-  --bg: #0f171c; --panel: #16222a; --panel2: #1c2b34; --ink: #dce8ee; --ink-2: #9fb4bd;
-  --ink-3: #6c828c; --line: #27394262; --accent: #46c2d7; --accent-ink: #06232a;
-  --accent-soft: #0e3a44; --ok: #69c97c; --ok-soft: #143521; --warn: #f2a256;
-  --warn-soft: #3a2a12; --crit: #ef7070; --crit-soft: #401a1a;
-  --code-bg: #0b1216; --code-ink: #b8d4df;
-  --shadow: 0 1px 3px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -322,8 +328,8 @@ nav.side .navitem.dimmed:hover { opacity: .85; }
 .topoanim .tlink { stroke: var(--ink-3); stroke-width: 2; stroke-dasharray: 4 4; opacity: .6; }
 .topoanim .dot { fill: var(--accent); }
 .topoanim .dot.stuck { fill: var(--crit); }
-.topo-console { margin-top: 10px; background: #16232b; border-radius: 10px; color: #cfe4ee; font-family: var(--mono); font-size: 12px; line-height: 1.65; padding: 10px 14px; min-height: 66px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
-.topo-console .te { color: #ff8a8a; } .topo-console .tw { color: #ffd479; } .topo-console .tp { color: #7ee2a8; }
+.topo-console { margin-top: 10px; background: #1e1e1e; border-radius: var(--radius); color: #d4d4d4; font-family: var(--mono); font-size: 12px; line-height: 1.65; padding: 10px 14px; min-height: 66px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; }
+.topo-console .te { color: #f48771; } .topo-console .tw { color: #dcdcaa; } .topo-console .tp { color: #4ec9b0; }
 .topo-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 
 /* ── 各章微動畫共用元件 ── */
@@ -352,43 +358,45 @@ nav.side .navitem.dimmed:hover { opacity: .85; }
   backdrop-filter: blur(2px); display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh;
 }
 .cmdk-backdrop[hidden] { display: none; }
+/* 命令面板恆為暗色（不隨主題）——與 Cursor/VS Code 的 quick open 一致。 */
 .cmdk {
-  width: min(640px, 92vw); background: #1c2b33; color: #dce8ee; border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0,0,0,.45); overflow: hidden; border: 1px solid #2c4250;
+  width: min(640px, 92vw); background: #202020; color: #cccccc; border-radius: 8px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.55); overflow: hidden; border: 1px solid #3a3a3a;
 }
 .cmdk input {
   width: 100%; box-sizing: border-box; background: transparent; border: none; outline: none;
-  color: #eef6fa; font-family: var(--sans); font-size: 17px; padding: 16px 20px;
-  border-bottom: 1px solid #2c4250;
+  color: #e6e6e6; font-family: var(--sans); font-size: 17px; padding: 16px 20px;
+  border-bottom: 1px solid #333333;
 }
-.cmdk input::placeholder { color: #6c828c; }
+.cmdk input::placeholder { color: #6e6e6e; }
 .cmdk-list { max-height: 46vh; overflow-y: auto; padding: 6px; }
 .cmdk-item {
-  display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; border-radius: 9px; cursor: pointer;
+  display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; border-radius: 5px; cursor: pointer;
 }
 .cmdk-item .ci { font-size: 14px; flex-shrink: 0; width: 20px; text-align: center; }
 .cmdk-item .ct { font-size: 14px; font-weight: 600; }
-.cmdk-item .ct mark { background: none; color: #7ee2d8; font-weight: 800; }
-.cmdk-item .cs { font-family: var(--mono); font-size: 11px; color: #8fa9b5; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
-.cmdk-item.sel { background: #0f7285; }
-.cmdk-item.sel .cs { color: #cfe9ef; }
-.cmdk-foot { display: flex; gap: 16px; padding: 8px 16px; font-size: 11px; color: #6c828c; border-top: 1px solid #2c4250; }
+.cmdk-item .ct mark { background: none; color: #4a9eff; font-weight: 800; }
+.cmdk-item .cs { font-family: var(--mono); font-size: 11px; color: #9d9d9d; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
+.cmdk-item.sel { background: #04395e; }
+.cmdk-item.sel .cs { color: #cfe0f0; }
+.cmdk-foot { display: flex; gap: 16px; padding: 8px 16px; font-size: 11px; color: #6e6e6e; border-top: 1px solid #333333; }
 .flash-target { animation: flashbg 1.6s ease-out; }
 @keyframes flashbg { 0%, 30% { background: var(--warn-soft); box-shadow: 0 0 0 4px var(--warn-soft); } 100% { background: transparent; } }
 
 /* ── 虛擬終端機（預錄回放）── */
-.term { background: #16232b; border-radius: var(--radius); margin: 16px 0; overflow: hidden; box-shadow: var(--shadow); max-width: 68ch; }
-.term-bar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: #0e1a21; }
+/* 虛擬終端機恆為暗色（真終端機本來就是暗的），色票對齊 VS Code 內建終端 ANSI。 */
+.term { background: #1e1e1e; border-radius: var(--radius); margin: 16px 0; overflow: hidden; box-shadow: var(--shadow); max-width: 68ch; }
+.term-bar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: #181818; }
 .term-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
 .term-bar .dot:nth-child(1){background:#f56} .term-bar .dot:nth-child(2){background:#fb5} .term-bar .dot:nth-child(3){background:#4c4}
-.term-bar .tl { font-family: var(--mono); font-size: 11px; color: #8fa9b5; flex: 1; margin-left: 6px; }
-.term-bar .btn { padding: 2px 10px; font-size: 11.5px; background: #1c2f3a; border-color: #2a4250; color: #cfe4ee; }
-.term-out { font-family: var(--mono); font-size: 12.3px; line-height: 1.65; color: #cfe4ee; padding: 12px 16px; min-height: 90px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; }
-.term-out .tc { color: #7ee2a8; }      /* 命令 */
-.term-out .te { color: #ff8a8a; }      /* 錯誤 */
-.term-out .tw { color: #ffd479; }      /* 警告 */
-.term-out .tp { color: #58c4dd; }      /* PASS/重點 */
-.term-out .cursor { display: inline-block; width: 7px; height: 13px; background: #cfe4ee; animation: blink 1s steps(1) infinite; vertical-align: -2px; }
+.term-bar .tl { font-family: var(--mono); font-size: 11px; color: #9d9d9d; flex: 1; margin-left: 6px; }
+.term-bar .btn { padding: 2px 10px; font-size: 11.5px; background: #2a2a2a; border-color: #3a3a3a; color: #d4d4d4; }
+.term-out { font-family: var(--mono); font-size: 12.3px; line-height: 1.65; color: #d4d4d4; padding: 12px 16px; min-height: 90px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; }
+.term-out .tc { color: #4ec9b0; }      /* 命令 */
+.term-out .te { color: #f48771; }      /* 錯誤 */
+.term-out .tw { color: #dcdcaa; }      /* 警告 */
+.term-out .tp { color: #4a9eff; }      /* PASS/重點 */
+.term-out .cursor { display: inline-block; width: 7px; height: 13px; background: #d4d4d4; animation: blink 1s steps(1) infinite; vertical-align: -2px; }
 @keyframes blink { 50% { opacity: 0; } }
 
 /* ── 參數沙盒 ── */
@@ -5699,12 +5707,15 @@ window.addEventListener('scroll', onScroll, { passive: true });
 window.addEventListener('resize', onScroll, { passive: true });
 toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
-/* ── G. 深色模式切換（獨立開檔時 CSS 的 data-theme 原本無入口）── */
+/* ── G. 主題切換（2026-07-31：暗色為預設，亮色可切）──
+   一律顯式寫入 data-theme（不留 undefined），這樣 ① 按鈕圖示判斷單純
+   ② mermaid 的 data-theme MutationObserver 在首次切換前就有基準值。 */
 const themeBtn = $$('themeBtn');
 function applyTheme() {
   themeBtn.textContent = document.documentElement.dataset.theme === 'dark' ? '☀️' : '🌙';
+  themeBtn.title = document.documentElement.dataset.theme === 'dark' ? '切換為亮色' : '切換為暗色';
 }
-{ const saved = LS.get('theme', null); if (saved) document.documentElement.dataset.theme = saved; }
+{ const saved = LS.get('theme', null); document.documentElement.dataset.theme = saved || 'dark'; }
 applyTheme();
 themeBtn.addEventListener('click', () => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -8117,14 +8128,14 @@ globalThis.mermaid = globalThis.__esbuild_esm_mermaid.default;
       primaryBorderColor: v('--accent'),
       secondaryColor: v('--panel2'),
       secondaryBorderColor: v('--line'),
-      tertiaryColor: dark ? '#1a2830' : '#f1f5f6',
+      tertiaryColor: dark ? '#252525' : '#f1f5f6',
       tertiaryBorderColor: v('--line'),
       lineColor: v('--ink-2'),
       textColor: v('--ink'),
       fontFamily: v('--sans') || 'system-ui, sans-serif',
       fontSize: '13.5px',
       nodeBorder: v('--accent'),
-      clusterBkg: dark ? '#141f26cc' : '#eef3f4aa',
+      clusterBkg: dark ? '#202020cc' : '#eef3f4aa',
       clusterBorder: v('--line'),
       edgeLabelBackground: v('--panel'),
       titleColor: v('--ink'),
