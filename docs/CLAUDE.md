@@ -368,7 +368,8 @@ static_assert(sizeof(FrameHeader)==256,"");
 | 6 相機到貨架設 / 到貨日檢查單 | `docs/6cam_setup_runbook.md`（實機踩坑固化）|
 | SUB/融合管線背景與驗收 | `docs/SUB_pipeline_port_plan.md` + `docs/SUB_pipeline_verification_20260623.html` |
 | 架構層審計 / 產能決策 | `docs/architecture_audit_20260712.md` + `docs/verification/capacity_2spark_checklist.md` |
-| 新人教學 / 互動教材 | `docs/html/cf-aoi-training.html`（`build_manual.py` 重建，源碼內嵌會隨改碼過時）|
+| **想知道「現在做到哪、下一步做什麼」** | **`docs/DASHBOARD.md`**（`scripts/gen_dashboard.py` 生成的一頁表：未修缺陷數／P0 清單／最近變動／規模。**不要手改，重跑腳本**）|
+| 新人教學 / 互動教材 | `docs/html/cf-aoi-training.html`（`build_manual.py` 重建；**2026-08-02 起只內嵌索引不內嵌源碼**，看碼一律開 VS Code → 不會再顯示過時的程式碼）|
 
 > **判準**：理解現況 / 回答問題 → 讀①即可；實際改 code → 加讀對應源碼；碰 legacy 相容 → 加讀 `Reference/`。
 > 不必要求「全讀」——給定任務後按上述優先序取最小必要集合即可。
