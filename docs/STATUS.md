@@ -3,7 +3,10 @@
 > 本文件用 meta 不變式 #0 的 L0–L4 分級，誠實標註每個模組的真實完成度。
 > 規則：**標低不標高；有疑慮時標保守級別。「寫好 ≠ 驗證過」。**
 > 每一列的級別皆**逐項核實程式碼 / selftest 後**標定；與初版草稿不同者於該列加註。
-> 最後更新：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。⑥ **2026-06-19 docs 全面對齊**：上位機 CF_ 已接線 L2/L3(端到端跑通,真上位機/μm 維 L4 不混)；補 RoiImageView/SingleCcdSetupView/ArrayTopology/UpstreamWiring 進 control 說明 §2/5/6/16；模組表補相機陣列/RoiImageView/單 CCD 工作台；清理 cruft(.pyc/測試 recipes untrack)。⑦ **2026-06-21 三模組獨立重驗**：#1–#34 一致無漏列；校正 **#9 範圍**（legacy 9 個 AlgorithmWay string，缺失 7 非-8-way 幾何模式，8-Way 已做）；**#19** 加備註（AlgorithmWay 的 EdgeDetect(51000) 邊緣模式同根因併入）；**#24** 加「SaveAiTrain→DefectSort **部分替代**」備註；新增「已知新碼缺陷」短表（F1 全幅對位 1px bug）。⑧ **2026-06-21 doable-now 收口 sprint**（Mac/Control + Linux x86 RTX2080，offline）：24 gap triage（workflow，含對抗複查）→ 收掉 **#6/#7/#16/#23/#25/#32/#33**（IP 演算法 #16/#23/#32 RTX2080 **L3**；Control 邏輯 #7/#25/#33 selftest **L2**）；**#31 covered-by-substitution**、**#22/#26/#34-A1 等 batch-later/blocked**（見表七後「收口 sprint」段）。）
+> 最後更新：**2026-08-02**（6 相機到貨前**全面複查**：4 路深度掃查（grab/ip/control/跨模組契約）發現之未修缺陷
+> 全數入帳於新節「**2026-08-02 全面複查**」；docs/CLAUDE.md 與各模組 CLAUDE.md/程式完整說明全面對齊現況；
+> 本檔過時敘述同步勘誤——SUB 三域守門取代 DIV-only（6/23 移植）、rdma-validate/rdma-process 已 L3、
+> image-capture/online 模式名不存在由 rdma-process 承接、#21/#25 已做。）前次：**2026-06-18**（① Gap #6 多 IP 配方單一入口 L2 + #8 視覺 ROI L1 完成。② 主視窗加 Grab/上位機連線燈;GigE 機器層參數 GET_CAM_NODES UI 可見 L3。③ **per-camera ROI 考古 + 設計定案 = 新 gap #34**:每台相機不同起始點 → legacy = 本地 ROI + 每台對位 Mark;已選模型 A + 底圖兩來源都支援,見表六。④ **#34 A2 完成**:per-IP 對位 Mark(M_AlignRoi) 編輯 UI 進 ZoneParamEditor + `RecipeIps` 多 CCD 宣告(修 config List 附加致 IP0 重複),`--selftest store` 驗 AlignRoi per-IP 隔離 PASS(L2,版面待 Mac 目視);Step1 ROI 框選加四角四邊把手精修+數值微調+左鍵拖曳平移。A1(底圖綁實拍)待相機。⑤ 多 CCD 三層模型(運算單元/CCD/per-CCD 配方)扶正進 docs/CLAUDE.md §2 + Phase 1 拆塊(塊1/2/3,關聯 #6/#34/#21,docs-only;容量數字守誠實分級:7.4ms 實測、37 CCD 餘裕 73% 為投影)。前次：① 二次考古 #1–#28 100% 一致,補登 #29–#31;② UI 專項複查補登 #32–#33。⑥ **2026-06-19 docs 全面對齊**：上位機 CF_ 已接線 L2/L3(端到端跑通,真上位機/μm 維 L4 不混)；補 RoiImageView/SingleCcdSetupView/ArrayTopology/UpstreamWiring 進 control 說明 §2/5/6/16；模組表補相機陣列/RoiImageView/單 CCD 工作台；清理 cruft(.pyc/測試 recipes untrack)。⑦ **2026-06-21 三模組獨立重驗**：#1–#34 一致無漏列；校正 **#9 範圍**（legacy 9 個 AlgorithmWay string，缺失 7 非-8-way 幾何模式，8-Way 已做）；**#19** 加備註（AlgorithmWay 的 EdgeDetect(51000) 邊緣模式同根因併入）；**#24** 加「SaveAiTrain→DefectSort **部分替代**」備註；新增「已知新碼缺陷」短表（F1 全幅對位 1px bug）。⑧ **2026-06-21 doable-now 收口 sprint**（Mac/Control + Linux x86 RTX2080，offline）：24 gap triage（workflow，含對抗複查）→ 收掉 **#6/#7/#16/#23/#25/#32/#33**（IP 演算法 #16/#23/#32 RTX2080 **L3**；Control 邏輯 #7/#25/#33 selftest **L2**）；**#31 covered-by-substitution**、**#22/#26/#34-A1 等 batch-later/blocked**（見表七後「收口 sprint」段）。）
 
 ## 分級定義
 
@@ -29,7 +32,7 @@
 | 層      | 平台                           | 角色                 | 整體狀態          |
 | ------- | ------------------------------ | -------------------- | ----------------- |
 | Control | C# / Avalonia（Mac·Win·Linux） | 控制平面 + 操作 UI   | **L1–L3（混合）** |
-| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2；2026-07-30 改經 HPE 5945 交換機全鏈重驗 20 幀 dropped=0/CRC 全對）；多相機全陣列 L1（Step 3，Switch 已到位，改為待 37 台相機到貨）** |
+| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2；2026-07-30 改經 HPE 5945 交換機全鏈重驗 20 幀 dropped=0/CRC 全對）；多相機 **2 台 L3**（2026-07-30/31 damac 實機：同步觸發 skew 1.45–1.72ms、SEND/RECV 背壓 err=0、cam_map MAC 綁定、4 片×3 張×2 台=24 幀 CRC/seq 錯 0）；6 台待 8/M 到貨、37 台全陣列 L0** |
 | IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L4（DGX Spark GB10 sm_121 實機：編譯+運算正確性+跨架一致性+速度，2026-06-15）** |
 
 ---
@@ -54,7 +57,8 @@
 | 單 CCD 工作台（SingleCcdSetupView，塊3-3c）| **L2(selftest)/L1(目視)** | `--selftest singleccd` 5 case PASS（組合既有 Step1+ZoneEditor 實例 / LoadSlot 設 SelectedIp / header 顯 CCD 名 / EditZone=選中 ROI + AllZones=DetectRoiList）。大影像 + 右精簡欄、選 ROI 影像高亮定位 **待 Mac 目視**。對位 Mark 視覺定位 deferred（現數值卡）。|
 | UpstreamServer（CF_/8787/9 參數） | **接線+回呼+模擬器 L2(selftest)/L3 ✓(2026-06-19 端到端跑通)；真上位機 L4；μm(#5) L4** | **2026-06-19 接線**：`AppServices.Build` new UpstreamServer(8787) + `MainWindowViewModel` ctor `UpstreamWiring.Bind`+`Start()`（Optional 失敗不阻塞）；回呼重用既有 IP 流程——`OnLoadRecipe`→`IpClient.LoadRecipeAsync`、`OnGetResult`→`ListDefectFoldersAsync` 組「路徑,逗號+缺陷數,逗號」(非 JSON)、`OnConnectedChanged`→`SetUpstreamConnected`(燈轉綠)。**★A 誠實失敗**：GRAB_START/CHECK_ALIGN/SET_ALIGN offline 不綁 → 回 **ERR(非假 OK)**（CHECK_ALIGN 不再回假 `OK\|0\|0`）。`--selftest upstream` 6 case PASS（READY/LOAD_RECIPE接IP/GET_RESULT路徑+數/CHECK·SET_ALIGN誠實失敗/燈轉綠）=**L2**；`scripts/upstream_simulator.py` 端到端 = **L3 ✓ 跑通（2026-06-19，模擬器 ↔ 真 Control(Mac 8787) ↔ 真 IP(8200)）**：`CF_GET_RESULT` 回真實 IP 結果夾+缺陷數（例 `OK\|IP04_Origin000001_DEFAULT,…\|0,0,0,0,1,1`，回呼 `ListDefectFoldersAsync` 端到端通）、CHECK/SET_ALIGN 回誠實失敗 ERR、上位機燈轉綠。⚠️ **真上位機協議認帳（欄位/序列/μm 是否如實機預期）= L4 做不了**；**μm 契約(#5)= IP 片面提議 = L4**（不混）。#25 CF_STOP/#26 BypassAlignment 未動。 |
 | 從 IP 載入影像（遠端檔案瀏覽 + 縮小預覽 + 全解析度檢測）| **Control L2(selftest)；IP L3(2026-06-22 Spark)；端到端 L3 ✓(2026-06-22)** 〔HARD verify 通過：`scripts/verify_remote_image.py` 7/7 — REVIEW_LOCAL_IMAGE(磁碟 PGM) == SEND_IMAGE_FOR_REVIEW(上傳同 raw) 逐缺陷欄位 bit-exact(n=5)、REVIEW 兩跑 bit-exact、不存在路徑→ERR、GET_IMAGE_PREVIEW 回全解析度 8192×5000+縮圖；於 spark-c16f GB10 offline-tcp 跑通〕 | Mac 遠端時圖太大搬不動 → IP 讀自己磁碟、只回縮小預覽 PNG + 全解析度寬高（network-clean，不搬全圖）。`--selftest remoteimg` 3 case PASS（假 IP server：① RemoteImageBrowser 列舉/導航(.. 在前/雙擊目錄進入·影像回路徑) ② Step1 遠端載入：預覽 PNG 有效(ImageSharp round-trip)+`ImageWidth/Height`=全解析度8192×5000+`PixelData=null`(像素值遠端關「-」)+`IsRemoteImage` ③ Test 路由 `REVIEW_LOCAL_IMAGE`→2 缺陷疊預覽·縮圖牆遠端略過）=**L2**。IP 端 `control_server.cpp` 加 `LIST_DIR`/`GET_IMAGE_PREVIEW`(預覽 resize/灰階 **display-only 絕不進檢測**)/`REVIEW_LOCAL_IMAGE`(讀全解析度 IMREAD_UNCHANGED→**與 SEND_IMAGE_FOR_REVIEW 同一 process_image 入隊 → bit-exact**)=**L1，待 Spark/RTX Linux build**。**HARD verify 待 L3**：`REVIEW_LOCAL_IMAGE(某圖)` 缺陷結果 == `SEND_IMAGE_FOR_REVIEW(同圖上傳)`。框 ROI 於 2048-寬預覽=視覺 ±4 全解析度 px，精修走數值框（全解析度）。|
-| Step 2-3 / Step 4-5 操作 UI（RDMA 監控 / 存圖瀏覽 / 生產） | **L0** | 無對應 View（現有 MainWindow/Step1/ZoneParamEditor/DefectSort/SystemSettings/SingleCcdSetup + RoiImageView 控制項）。|
+| 相機工作台 CameraWorkbenchView（操作員五步驟單頁動線）| **L2(selftest 21/21)/Mac 目視 ✓** | 見下方「相機工作台改版（2026-07-31）」專節。導覽已收斂為 4 頁（主控台/工作台/缺陷分類/系統設定）+ 檢測複判。|
+| Step 2-3 / Step 4-5 專屬操作 UI（RDMA 監控儀表 / 存圖瀏覽 / 生產畫面）| **L0** | 無專屬 View；取像/檢測由**上位機 CF_ 觸發**（Control 為控制平面），工作台 Step 2/4 涵蓋單台取像與調參。現有 View：MainWindow(dashboard)/CameraWorkbench/Step1(檢測複判)/DefectSort/SystemSettings(連線)/SingleCcdSetup + RoiImageView 控制項。|
 
 ---
 
@@ -62,7 +66,7 @@
 
 | 模組 | 級別 | 驗證方式 / 缺什麼 |
 | ---- | ---- | ----------------- |
-| GPU 演算法引擎（DIV-only 比例式閾值） | **L4** | RTX 2080S offline-file（2606 缺陷）；**2026-06-15 DGX Spark GB10/sm_121 實機**：26 張真實面板 vs reference ground truth 25/26 缺陷數完全一致（見 [ARM 驗證報告](verification/verification_report_arm_20260615.md)）。 |
+| GPU 演算法引擎（mode0 DIV 比例式；**2026-06-23 起另有 mode1 SUB / mode2 DIV-voting 融合**）| **mode0 L4；SUB/融合 L3（合成+真 recipe 全 24 CCD 重驗，見 [SUB 移植驗證](SUB_pipeline_verification_20260623.html)）** | mode0：RTX 2080S offline-file（2606 缺陷）；**2026-06-15 DGX Spark GB10/sm_121 實機**：26 張真實面板 vs reference ground truth 25/26 缺陷數完全一致（見 [ARM 驗證報告](verification/verification_report_arm_20260615.md)）。⚠️ 2026-08-02 複查：legacy `Awc_*_Div` 全含 "Way" → 實際路由 **mode2 非 mode0**（守門語意待裁示，見全面複查節 I5）。|
 | CCL 決定性（收斂迴圈 + canonical 排序） | **L4** | `--verify-deterministic`：x86 bit-exact(2606)；**GB10 sm_121 上 26 張兩跑全 bit-exact（2026-06-15）**。 |
 | 結構化輸出（{yyyyMMdd}/{panel}_{recipe}/） | **L3** | 真機跑出該結構；`[Diag]` 三數一致（DetectionResult=JSON DefectInfo=寫出 patch=2606）。(草稿 L3 ✓) |
 | 缺陷 patch 存圖（PNG、多執行緒、debug gate、重測清舊） | **L3** | 真機 offline 驗證：PNG overlay、多緒寫、`debug` 門檻 off→0/on→全存、無條件清舊 Defect_*。(草稿 L3 ✓) |
@@ -74,7 +78,7 @@
 | TuningRecipe（量速模式：GPU 跑但不寫磁碟） | **L3** | **2026-06-17 DGX Spark GB10 實機**：LOAD_RECIPE tuning_recipe=true → TCP 回 `status=OK DefectCnt=150`（結果仍回傳），output 目錄新增 0 個檔案（`[PASS] TuningRecipe 模式：output 目錄零新增檔案`）。IP log 確認 `[TuningRecipe] 跳過存圖（結果仍回傳）`。見 ip/CLAUDE.md 不變式 20。 |
 | SaveSourceImage + SourceImageWriter（原圖非同步存檔） | **L3** | **2026-06-17 DGX Spark GB10 實機（no_wait 20 幀，ring=2，--test-source-writer-delay-ms 600ms 模擬慢碟）**：VmRSS 增長 10MB（基準 330MB，峰值 447MB，消化後 340MB），100 幀×38MB=3800MB 資料，VmRSS 完全不線性成長；穩定期抖動 29MB < 5×38=190MB。`[SourceWriter] WARN ring 滿（2 槽），drop panel=SRC_OOM_0009`（20 幀中 2 幀觸發 drop，ring 上限生效）。`source/SRC_OOM_*.bin` 按實際寫入幀數產生（非 100%=ring 固定上限，非 List 囤積）。見 ip/CLAUDE.md 不變式 19。 |
 | rdma-validate 模式（N-slot ring + credit 背壓） | **L3** | **2026-06-17 damac↔Spark 實機**：Phase 1 連續 120 幀 CRC=OK（ok=120 err=0，slot 0→3 繞回正確，1375fps/86MB/s）；Phase 2 背壓（`--test-consumer-delay-ms 200`）20 幀全通（ok=20 err=0，Grab 降至 9.6fps 而非斷線，QP 未進 error state）；CM DISCONNECTED 偵測乾淨退出（commit `de047a3`）。見 ip/CLAUDE.md 不變式 23。 |
-| image-capture / online 模式 | **L0** | 未實作（`main.cpp` 無此分支；需相機陣列 + Control 完整接線）|
+| ~~image-capture / online 模式~~ → 能力由 **rdma-process** 承接（2026-08-02 勘誤：此二模式**名稱**從未實作，IP 實際模式 = offline-file/offline-tcp/bench/rdma-validate/rdma-process）| **rdma-process L3**（2026-07-31 完整生產迴圈；存圖控制 = SaveSourceImage ring/TuningRecipe/overlay_on_defect_only）| 見「Switch 到貨日」與「6 相機前收口 sprint」章節 |
 | 對位 pipeline（Gap #1：golden_maker + align_engine + CHECK/SET_ALIGN + ZoneConfig eff_*）| **L3** | **2026-06-17 DGX Spark GB10 實機驗通**：Stage 1 align_verify 14/14 PASS（sub-pixel 誤差全 <0.1px，最差 0.087px；旋轉誤差 0.000°~0.062px；空白圖 ok=false+ERR 路徑確認；eff_* fallback + SET_ALIGN 套回邏輯確認）；Stage 2 verify_alignment.py 8/8 PASS（n0=7 缺陷基準；偏移 7px 整張面板→對位 ShiftX=7.001 ShiftY=3.000 誤差 <0.001px→SET_ALIGN→偵測 n_aligned=7 = n0，缺陷數一致；Stage 3A 空白 ROI→ERR）。見 `ip/src/align_verify.cpp` + `scripts/verify_alignment.py`。 |
 | 缺陷座標 pixel→μm（Gap #5：OpticalParams INI [Optical] + GlobalPosX/Y_um + CcdIndex） | **L3** | **2026-06-17 DGX Spark GB10 實機驗通**：Stage 1A coord_verify 8/8 PASS（含負數/缺 section/垃圾 INI smoke）；Stage 1B（真實 LOAD_RECIPE inline XML）：GlobalPosX=1202 × opt_res=0.5 → GlobalPosX_um=601.000，CcdIndex=0（μm 不是 0）；Stage 2 bit-exact：7顆缺陷 pixel+μm 兩次完全一致；Stage 3A opt_res=0.0 sentinel：GlobalPosX_um=0.000（pixel 欄位 bit-exact 不變）。架構：INI→OpticalParams→process_image參數→InspectionResult→ResultSaver；LOAD_RECIPE 換 zones 不碰 OpticalParams。⚠️ **follow-up（待確認後才 L4）**：欄位名（GlobalPosX_um/Y_um）、單位（μm）、精度（3位小數）為 IP 端片面提議，尚未與上位機確認；上位機是否確實從 ResultInfo.xml 讀 μm 待接真機驗證 → 與 UpstreamServer 接真實上位機屬同一條 follow-up。見 `ip/src/coord_verify.cpp` + `scripts/verify_coord.py`。 |
 | 行車紀錄（flight recorder：結構化診斷 JSONL/incident） | **L3**（src 欄位 **L3 ✓ 2026-06-22 Spark**） | **2026-07-12 盲區收口 v2 = L3 ✓（RTX 2080 `verify_flight_v2.py` 11/11 + `verify_flight_src.py` 回歸 9/9 + 決定性 bit-exact + bench no-op + 真圖基準 2606 不變）**：① ZoneSnap 補 SUB/融合欄位（algo_mode/multiscale/blob/pitch_times/choose_amount/lsc/remap）② LOAD_RECIPE 成功留痕（type=recipe jsonl）③ defect_flood 觸發器（GPU **過濾前**計數——真圖+錯pitch30 → 觸頂10000 → incident；BlobMinSize=5 洗到 0 顆仍觸發=不被遮蔽）④ 週期 stats（每200張 fps/gpu_ms p50/p95/queue_peak）⑤ incident 節流（同kind 30s一檔；5×bad_json→1檔+suppressed摘要）+ record_incident race 修復（深拷入鎖，fallback POD）。commit a441005/5a3350b+。⚠️ 附帶發現（follow-up）：與 pitch 同週期的合成點陣圖偵測不到（被視為正常網格）、噪點被 best-match 搜尋抵消——合成 CI 圖須用 verify_recipe_roundtrip 的「網格紋理+缺陷塊」形態，純點陣/噪點圖無效。 `diag/flight_recorder` 環形緩衝+只記出事；2026-06-15 RTX 2080 端到端驗證五種 incident kind（cuda_fatal 經人為 OOM 觸發、frame_validation/bad_json/recipe_load/uncaught_exception）+ JSON 全可解析 + 決定性不破 + bench 無 `_diag`（recorder no-op，gpu_ms 零擾動）。見 ip/CLAUDE.md 不變式 16。**2026-06-18 新增 incident `src`（出錯源碼 `檔名:行號`，repo 相對）欄位 + `FR_RECORD_INCIDENT` 巨集（`__FILE__:__LINE__` 編譯期常數，零成本、不破 bit-exact）+ `docs/html/incident-viewer.html`（log→VS Code `vscode://file` 跳轉，可攜）。`src` 欄位 **L3 ✓（2026-06-22 Spark GB10 重編 + 觸發）**：`scripts/verify_flight_src.py` 9/9 — 非破壞性觸發 bad_json/frame_validation/recipe_load 三種 incident，讀 `<output>/_diag/*.jsonl`+`incident_*.json` 確認每筆都帶 repo 相對 `src` 且行號落在實際 FR_RECORD_INCIDENT 呼叫點（bad_json→`control_server.cpp:407`、frame_validation→`:534`、recipe_load→`main.cpp:466`）；session 開機紀錄無 src 屬正常。** |
@@ -151,7 +155,10 @@
 
 ## 已驗證的關鍵不變式（血淚教訓，詳見各 CLAUDE.md）
 
-- **DIV-only**：只接受 DIV 配方，SUB 無法精確對應 GPU 比例式閾值，直接拒絕載入並報錯
+- **三域守門（原「DIV-only」，2026-06-23 SUB 管線移植後升級）**：`M_AlgorithmWayCompare` 為權威欄位
+  （SUB→mode1／div+star/way→mode2 融合／div 或 `AlgorithmCompare="DIV"`→mode0；DIV 帶 DarkThreshold<0
+  = 域值錯配拒載；無法判定拒載）。stale `AlgorithmCompare` 字串**不可再作唯一依據**（曾被掛 DIV 字串的
+  SUB recipe 騙過 → 靜默假 PASS）
 - **CCL 決定性**：host wrapper 收斂迴圈直到 `d_changed==0` + canonical 排序；從 Reference 重抄 kernel 會覆蓋此迴圈（本次 `--verify-deterministic` 實測 bit-exact）
 - **Pitch 正確性**：偏差 1–4px 就讓正常網格爆量（26→30 → 561→10000 觸頂）；新面板先 FFT 估算
 - **配方單一資料來源**：三處共用同一 ZoneSettingModel 實例（`--selftest store` 驗）
@@ -183,6 +190,7 @@
 
 **草稿漏列、本次補上：**
 - **IP rdma-validate / image-capture / online 模式 = L0**（`main.cpp` 只有 offline-file/offline-tcp，`modes/` 空）。
+  （→ 2026-08-02 勘誤：rdma-validate/rdma-process 其後已實作並 L3；image-capture/online 模式名不存在，能力由 rdma-process 承接。）
 - **Control Step 2-5 操作 UI = L0**（無對應 View）。
 - 跨機協議補列 **Grab↔IP RDMA = L1**（header 定義好、收發 L0）。
 
@@ -824,6 +832,49 @@ Grab 端的安全設計（**皆未實測**）：`write_map()` 先寫 `.tmp` → 
 
 **誠實界線**：②縮圖預覽待 grab `GET_FRAME_PREVIEW`（新命令未做）；③視覺框選教 Mark + 試對位
 （CHECK_ALIGN 接線）待實拍影像流程；實機（真 Grab/相機）操作 = 6 相機到貨日照 runbook 驗 → L3。
+
+---
+
+## 2026-08-02 全面複查（6 相機到貨前 bug 總掃 + 文件全面對齊）
+
+> 4 路平行深度複查：grab（14 檔逐行）／ip（41 檔核心逐行）／control（65 檔）／跨模組契約
+> （8100×11 命令、8200×15 命令逐鍵比對、scripts×15、ResultInfo 輸出契約、設定檔契約、docs 漂移）。
+> **完整報告（全部 file:line 證據＋建議修法＋40 項查證後排除）= [code_review_20260802.md](code_review_20260802.md)**。
+> 已修 ★1–★8 與既知開放項不重報。**所有發現均未修**，修繕順序待 Addis 裁示。以下僅分級索引。
+
+**P0 — 到貨日標準動線直接會撞（11 條，建議到貨前修）**：
+B1 grab_loop pylon 例外→全行程死亡（一台拔線 6 台陪葬）／B4 `--cam-count ALL` 靜默少台
+（運維面 runbook 可先改 `--cam-count 6`）／X1 Control GET_CAM_NODES 不送 cam_id = 靜默看 cam0
+（★4 只修 Grab 半邊）／B6 idle 健檢 fallback 無視 cam_map = 錯台+錯寫 cam_config／
+B7 單台模式 `--cam-id` 蓋掉 MAC 綁定／K4 工作台 Step5「套用」複製磁碟舊檔（未存檔調參丟失卻回報 ✓）／
+K2 觸發鏈無逾時+IsBusy 心跳假綠燈（對端 wedge 只能重啟 Control）／K3 CF_LOAD_RECIPE 配方名錯→
+自動生成預設配方假 OK 進生產／I8 拼接座標 recipe × rdma-process 逐 slice 無座標換算 = zone 靜默零覆蓋／
+I7 fpp=0 連續模式 loss_by_cam 永不歸零 = panel_incomplete 誤報洪水／
+**I5 legacy `Awc_*_Div` 全含 "Way" → 實路由 mode2 非 mode0（守門語意待裁示，二選一修法見報告）**
+
+**P1 — 靜默漏檢/假 PASS 族（8 條）**：G1 `frame_loss` 無消費端（Control `IsPass=DefectCnt==0` 照樣 PASS）／
+I1 尾 slice 遺失標記蒸發+歸屬錯片／I2 seq 跳號對帳拿區間比累計=遮蔽窗／B2 RDMA 送失敗黑洞
+（dropped=0 假正常、無重連）／K1 CF_GET_RESULT 吞例外假 OK／I3 GPU 收集硬編碼過濾
+（>300px 大缺陷、線狀刮傷靜默丟；BlobMaxSize 虛設；wrapper 參數化可修不觸 kernel）／
+I4 texture 快取只比指標（stale 幾何決定性地錯）／B18 無 handler 回 OK
+
+**P2 — 穩定性/資源/操作（20 條）**：B3 disconnect 短路洩漏／B5 背壓 wedge 死鎖（★1 姊妹）／
+B10+I13 兩端 ControlServer 溫和退出卡 recv／B11 accept break=8100 靜默死／B12 cam_config parse 吞→
+6 台回出廠值／I6 LOAD_RECIPE 失敗狀態撕裂／I9 尺寸切換逐幀 GPU 重配／I10 recv WC error 全停不記帳／
+I11 CHECK_ALIGN 溢位防呆缺／I12 no_wait results_ 洩漏／K5 上位機回呼跨執行緒改 UI 集合／
+K7 測試連線切走共用連線+設定欄位不存／K8/K9 工作台滑桿脫鉤·重列舉不重建／K10 上位機多客戶端燈互踩／
+K11 34 欄表解析失敗默默寫 0／X4 SET_CAM_MAP cam_id 碰撞未預檢／C1 "GrabA" 硬編碼鍵名／
+C2 ShareSetting 五死鍵（SaveSourceImage 不可達）／C3 appsettings 缺檔靜默 8000／C4 拓樸 JSON 吞例外 0 槽
+
+**P3 — 低危/衛生 + 契約/文件級（~30 條）**：詳報告。要點：X9 CF_LOAD_RECIPE detectMode 差一格
+（全 repo 一致地錯、真上位機對表時定案）／S2 verify_alignment.py 用不存在的 `--port`／
+S1 control_test.py 整支陳舊／R2 ImagePath 恆空／R3=I15 檔名 Slice 恆 00（frame_height 無人賦值）／
+R4 GC_X 同名兩義（多 ROI 錯位）／R5 defect_count vs patch 數不一致（debug=false 預設）／
+G2=K6 golden 從未送 IP=對位鏈斷頭／G11 μm/CcdIndex 無 8200 契約／G12 recipe_saving 預設兩端不一致／
+X8 rdma_common 兩份 wire 同、行為已分歧（文件敘述改「wire 凍結共用」）
+
+**文件對齊（同日完成）**：docs/CLAUDE.md 全面修訂（詳見其標頭 2026-08-02 註記）；
+grab/ip/control 三組 CLAUDE.md＋程式完整說明依各自漂移清單修正；tools 兩檔查證零漂移未動。
 
 ---
 

@@ -3,6 +3,7 @@
 > Claude Code 根目錄 context。各程式子目錄（ip/grab/control）有各自的 CLAUDE.md。
 > **核心策略：從 Reference/ 遷移現有程式碼，不從空白重寫。**
 > **新 session 工作流程：先讀本文件（總綱）→ 再讀目標模組 CLAUDE.md（見 §9 索引）。**
+> 最後全面對齊：**2026-08-02**（三域守門 SUB/DIV/融合、#21 已落地、CF_STOP 已接線、IP 實際模式清單、輸出契約勘誤）。
 
 ---
 
@@ -10,19 +11,22 @@
 
 ```
 ~/cf-aoi/
-├── docs/CLAUDE.md          ← 本文件（總綱；§9 有各模組 CLAUDE.md 索引）
+├── docs/                   ← CLAUDE.md（本總綱）+ STATUS.md + 6cam_setup_runbook.md
+│                             + {ip,grab,control,tools}_程式完整說明.md + verification/ + design/ + html/（教材）
 ├── ip/                     ← IP 程式（C++ CUDA）
 ├── grab/                   ← Grab 程式（C++ pylon/eBUS）
 ├── control/                ← Control 程式（C# Avalonia）
-├── tools/                  ← 小工具（golden_maker 等；見 tools/README.md）
-├── shared/FrameHeader.h    ← RDMA wire format（兩端共用）
-├── scripts/                ← 驗證腳本（verify_alignment.py、estimate_pitch.py 等）
-├── test_images/            ← MIL 測試影像
-└── Reference/              ← 唯讀，舊版程式碼遷移來源
-    ├── Demo/           ← 全 GPU 演算法
-    ├── PrjCfAoi/         ← 舊版 Windows（PrjCfAoi）
+├── tools/                  ← 小工具（現僅 golden_maker；見 tools/README.md）
+├── shared/FrameHeader.h    ← RDMA wire format（兩端共用，shared/ 唯一檔）
+├── scripts/                ← 驗證腳本（verify_*.py、upstream_simulator.py、estimate_pitch.py 等）
+├── recipes/                ← 配方（執行期產物；.gitignore 只放行 recipes/DEFAULT/**）
+└── reference/              ← 唯讀，舊版程式碼遷移來源（1.4G **未進 git**、每機自備；
+    │                          文件慣用 `Reference/` 大寫，Mac 磁碟實名小寫）
+    ├── Demo/               ← 全 GPU 演算法
+    ├── PrjCfAoi/           ← 舊版 Windows（PrjCfAoi）
     └── cfaoi_phase1/       ← Phase-1 測試套件
 ```
+> `test_images/` 已不存在（舊規劃殘留；離線影像走 `Paths.ImageDir`/遠端 `LIST_DIR` 瀏覽）。
 
 ---
 
@@ -59,9 +63,11 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 （資料上：`ccd_id`=CCD 概念/UI 名、`recipe_partition`=現行 IpName(如 "IP0")，兩者並存解耦。）
 
 **約束②（拓樸宣告 ≠ live 綁定，勿假 merge）**：`array_topology.json`（機台層）**宣告** 37 槽結構
-（ccd_id + 運算單元 + recipe 分區，MAC 多為 TBD）是**真 config**；但「哪台 `LIST_CAMERAS` 列舉到的真相機 = 哪個槽」
-的 **live 綁定 = #21（尚未做）**。**不可**把「宣告的 37 槽」與「列舉到的相機」假裝 merge 成 live 狀態：
-宣告狀態(config) 與 偵測狀態(runtime) 分開呈現，未綁定前不得標「線上」。
+（ccd_id + 運算單元 + recipe 分區，MAC 多為 TBD）是**真 config**。「哪台 `LIST_CAMERAS` 列舉到的真相機 = 哪個槽」
+的 **live 綁定 = #21，已於 2026-07-30 落地**：Grab 端 `cam_map.json`（每機本地，`{mac, cam_id, ccd_id}`，
+嚴格模式未列映射拒開）+ 8100 `SET_CAM_MAP` 寫入（Grab L3 / Control 送出端 L2，見 STATUS Gap #21 專節）。
+原則不變：**不可**把「宣告的 37 槽」與「列舉到的相機」假裝 merge 成 live 狀態——
+宣告狀態(config) 與 偵測狀態(runtime) 分開呈現，`bound==false` 的相機**永不指派任何槽**、不得標「線上」。
 
 ---
 
@@ -69,13 +75,20 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 
 | 步驟 | Control | Grab | IP 模式 | 目的 |
 |------|---------|------|--------|------|
-| 1 | offline 連線 | ❌ | `offline-tcp` | 演算法驗證（MIL 影像）|
+| 1 | offline 連線 | ❌ | `offline-tcp`（批次 `offline-file`）| 演算法驗證（離線影像）|
 | 2 | validate | `--cam-count 1` | `rdma-validate` | 單 CCD 傳輸 |
 | 3 | validate | `--cam-count ALL` | `rdma-validate` | 全陣列 + Switch |
-| 4 | full + 上位機 | `--cam-count ALL` | `image-capture` | 存圖調 Recipe |
-| 5 | full + 上位機 | `--cam-count ALL` | `online` | 完整生產 |
+| 4 | full + 上位機 | `--cam-count ALL` | `rdma-process` | 存圖調 Recipe |
+| 5 | full + 上位機 | `--cam-count ALL` | `rdma-process` | 完整生產 |
 
-**Step 4 → Step 1 閉環**：image-capture 存的 TIFF 用於 Step 1 調 Recipe，保證 offline = inline。
+> ⚠️ **模式名對齊現況（2026-08 勘誤）**：IP 實際模式 = `offline-file` / `offline-tcp` / `bench` /
+> `rdma-validate` / `rdma-process`（`ip/src/main.cpp` 分派；未知模式報錯）。原規劃的
+> `image-capture` / `online` **模式名從未實作**——其能力由 **`rdma-process`**（收圖+檢測+結果落地一條龍，
+> 2026-07-31 完整生產迴圈 L3）+ 存圖控制（`share_flags.save_source_image` 原圖 ring / TuningRecipe /
+> `overlay_on_defect_only`）承接。兩模式皆開 8200（心跳/LOAD_RECIPE/DefectSort 查詢可通；影像注入命令誠實 ERR）。
+
+**Step 4 → Step 1 閉環**：Step 4 存的原圖（`SaveSourceImage` .bin）與結果可經 Step 1 / `REVIEW_LOCAL_IMAGE`
+（IP 讀自己磁碟，network-clean）重跑調 Recipe，保證 offline = inline（同一 `process_image` 入隊，bit-exact 已驗）。
 
 ---
 
@@ -83,7 +96,7 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 
 | Reference 來源 | 目標 | 方式 |
 |---------------|------|------|
-| `Demo/src/cuda_kernels_fast.cu` | `ip/src/gpu/cuda_kernels.cu` | ✅ 直接複製不改 |
+| `Demo/src/cuda_kernels_fast.cu` | `ip/src/gpu/cuda_kernels.cu` | ✅ Demo kernel 區不改（⚠️ SUB 移植後檔內**另新增** 5 個非 Demo kernel：Sub8WayStarVoting/DivVoting8WayStar/Histogram256/RemapStretch/Smooth3x3Gau8）|
 | `Demo/src/tensor_core_classifier.cu` | `ip/src/ai/ai_kernels.cu` | ✅ 直接複製不改 |
 | `Demo/src/batch_detector.cpp` | `ip/src/gpu/gpu_pipeline.cpp` | 🔧 換 I/O 外殼 |
 | `Demo/config.ini` | `ip/config/default_zone.ini` | ✅ 參數對應 ZoneConfig（非「ZoneSetting」）|
@@ -99,31 +112,46 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 ### 上位機 → Control（文字命令）
 > ⚠️ **考古確認（取代舊敘述）**：舊版 `Reference/PrjCfAoi/PrjCfAoi`（`Common.cs` / `MainProc.cs` /
 > `Configuration.cs`）實際使用 **port 8787**、命令前綴 **`CF_`**、`|` 分隔、`\r\n` 結尾，回應走
-> 9 參數 `ReturnResponse`（`OK|p1|…|p9` / `ERR`）。命令常數：
-> `CF_LOAD_RECIPE` / `CF_GRAB_START` / `CF_CHECK_ALIGN` / `CF_SET_ALIGN` / `CF_GET_RESULT`。
-> `CF_GET_RESULT` 回傳的是各 IP 的 **ResultInfo.xml 路徑 + 缺陷數**（逗號分隔），**不是** JSON。
-> 具體格式（已實作於 `control/src/Controllers/UpstreamServer.cs`）：
-> `CF_LOAD_RECIPE|{recipe}|{panelId}|{yyyy-MM-dd-HH-mm-ss}|||||||{detectMode 0/1}`（panel 範例 "gg4mida"）、
+> 9 參數 `ReturnResponse`（`OK|p1|…|p9` / `ERR`）。命令常數（實作於 `UpstreamServer.cs`）：
+> `CF_READY` / `CF_LOAD_RECIPE` / `CF_GRAB_START` / `CF_STOP` / `CF_CHECK_ALIGN` / `CF_SET_ALIGN` / `CF_GET_RESULT`。
+> legacy `CF_GET_RESULT` 期望回各 IP 的 **ResultInfo.xml 路徑 + 缺陷數**（逗號分隔），**不是** JSON；
+> ⚠️ 新版實回「**panel 資料夾名**+缺陷數」（`UpstreamWiring.cs` 組 `folder_name`，非完整 .xml 路徑）——
+> 是否滿足真上位機屬 L4 對表項。
+> 具體格式：`CF_LOAD_RECIPE|{recipe}|{panelId}|{yyyy-MM-dd-HH-mm-ss}|||||||{detectMode 0/1}`（panel 範例 "gg4mida"）、
 > `CF_GRAB_START|{timeoutMs}`（範例 40000）、`CF_SET_ALIGN|{result}|{shiftX}|{shiftY}`；
 > 回應一律 9 參數 `OK|p1|…|p8|{p9=errMsg}` 或 `ERR|…`。Control 監聽 port 由 appsettings `UpstreamServer.ListenPort`（**= 8787**）。
+> ⚠️ **detectMode 欄位差一格（2026-08-02 複查發現，待真上位機對表定案）**：上行範例（7 根管線）令 detectMode
+> 落在 token 10，但 `UpstreamServer.cs` 讀 `P(9)`（= token 9）；legacy 9 參數制推算應為 **6 根管線**。全 repo
+> （docs 範例 / upstream_simulator.py / SelfTest）**一致地錯一格**、且 `_detectMode` 目前未被使用故測試假性通過。
 >
 > ✅ **已接線（2026-06-19）+ L2(selftest)/L3(端到端)**：`UpstreamServer.cs` 照考古以 CF_/`|`/9 參數寫好解析；
 > `AppServices.Build()` 建 `UpstreamServer(8787)`（Optional 失敗不阻塞），`MainWindowViewModel` ctor 呼叫
 > `UpstreamWiring.Bind(svc.Upstream, svc)` + `Start()`。回呼**重用既有 IP 流程**（`Controllers/UpstreamWiring.cs`）：
 > `OnLoadRecipe`→`IpClient.LoadRecipeAsync`、`OnGetResult`→`ListDefectFoldersAsync`(組「路徑,逗號+缺陷數,逗號」非 JSON)、
-> `OnConnectedChanged`→`SetUpstreamConnected`(上位機燈轉綠)。**決策 A**：取像/對位（GRAB/CHECK/SET_ALIGN）offline
-> 刻意**不綁 → 回誠實失敗 ERR**（CHECK_ALIGN 不再回假 `OK|0|0`、SET_ALIGN 不再永遠 OK；避免上位機誤判已對位）。
-> 驗證：`--selftest upstream` in-process 6 case = **L2**；`scripts/upstream_simulator.py` ↔ 真 Control ↔ 真 IP 端到端
-> （`CF_GET_RESULT` 回真實 IP path+count）= **L3 ✓**。
+> `OnConnectedChanged`→`SetUpstreamConnected`(上位機燈轉綠)。**決策 A（2026-07-21 後範圍縮小）**：現只剩**對位
+> （CHECK_ALIGN/SET_ALIGN）不綁 → 回誠實失敗 ERR**（不回假 `OK|0|0`，避免上位機誤判已對位；接線待 #1/Step4）；
+> **取像已接真 Grab**——`CF_LOAD_RECIPE`→IP LOAD_RECIPE + Grab 預熱(GRAB_ARM)、`CF_GRAB_START`→GRAB_START
+> （timeout+`Grab.FramesPerPanel`）、`CF_STOP`→GRAB_STOP（2026-07-21 觸發鏈，L2 selftest + 7/31 生產迴圈 L3）。
+> 驗證：`--selftest upstream` = **L2**；`scripts/upstream_simulator.py` ↔ 真 Control ↔ 真 IP 端到端 = **L3 ✓**
+> （2026-07-31 總演練含 2 真相機經 5945 → rdma-process）。
 > ⚠️ **真上位機協議認帳（欄位/序列/μm 是否如實機預期）= L4 做不了；μm 契約(#5)= IP 片面提議 = L4**（不混、不過度宣稱）。
-> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON。#25 CF_STOP / #26 BypassAlignment 未做。
+> **IP 程式不直接實作 8787**，只對 Control 走 8200 JSON。#26 BypassAlignment 未做。
 
 ### Control ↔ Grab/IP（JSON，8100/8200）
+格式：newline-delimited JSON `{"cmd":..,"seq":..,"params":{..}}\n` ⇄ `{"seq":..,"status":"OK"|"ERR",...}\n`。
 ```json
-{"cmd":"LOAD_RECIPE","seq":1,"params":{"recipe":"DEFAULT","panel_id":"T001"}}
-{"cmd":"SET_MODE","seq":2,"params":{"mode":"rdma-validate"}}
-{"cmd":"CHECK_HEALTH","seq":3,"params":{}}
+{"cmd":"LOAD_RECIPE","seq":1,"params":{"recipe":"DEFAULT","panel_id":"T001",
+   "recipe_xml":"<Recipe>…</Recipe>","recipe_saving":{"max_save_defect_count":-1,"…":"共 10 鍵"},
+   "share_flags":{"tuning_recipe":false,"save_source_image":false},"golden_png_base64":"…(選填)"}}
+{"cmd":"CHECK_HEALTH","seq":2,"params":{}}
+{"cmd":"GRAB_ARM","seq":3,"params":{}}
 ```
+> ⚠️ **無 `SET_MODE` 命令**（舊敘述作廢，全 repo 不存在）：IP 模式由 CLI `--mode` 決定。
+> 現行命令集——**8100（Grab）11 個**：CHECK_HEALTH / LOAD_RECIPE / GRAB_ARM / GRAB_START / GRAB_STOP /
+> SET_CAM_PARAMS / GET_CAM_PARAMS / LIST_CAMERAS / GET_CAM_NODES / SET_CAM_MAP / TUNE_MEAN。
+> **8200（IP）15 個**：LOAD_RECIPE / GET_STATUS / CHECK_HEALTH / SEND_IMAGE_STREAM_BEGIN /
+> SEND_IMAGE_FOR_REVIEW / DefectSort 五命令（見下）/ SET_ALIGN / CHECK_ALIGN / LIST_DIR /
+> GET_IMAGE_PREVIEW / REVIEW_LOCAL_IMAGE。完整參數表見 `docs/{grab,ip}_程式完整說明.md`。
 
 #### IP output 資料夾結構（考古對齊 legacy，result_saver 產生）
 > 來源：`Reference/PrjCfAoi/PrjCfAoi/Class/MainProc.cs`(L412) + `CamProc.cs`(L915) + `PrjAoiSettingEditor/frmSortDefect.cs`。
@@ -135,17 +163,24 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 <--output>/_diag/<yyyyMMdd>.jsonl + incident_<ts>.json   ← 行車紀錄（flight recorder，出事才落地；見下）
 ```
 - 簡化為 **3 層**（省略 legacy 第 4 層 `<IpName>/`，新架構每台 IP 自有 output；IpName 進檔名）。
-- `--ip-name`（預設 IP01）決定缺陷檔名；`panelId`=影像/panel 名、`recipeName`=zone 的 recipe 名。
+- **缺陷檔名的 `IpName` 段 = `panelId` 第一個 `_` 前 token**（`IP02_Origin000001`→`IP02`；rdma-process 的
+  panel 名 = `CCD%02u_%06llu` → 夾/檔名為 `CCD00_*`）；`--ip-name`（預設 IP01）**僅 panelId 為空時的 fallback**。
+- 另有 IOI 興趣區小圖 `Ioi_<IpName>_<idx>_X<>_Y<>.png`（#23；⚠️ 不在清舊/SORT 複製範圍，跨次殘留為已知項）。
 - 日期格式 **`yyyyMMdd`**（與 legacy 一致；遠端命令的 `date` 參數同此格式，**非** `yyyy-MM-dd`）。
 - **AI 分類預設停用**（訓練資料不足）：模型仍載入（保留架構），但不推論、不過濾，缺陷 `AiType="待人工複核"`；
   log 顯示「N 缺陷(待人工複核)」。`--use-ai` 重新啟用。
 - **存圖效能**：overlay 用 PNG（非 BMP）、缺陷小圖多緒平行寫；調參可用 `--no-save-images`/`--no-overlay`/
-  `--max-patches N` 加速。log 印 `存圖耗時: crop/patches/overlay ms`。
+  `--max-patches N` 加速；**rdma-process 預設只在有缺陷時存 overlay**（`--overlay-always` 還原）。
+- **收圖遺失標記（2026-07-30）**：CRC/magic/尺寸驗證失敗的幀丟棄後記入 `ResultInfo.json` 的 **`frame_loss`**
+  欄位（`panel_incomplete/lost_frames/lost_slices/unattributed`；無遺失時整欄省略、**XML 刻意不動**保
+  CF_GET_RESULT 鏈）。**「DefectCnt=0 不等於乾淨」**——⚠️ Control/上位機**尚未消費此欄位**（2026-08-02 複查
+  G1：`IsPass => DefectCnt==0` 仍會把不完整片當 PASS，待接）。
 - **行車紀錄（flight recorder，純觀測診斷）**：IP `diag/flight_recorder` 平時零磁碟 I/O（最近 64 張現場進記憶體
-  環形緩衝），**出事才落地** `_diag/<yyyyMMdd>.jsonl`（每事件一行 compact 索引）+ `incident_<ts>.json`（完整現場
-  pretty-print）。incident kind：`cuda_fatal`/`frame_validation`/`recipe_load`/`bad_json`/`uncaught_exception`。
-  **不擾動運算**（計時區外、bench 模式 no-op、不破 bit-exact 決定性）→ 詳見 **ip/CLAUDE.md 不變式 16**。
-  2026-06-15 RTX 2080 驗證 L3（GB10 待補驗 atexit/atomic 在 ARM 記憶體模型；RDMA-wire CRC 分支 L1）。
+  環形緩衝），**出事＋低頻結構化留痕**落地 `_diag/<yyyyMMdd>.jsonl`（每事件一行 compact 索引）+
+  `incident_<ts>.json`（完整現場 pretty-print）。incident kind 全清單（cuda_fatal/frame_validation/recipe_load/
+  bad_json/uncaught_exception/queue_*/source_ring_full/rdma_validate/defect_flood/align_fail/transport_anomaly/
+  frame_loss…）與 v2 能力（record_recipe/tick_stats/節流）見 **ip/CLAUDE.md 不變式 16**。
+  **不擾動運算**（計時區外、bench 模式 no-op、不破 bit-exact 決定性）。
 
 #### 缺陷遠端歸檔（DefectSort）— 缺陷影像存在運算端 IP/Linux/Spark，不在 Control 本地
 Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統；Control 端不假設能看到 IP 的硬碟）：
@@ -193,14 +228,25 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 - **配方 `RecipeInfo.xml` = 序列化 `Recipe`，每台 IP 一份**：
   `Recipe → M_AlignRoi + DetectRoiList(List<DetectRoi>) + DetectIoiList`。
   `DetectRoi`（~32 欄位）關鍵：ROI `StartX/StartY/EndX/EndY`；閾值 **`BrightThreshold`/`DarkThreshold`**
-  （**不是** `ThB`/`ThD`）；幾何 `PitchX/PitchY/SearchX/SearchY`；模式 `AlgorithmWay` + **`AlgorithmCompare`("SUB"|"DIV")**；
-  Blob 過濾 `BlobMaxSize/BlobMinSize/...`。
+  （**不是** `ThB`/`ThD`）；幾何 `PitchX/PitchY/SearchX/SearchY`；演算法域 **`M_AlgorithmWayCompare`**（權威，見下）。
   - 裝置端 `CUDAZone` 結構內部欄位才叫 `float ThB/ThD`，由 `ThB=(float)BrightThreshold` 直接賦值。
-- **只支援 `AlgorithmCompare="DIV"`**：Demo kernel 是比例式（`center/mean₈(neighbors) vs BTH/DTH`），
-  legacy DIV 同定義域 → `BTH=BrightThreshold`、`DTH=DarkThreshold` 嚴格相等對應。
-  **SUB（灰階差）無法不依賴背景灰階精確轉成比例 → IP 直接拒絕載入並報錯。**
+- **三域守門（2026-06-23 SUB 管線移植後，取代舊「DIV-only」）**：權威欄位是 **`<M_AlgorithmWayCompare>`**
+  （legacy `CamProc.cs:501-543` 以 enum 為準覆蓋字串；`<AlgorithmCompare>` 是 **stale 欄位**——舊守門只比
+  `AlgorithmCompare="DIV"` 曾被「掛 DIV 字串、實為 SUB」的 recipe 騙過 → 靜默假 PASS，血淚教訓）。
+  `zone_config_adapter.cpp:120-216` 判定：
+  - 含 `Sub` → **`algo_mode=1` SUB**（灰階差 8-Way-Star 投票；BTH/DTH 為灰階差如 +17/−16；
+    另讀 `PitchTime`/`ChooseAmount`；前處理 `M_ImagePreproc(Ip_Remap)` → 5×5×`SmoothTimes` → 3×3×`SmoothTimes2`）
+  - 含 `div` 且帶投票結構（`star`/`way`，如 `Awc_8_Way_Star_Div`）→ **`algo_mode=2` DIV-voting 融合**
+    （比值域 BTH>1>DTH>0；`MeanLowThreshold`=暗區棄權；多尺度 `EnableMultiscale`、LSC `Lsc*` 欄位）
+    ⚠️ **路由語意待裁示（2026-08-02 複查）**：legacy enum 值全為 `Awc_*_Way_*_Div`（**皆含 "Way"、無
+    `Awc_8_Way_Star_Div`**）→ 任何帶 awc 的 legacy DIV recipe 都命中此分支進 mode2（非已驗 mode0），
+    且 mode2 連帶吃 `EnableMultiscale` ini 預設 1。純 mode0 幾乎只剩「無 awc + `AlgorithmCompare="DIV"`」可達。
+  - 含 `div` 或 `AlgorithmCompare="DIV"` → **`algo_mode=0` DIV**（比例式；**防呆：標 DIV 但 `DarkThreshold<0`
+    = SUB 域值誤標 → 拒載**）
+  - 兩域都判不出 → **拒載報錯**（不靜默預設）。CLI `--algo-mode 0/1/2` 可覆寫。
+  `BlobMinSize/BlobMaxSize/BlobAllMergeDistance`（Step E 過濾，所有模式適用，缺省 0=關）也已由 recipe 讀入。
 - **幾何欄位對應**（`DetectRoi`→ZoneConfig，見 ip/CLAUDE.md §5）：`PitchX→pitch_x`、`PitchY→pitch_y`、
-  `SearchX→search_range_x`、`SearchY→search_range_y`，**`fast_search_range = clamp(SearchY,0,2)`**（kernel 實吃的垂直局部搜尋）；
+  `SearchX→search_range_x`、`SearchY→search_range_y`，**`fast_search_range = clamp(SearchY,0,2)`**（DIV kernel 實吃的垂直局部搜尋）；
   ROI `StartX/StartY/EndX/EndY`（-1=全幅，每個 DetectRoi 一個 zone）。
 - **結果雙寫**（IP `result_saver.cpp`，兩者欄位一致）：
   `{panelId}_{recipeName}_ResultInfo.json`（Control 反序列化用）+ `{panelId}_{recipeName}_ResultInfo.xml`
@@ -252,12 +298,15 @@ static_assert(sizeof(FrameHeader)==256,"");
 
 ## 7. 不變式
 
-1. `cuda_kernels.cu` / `ai_kernels.cu` 禁止修改任何 `__global__` kernel 邏輯（host wrapper 編排可改，見 ip/CLAUDE.md 不變式 7）
+1. `cuda_kernels.cu` / `ai_kernels.cu` 禁止修改任何**既有** `__global__` kernel 邏輯（host wrapper 編排可改，
+   見 ip/CLAUDE.md 不變式 7；SUB 移植新增的 5 個 kernel 屬新碼，修改依一般規則＋自帶驗證）
 2. `shared/FrameHeader.h` 兩端版本一致，`sizeof==256`
 3. FrameHeader = Phase-1 實機驗證版，magic `0xA01CF00D`（舊 `0xCFA0A001` 版作廢，從未經 RDMA）；`shared/FrameHeader.h` 已對齊
 4. 上位機命令名稱固定為 **`CF_` 前綴**（`CF_LOAD_RECIPE`/`CF_GRAB_START`/`CF_GET_RESULT` 等，port 8787，9 參數）不可改；
    舊文件的 `LoadRecipe/GrabStart/GetResult|RECIPE|PANEL` 假設已作廢
-5. RecipeInfo.xml 格式與舊系統相容（= legacy `Recipe`；閾值 `BrightThreshold`/`DarkThreshold`，非 ThB/ThD；只收 DIV）
+5. RecipeInfo.xml 格式與舊系統相容（= legacy `Recipe`；閾值 `BrightThreshold`/`DarkThreshold`，非 ThB/ThD）；
+   演算法域走**三域守門**（`M_AlgorithmWayCompare` 權威：SUB/DIV-voting/DIV，見 §5；無法判定或域值錯配一律
+   **拒載報錯，不靜默預設**——「掛 DIV 字串實為 SUB 靜默假 PASS」教訓不可回退）
 6. pylon/eBUS 路徑嚴格分離
 7. 影像載入用 cv::IMREAD_UNCHANGED，禁止任何後處理
 8. **network-clean**：Control↔IP 跨機（Mac↔Linux）不共用檔案系統 → 配方傳 **XML 內容**（非路徑）、
@@ -316,6 +365,10 @@ static_assert(sizeof(FrameHeader)==256,"");
 | 碰 legacy 相容行為（協議 / 配方格式 / 缺陷欄位）| `Reference/` 對應檔考古（唯讀） |
 | 質疑或更新某個 L3/L4 結論 | `docs/verification/*.md` 實機數據報告 |
 | 實際編輯 code | 對應的 `ip/grab/control/tools/src` 真實源碼 |
+| 6 相機到貨架設 / 到貨日檢查單 | `docs/6cam_setup_runbook.md`（實機踩坑固化）|
+| SUB/融合管線背景與驗收 | `docs/SUB_pipeline_port_plan.md` + `docs/SUB_pipeline_verification_20260623.html` |
+| 架構層審計 / 產能決策 | `docs/architecture_audit_20260712.md` + `docs/verification/capacity_2spark_checklist.md` |
+| 新人教學 / 互動教材 | `docs/html/cf-aoi-training.html`（`build_manual.py` 重建，源碼內嵌會隨改碼過時）|
 
 > **判準**：理解現況 / 回答問題 → 讀①即可；實際改 code → 加讀對應源碼；碰 legacy 相容 → 加讀 `Reference/`。
 > 不必要求「全讀」——給定任務後按上述優先序取最小必要集合即可。

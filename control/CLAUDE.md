@@ -14,7 +14,7 @@
 | UI | **Avalonia** | Linux / Windows / macOS |
 | MVVM | **CommunityToolkit.Mvvm** | `[ObservableProperty]` `[RelayCommand]` |
 | UI 主題 | Avalonia.Themes.Fluent | Windows 11 風格 |
-| Zone 參數編輯 | **手寫資料驅動表單**（ZoneParamEditor，27 列）| 對齊 legacy `DetectRoi`（32 欄）；**非** AvaloniaPropertyGrid、**非** 54 參數 |
+| Zone 參數編輯 | **手寫資料驅動表單**（ZoneParamEditor，**34 列**；SUB/融合/LSC 參數加入後 27→34）| 對齊 legacy `DetectRoi`（32 欄）＋融合新欄；**非** AvaloniaPropertyGrid、**非** 54 參數 |
 | 影像顯示 | **SixLabors.ImageSharp + Avalonia Bitmap** | 缺陷 patch / 大圖；**不用 OpenCV**（跨平台） |
 | 設定 | `appsettings.json` | Microsoft.Extensions.Configuration |
 | DI | Microsoft.Extensions.Hosting | 服務注入 |
@@ -29,53 +29,70 @@ control/
 ├── scripts/
 │   └── setup_control.sh    ← 執行此 script 初始化
 └── src/
-    ├── CfAoiControl.csproj  ← Avalonia 專案
-    ├── Program.cs            ← 單一實例 + DI 啟動
-    ├── App.axaml             ← Avalonia Application
-    ├── App.axaml.cs
-    ├── appsettings.json      ← 連線設定
+    ├── CfAoiControl.csproj  ← Avalonia 11.2 專案（AvaloniaUseCompiledBindingsByDefault=true）
+    ├── Program.cs            ← 進入點（--selftest 走無頭 SelfTest，不啟動 GUI）
+    ├── App.axaml(.cs)        ← Avalonia Application（AppServices.Build + MainWindow）
+    ├── ViewLocator.cs / ViewModels/ViewModelBase.cs ← MVVM 樣板
+    ├── appsettings.json      ← 連線/路徑/Grab/RecipeIps/ShareSetting 設定
+    ├── config/array_topology.example.json ← 37 槽宣告模板（本機 array_topology.json 不版控）
     │
-    ├── Views/                ← UI 層（.axaml；目前實作的視窗）
-    │   ├── MainWindow.axaml          ← 主視窗（frmCfAoi 1:1）
-    │   ├── Step1View.axaml           ← 離線分析（frmAlgorithmTestTools；含互動 viewer + 圓圈 overlay）
-    │   ├── ZoneParamEditorView.axaml ← Zone 參數編輯（frmIpParamEditor；27 列手寫表單，非 PropertyGrid）
-    │   ├── DefectSortView.axaml      ← 缺陷遠端歸檔 + 小圖人工分類（frmSortDefect）
-    │   ├── SystemSettingsView.axaml  ← 連線/路徑設定 + 機台層宣告陣列(運算單元帶/CCD 槽/偵測相機)
-    │   └── SingleCcdSetupView.axaml  ← 單 CCD 工作台（塊3：大 RoiImageView + 右精簡參數欄）
+    ├── Views/                ← 單一主視窗 + 側欄 5 頁（2026-07-31 導覽收斂；非多視窗）
+    │   ├── MainWindow.axaml(.cs)         ← dashboard（狀態磚/CF 命令卡/log 三分頁）+ 側欄導覽 + A/B 主題切換
+    │   ├── CameraWorkbenchView.axaml(.cs)← 相機工作台：左欄槽位卡 + 五步驟（綁定/取像/對位/調參/套用）
+    │   ├── Step1View.axaml(.cs)          ← 檢測複判（原離線分析；寬幅版面：影像全寬橫幅）
+    │   ├── DefectSortView.axaml(.cs)     ← 缺陷遠端歸檔 + 小圖人工分類（frmSortDefect）
+    │   ├── SystemSettingsView.axaml(.cs) ← 系統設定（**僅剩連線設定 tab**；宣告陣列/相機參數已整併進工作台）
+    │   ├── SingleCcdSetupView.axaml(.cs) ← 單 CCD 檢測工作台（內嵌於工作台 Step 4；寬幅：上全寬影像+下三欄）
+    │   ├── ZoneParamEditorView.axaml(.cs)← 34 列表單獨立頁（**現無導覽入口**；表單邏輯由 SingleCcdSetupView 進階摺疊直接綁 ParamRows）
+    │   ├── RemoteImageBrowserView.axaml(.cs) ← 「從 IP 載入」遠端影像瀏覽對話框
+    │   └── RemoteImagePickerHelper.cs    ← 開啟遠端瀏覽對話框（Step1/單 CCD 共用）
     │
     ├── ViewModels/           ← ViewModel 層（MVVM）
-    │   ├── MainWindowViewModel.cs
+    │   ├── MainWindowViewModel.cs        ← 導覽/狀態磚/log 路由/上位機接線與心跳啟動
+    │   ├── CameraWorkbenchViewModel.cs   ← 工作台五步驟（重用 SystemSettings 綁定引擎 + SingleCcdSetup）
     │   ├── Step1ViewModel.cs
-    │   ├── ZoneParamEditorViewModel.cs
+    │   ├── ZoneParamEditorViewModel.cs   ← 34 列 ParamRow（反射代理選中 ROI）+ 對位 Mark
     │   ├── DefectSortViewModel.cs
-    │   ├── SystemSettingsViewModel.cs ← 含 ComputeUnitGroup(運算單元帶) + topology 載入
-    │   └── SingleCcdSetupViewModel.cs ← 組合 Step1ViewModel + ZoneParamEditorViewModel 兩實例
+    │   ├── SystemSettingsViewModel.cs    ← 連線設定 + **綁定/相機引擎**（topology join 四態、SET_CAM_MAP、曝光增益；UI 大多由工作台呈現）
+    │   ├── SingleCcdSetupViewModel.cs    ← 組合 Step1ViewModel + ZoneParamEditorViewModel 兩實例
+    │   └── RemoteImageBrowserViewModel.cs
     │
     ├── Controls/             ← 自繪控制項
     │   ├── DefectOverlayControl.cs    ← 大圖缺陷圓圈 overlay（隨縮放，線寬固定）
-    │   └── RoiImageView.axaml(.cs)    ← 影像/ROI 共用控制項（從 Step1View 抽出；StyledProperty EditZone/AllZones…）
+    │   └── RoiImageView.axaml(.cs)    ← 影像/ROI 共用控制項（縮放/平移/框 ROI 把手/量測/缺陷導航）
+    │
+    ├── Converters/AppConverters.cs   ← 12 個 IValueConverter（燈色/log 色/槽位四態色/步驟點…）
     │
     ├── Controllers/          ← 業務邏輯（平台無關）
-    │   ├── UpstreamServer.cs          ← TCP ← 上位機（CF_ / 8787 / 9 參數，已 Start）
-    │   ├── UpstreamWiring.cs          ← CF_ 回呼接既有 IP 流程（OnLoadRecipe/OnGetResult/OnConnectedChanged）
+    │   ├── UpstreamServer.cs          ← TCP ← 上位機（CF_ / 8787 / 9 參數，已 Start + 已接線）
+    │   ├── UpstreamWiring.cs          ← CF_ 回呼接既有流程（LoadRecipe→IP+Grab 預熱、GRAB_START/STOP→Grab、GetResult→IP）
     │   ├── IpClient.cs                ← TCP → IP（含 UTF-8 整行解碼，見不變式）
-    │   ├── GrabClient.cs              ← TCP → Grab（LIST_CAMERAS / 曝光增益 / GET_CAM_NODES）
+    │   ├── GrabClient.cs              ← TCP → Grab（LIST_CAMERAS/SET_CAM_MAP/GRAB_ARM·START·STOP/曝光增益/TUNE_MEAN/GET_CAM_NODES）
     │   ├── IHeartbeatClient.cs        ← 心跳介面（IpClient/GrabClient 實作）
-    │   └── ConnectionManager.cs       ← 定期 CHECK_HEALTH + 斷線變紅 + 自動重連 + SetUpstreamConnected
+    │   └── ConnectionManager.cs       ← 定期 CHECK_HEALTH（5s 逾時×連續 2 次才斷）+ 自動重連 + SetUpstreamConnected
     │
     ├── Models/               ← 資料結構（C# 慣用名 + [XmlElement]/[JsonPropertyName] 映射 legacy）
-    │   ├── RecipeModel.cs             ← Recipe → DetectRoiList
-    │   ├── ZoneSettingModel.cs        ← 對齊 legacy DetectRoi（32 欄）
-    │   ├── DefectResultModel.cs       ← JudgeResult → RoiInfoList → DefectInfoList
+    │   ├── RecipeModel.cs             ← Recipe → AlignRoi + DetectRoiList + DetectIoiList
+    │   ├── ZoneSettingModel.cs        ← 對齊 legacy DetectRoi（32 欄）+ 融合/LSC 新欄（ObservableObject）
+    │   ├── DefectResultModel.cs       ← JudgeResult → RoiInfoList → DefectInfoList（JSON+XML 雙解析）
     │   ├── ArrayTopologyModel.cs      ← 機台層拓樸宣告（37 槽 / 運算單元；config/array_topology.json）
-    │   └── SystemConfigModel.cs
+    │   ├── CameraInfoModel.cs         ← LIST_CAMERAS 列舉結果（bound/ccd_id = 綁定憑據）
+    │   ├── MacUtil.cs                 ← MAC 正規化（行為對齊 grab CamManager::normalize_mac）
+    │   ├── CamNodesModel.cs / CamParamsModel.cs ← GigE 機器層參數 / 曝光增益 read-back
+    │   ├── RecipeSavingModel.cs       ← per-recipe RecipeSetting.xml（#16 Rule/#32 邊界 → recipe_saving JSON）
+    │   ├── ShareSettingModel.cs       ← 全域旗標（appsettings ShareSetting）
+    │   ├── SystemConfigModel.cs
+    │   └── FrameHolder.cs             ← ⚠ 目前無任何引用（死碼；CHECK_ALIGN 裁搜尋 ROI 備用）
     │
     └── Services/
-        ├── RecipeService.cs           ← 配方讀寫 + XML 序列化 + ~ 展開
+        ├── AppServices.cs             ← 手動 DI 容器（Build/DesignTime）
+        ├── ConfigLoader.cs            ← appsettings.json 讀寫（SaveShareSetting 只改該節點）
+        ├── RecipeService.cs           ← 配方讀寫 + XML 序列化 + ~ 展開 + CopyParamsToIps（工作台 Step5）
         ├── RecipeStore.cs             ← 配方單一資料來源（single source of truth）
-        ├── OfflineReviewService.cs    ← Step1 送 IP（network-clean）
+        ├── OfflineReviewService.cs    ← Step1 送 IP（network-clean；含遠端 REVIEW_LOCAL_IMAGE）
         ├── PitchEstimator.cs          ← 純 managed FFT 估 Pitch
-        └── LogService.cs
+        ├── LogService.cs
+        └── SelfTest.cs                ← --selftest 無頭驗證（18 個子命令，見 docs/control_程式完整說明.md §15）
 ```
 
 ---
@@ -133,162 +150,29 @@ public partial class Step1ViewModel : ObservableObject
 
 ## 4. Avalonia XAML 模式
 
-### 主視窗佈局
-```xml
-<!-- Views/MainWindow.axaml -->
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:vm="clr-namespace:CfAoiControl.ViewModels"
-        Title="CF-AOI Control"
-        Width="1280" Height="800">
-  <Window.DataContext>
-    <vm:MainWindowViewModel/>
-  </Window.DataContext>
+> ⚠️ 本節原有 MainWindow / Step1View 的逐行 XAML 範例已移除——**示意用途，實際版面一律以對應 `.axaml` 為準**
+> （範例曾與現況嚴重脫節：主視窗已改為 dashboard + 側欄 5 頁導覽，非舊步驟按鈕版）。
 
-  <DockPanel>
-    <!-- 頂部工具列 -->
-    <Border DockPanel.Dock="Top" Background="#2d2d30" Padding="8,4">
-      <StackPanel Orientation="Horizontal" Spacing="12">
-        <TextBlock Text="CF-AOI" Foreground="White" FontSize="16" FontWeight="Bold"
-                   VerticalAlignment="Center"/>
-        <!-- 連線狀態指示燈 -->
-        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-          <Ellipse Width="10" Height="10"
-                   Fill="{Binding ConnectionManager.IsIpConnected,
-                          Converter={StaticResource BoolToGreenRedConverter}}"/>
-          <TextBlock Text="IP" Foreground="White" FontSize="12"/>
-          <Ellipse Width="10" Height="10"
-                   Fill="{Binding ConnectionManager.IsGrabConnected,
-                          Converter={StaticResource BoolToGreenRedConverter}}"/>
-          <TextBlock Text="Grab" Foreground="White" FontSize="12"/>
-          <Ellipse Width="10" Height="10"
-                   Fill="{Binding ConnectionManager.IsUpstreamConnected,
-                          Converter={StaticResource BoolToGreenRedConverter}}"/>
-          <TextBlock Text="上位機" Foreground="White" FontSize="12"/>
-        </StackPanel>
-      </StackPanel>
-    </Border>
+現行 XAML 慣例（讀 `Views/*.axaml` 時的背景知識）：
 
-    <!-- 底部狀態列 -->
-    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0"
-            BorderBrush="#3f3f46" Padding="8,4">
-      <TextBlock Text="{Binding StatusMessage}" FontSize="12"/>
-    </Border>
-
-    <!-- 主內容區 -->
-    <Grid ColumnDefinitions="180,*">
-      <!-- 左側步驟選擇器 -->
-      <StackPanel Grid.Column="0" Spacing="2" Margin="8">
-        <TextBlock Text="驗證步驟" FontWeight="Bold" Margin="0,8,0,4"/>
-        <Button Command="{Binding SelectStepCommand}" CommandParameter="1"
-                Classes="stepBtn" Content="Step 1：演算法驗證"/>
-        <Button Command="{Binding SelectStepCommand}" CommandParameter="2"
-                Classes="stepBtn" Content="Step 2-3：RDMA 驗證"/>
-        <Button Command="{Binding SelectStepCommand}" CommandParameter="4"
-                Classes="stepBtn" Content="Step 4：存圖模式"/>
-        <Button Command="{Binding SelectStepCommand}" CommandParameter="5"
-                Classes="stepBtn" Content="Step 5：完整生產"/>
-        <Separator Margin="0,8"/>
-        <Button Command="{Binding OpenRecipeEditorCommand}" Content="配方編輯"/>
-        <Button Command="{Binding OpenSettingsCommand}"     Content="系統設定"/>
-        <Button Command="{Binding OpenHealthCheckCommand}"  Content="機況確認"/>
-      </StackPanel>
-
-      <!-- 右側：根據步驟切換視圖 -->
-      <ContentControl Grid.Column="1" Content="{Binding CurrentView}"/>
-    </Grid>
-  </DockPanel>
-</Window>
-```
-
-### Step 1 視圖
-```xml
-<!-- Views/Step1View.axaml -->
-<UserControl ...>
-  <Grid RowDefinitions="Auto,Auto,*,Auto">
-    <!-- 自動生成配方警告 -->
-    <Border Grid.Row="0" Background="#FFF3CD" CornerRadius="4" Padding="12,8"
-            IsVisible="{Binding ShowAutoGenWarning}" Margin="8,8,8,0">
-      <TextBlock TextWrapping="Wrap">
-        ⚠ 配方為自動生成，請確認 PitchX / PitchY 是否符合實際影像！
-      </TextBlock>
-    </Border>
-
-    <!-- 影像選擇 + 參數 -->
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="8">
-      <StackPanel Spacing="4">
-        <TextBlock Text="影像檔案"/>
-        <TextBox Text="{Binding SelectedImagePath}" Width="300"/>
-        <Button Content="瀏覽..." Command="{Binding BrowseImageCommand}"/>
-      </StackPanel>
-      <StackPanel Spacing="4">
-        <TextBlock Text="配方"/>
-        <ComboBox ItemsSource="{Binding RecipeNames}"
-                  SelectedItem="{Binding SelectedRecipe}" Width="150"/>
-      </StackPanel>
-      <StackPanel Spacing="4">
-        <TextBlock Text="快速調參"/>
-        <Grid ColumnDefinitions="60,80,60,80" RowDefinitions="*,*" RowSpacing="2" ColumnSpacing="4">
-          <TextBlock Grid.Row="0" Grid.Column="0" Text="BTH" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Bth}"
-                         Increment="0.05" Minimum="1.01" Maximum="2.0" FormatString="F2"/>
-          <TextBlock Grid.Row="0" Grid.Column="2" Text="DTH" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding Dth}"
-                         Increment="0.05" Minimum="0.3" Maximum="0.99" FormatString="F2"/>
-          <TextBlock Grid.Row="1" Grid.Column="0" Text="PitchX" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding PitchX}" Increment="1"/>
-          <TextBlock Grid.Row="1" Grid.Column="2" Text="PitchY" VerticalAlignment="Center"/>
-          <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding PitchY}" Increment="1"/>
-        </Grid>
-      </StackPanel>
-      <StackPanel VerticalAlignment="Bottom" Spacing="4">
-        <Button Content="▶ 送 IP 分析" Command="{Binding RunAnalysisCommand}"
-                Background="#0078d4" Foreground="White" Padding="16,8"/>
-        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsAnalyzing}" Height="4"/>
-      </StackPanel>
-    </StackPanel>
-
-    <!-- 結果：缺陷清單 + patch 影像 -->
-    <Grid Grid.Row="2" ColumnDefinitions="*,300" Margin="8,0">
-      <DataGrid ItemsSource="{Binding LastResult.CamResults[0].Defects}"
-                AutoGenerateColumns="False" CanUserSortColumns="True"
-                SelectedItem="{Binding SelectedDefect}">
-        <DataGrid.Columns>
-          <DataGridTextColumn Header="ID"   Binding="{Binding Id}"      Width="50"/>
-          <DataGridTextColumn Header="類型" Binding="{Binding Type}"    Width="100"/>
-          <DataGridTextColumn Header="X"    Binding="{Binding GcX}"     Width="70"/>
-          <DataGridTextColumn Header="Y"    Binding="{Binding GcY}"     Width="70"/>
-          <DataGridTextColumn Header="尺寸" Binding="{Binding SizeStr}" Width="70"/>
-          <DataGridTextColumn Header="AI"   Binding="{Binding AiResult}"Width="60"/>
-          <DataGridTextColumn Header="Score"Binding="{Binding AiScoreStr}" Width="70"/>
-        </DataGrid.Columns>
-      </DataGrid>
-      <!-- 缺陷 patch 影像 -->
-      <StackPanel Grid.Column="1" Margin="8,0,0,0">
-        <TextBlock Text="缺陷影像" FontWeight="Bold" Margin="0,0,0,4"/>
-        <Image Source="{Binding SelectedDefectBitmap}"
-               Width="280" Height="280" Stretch="Uniform"/>
-      </StackPanel>
-    </Grid>
-
-    <!-- 結果摘要列 -->
-    <Border Grid.Row="3" Padding="8,4" Background="#f3f4f6">
-      <StackPanel Orientation="Horizontal" Spacing="16">
-        <TextBlock Text="{Binding ResultSummary}"/>
-        <Button Content="儲存配方" Command="{Binding SaveRecipeCommand}"/>
-        <Button Content="匯出 JSON" Command="{Binding ExportResultCommand}"/>
-      </StackPanel>
-    </Border>
-  </Grid>
-</UserControl>
-```
+- **單一主視窗**：`MainWindow.axaml` 內以 `IsVisible="{Binding IsXxx}"` 切換 5 個內容 Panel
+  （主控台 dashboard / 相機工作台 / 檢測複判 Step1View / 缺陷分類 DefectSort / 系統設定），各 View 以
+  `<views:XxxView DataContext="{Binding Xxx}"/>` 內嵌，**不另開視窗**（例外：RemoteImageBrowserView 為 modal 對話框）。
+- **主題 token**：顏色/圓角/字體全走 `{DynamicResource ...}`（`Styles/ThemeConsole.axaml` / `ThemeLab.axaml`），
+  頂列 A/B 鈕即時換膚（`MainWindow.axaml.cs` 抽換 MergedDictionaries[0]）。
+- **Compiled bindings 預設開**（csproj `AvaloniaUseCompiledBindingsByDefault=true` + 各檔 `x:DataType`）；
+  少數複雜路徑檔案（RoiImageView / SingleCcdSetupView）標 `x:CompileBindings="False"` 用反射綁定。
+- 版面用等比 `Grid`/`DockPanel`（非 Canvas 絕對座標，因 Mac Retina/縮放）。
 
 ---
 
 ## 5. Zone 參數編輯（手寫資料驅動表單，對齊 DetectRoi 32 欄）
 
-> ⚠️ **無 AvaloniaPropertyGrid、非 54 參數**。`ZoneParamEditorView` 是 1:1 重建 legacy `frmIpParamEditor`：
-> 左 ROI 位移(+/-)、中 **27 列參數**（每列 CheckBox + Label + 輸入(TextBox/ComboBox) + Update）、右多 ROI 勾選，
-> 底部 Clear(粉)/Select(綠)/Update Chk(金) 批次鈕。資料來源綁 `RecipeStore`（單一資料來源）。
+> ⚠️ **無 AvaloniaPropertyGrid、非 54 參數**。表單源自 legacy `frmIpParamEditor`：
+> 左 ROI 位移(+/-)、中 **34 列參數**（27 列 legacy ＋ SUB/融合/LSC 新欄 7 列；每列 CheckBox + Label +
+> 輸入(TextBox/ComboBox) + Update）、右多 ROI 勾選，底部 Clear(粉)/Select(綠)/Update Chk(金) 批次鈕。
+> 資料來源綁 `RecipeStore`（單一資料來源）。**獨立頁現無導覽入口**——同一份 `ParamRows` 由工作台 Step 4
+> 內嵌的 `SingleCcdSetupView`「進階參數」摺疊面板直接呈現。
 
 ```
 ParamRow（資料驅動）：以反射代理選中 ROI 的欄位，訂閱 PropertyChanged 即時同步回 ZoneSettingModel。
@@ -302,10 +186,10 @@ IP 端未消費的參數（AlgorithmWay/Blob* 等）標「IP待接」。閾值�
 | Reference 來源 | control/src/ 目標 | 方式 |
 |---------------|-----------------|------|
 | `PrjCfAoi/Class/MainProc.cs`（TCP server 部分）| `Controllers/UpstreamServer.cs` | 🔧 移除 MIL/Camera |
-| `PrjCfAoi/Class/MainProc.cs`（流程協調）| `Controllers/MainController.cs` | 🔧 改為 TCP 呼叫 |
+| `PrjCfAoi/Class/MainProc.cs`（流程協調）| （**未建此檔**：職責由 `Controllers/UpstreamWiring.cs` + 各 ViewModel 分擔）| 🔧 改為 TCP 呼叫 |
 | `ClibCf/Recipe.cs` | `Models/RecipeModel.cs` | 🔧 保留 XML 格式 |
 | `ClibCf/JudgeResult.cs` | `Models/DefectResultModel.cs` | 🔧 加 JSON 反序列化 |
-| `PrjAoiSettingEditor/frmIpParamEditor.cs` | `Views/ZoneParamEditorView.axaml` | 🔧 WinForms → Avalonia 手寫 27 列資料驅動表單（非 PropertyGrid）|
+| `PrjAoiSettingEditor/frmIpParamEditor.cs` | `Views/ZoneParamEditorView.axaml` | 🔧 WinForms → Avalonia 手寫 34 列資料驅動表單（非 PropertyGrid）|
 | `PrjAoiSettingEditor/frmSortDefect.cs` | `Views/DefectSortView.axaml` | 🔧 改遠端命令 + 小圖人工分類 |
 | `PrjCfAoi/frmCfAoi.cs` | `Views/MainWindow.axaml` | 🔧 重新設計，移除 MIL Display |
 | MilNetHelper, CamProc, AiProc | — | ❌ 完全移除 |
@@ -323,10 +207,17 @@ IP 端未消費的參數（AlgorithmWay/Blob* 等）標「IP待接」。閾值�
     "GrabA":     { "Host": "192.168.10.21", "Port": 8100 }
   },
   "ActiveIpNode": "IpOffline",
+  "Grab": { "FramesPerPanel": 0 },          // CF_GRAB_START 帶給 Grab 的每片張數；0=連續（生產應設 N）
+  "RecipeIps": [ "IP0" ],                   // 配方可編輯的 IP/CCD 分區清單（多分區加 "IP1"…；預設留空防 config 疊加重複）
   "Paths": {
     "RecipeDir": "~/cf-aoi/recipes",
     "OutputDir": "~/cf-aoi/output",
-    "ImageDir":  "~/cf-aoi/test_images"
+    "ImageDir":  "~/cf-aoi/test_images",
+    "RemoteImageDir": ""                    // 「從 IP 載入」遠端瀏覽起始目錄（IP 機路徑；空=IP 工作目錄）
+  },
+  "ShareSetting": {                         // 全域旗標（=legacy ShareSetting.xml；SaveShareSetting 只覆寫此節點）
+    "SaveSourceImage": false, "DebugAlgorithm": false, "AiRootPath": "",
+    "TuningRecipe": false, "SaveFullImage": false, "BypassAlignment": false
   }
 }
 ```
@@ -353,12 +244,15 @@ dotnet publish -r linux-x64 --self-contained \
 
 ## 9. 不變式
 
-1. **上位機協議 = `CF_` 前綴 / port 8787 / `|` 分隔 / 9 參數回應**（`UpstreamServer.cs` 已**寫好程式碼**）。
-   舊文件的 `LoadRecipe|RECIPE|PANEL`（port 8000 簡化介面）**已作廢**。
-   ⚠️ **狀態：實作完成、待驗證** — 目前程式中**未 `.Start()` 啟動、`On*` 回呼未接線、從未接過真實上位機**
-   （Step 1 為 offline）。接真機前須：接線啟動 + 綁回呼 + 實機/模擬器驗證格式。**寫好 ≠ 驗證過**。
+1. **上位機協議 = `CF_` 前綴 / port 8787 / `|` 分隔 / 9 參數回應**。舊文件的 `LoadRecipe|RECIPE|PANEL`
+   （port 8000 簡化介面）**已作廢**。
+   ✅ **狀態：已接線啟動**——2026-06-19 `UpstreamWiring.Bind` + `Start()`（`MainWindowViewModel` ctor）；
+   2026-07-21 觸發鏈 CF_LOAD_RECIPE→IP+Grab 預熱、CF_GRAB_START/CF_STOP→真 Grab；2026-07-31 生產迴圈端到端 **L3**。
+   驗證：`--selftest upstream`/`grabtrigger` = L2、`scripts/upstream_simulator.py` 端到端 = L3。
+   ⚠️ **真上位機協議認帳（欄位/序列/μm 是否如實機預期）= L4 仍做不了**；CHECK/SET_ALIGN 不綁（誠實 ERR）、#26 BypassAlignment 未做。
 2. **RecipeInfo.xml 格式凍結**，不可改 Schema（= legacy `Recipe`，閾值欄位 `BrightThreshold`/`DarkThreshold`，
-   非 ThB/ThD；只允許 `AlgorithmCompare="DIV"`，IP 拒絕 SUB）。
+   非 ThB/ThD）。演算法域走**三域守門**（`<M_AlgorithmWayCompare>` 權威：SUB / DIV-voting 融合 / DIV；
+   `<AlgorithmCompare>` 為 stale 欄位，無法判定或域值錯配一律拒載）——完整規則見 `docs/CLAUDE.md` §5。
 3. 連線失敗不阻塞啟動（UpstreamServer, IpClient, GrabClient 都靜默重試）。
 4. 自動生成的配方顯示黃色 ⚠ 警告，直到使用者確認 PitchX/PitchY。
 5. `appsettings.json` 無任何 hardcode 位址。
@@ -376,9 +270,10 @@ dotnet publish -r linux-x64 --self-contained \
 10. **network-clean**：跨機（Mac↔Linux）不共用檔案系統。`LOAD_RECIPE` 送配方 **XML 內容**（非路徑）；
     Step1 結果走 TCP 回傳；DefectSort 缺陷小圖以 **PNG bytes(base64)** 經 TCP 取回。
     `IpClient` 的 TCP 讀取**整行累積 bytes 後一次 UTF-8 解碼**（不可逐 byte→char，否則中文亂碼）。
-11. **連線心跳偵測**：`ConnectionManager` 定期 `CHECK_HEALTH`（IsBusy 時跳過視為存活），
-    失敗→紅燈 + 自動重連（避免「假綠燈」靜默失效）。Grab / 上位機同此架構。
-12. **UI 1:1 複製舊版**：等比 `Grid`（**非 Canvas 絕對座標**，因 Mac Retina/縮放）、相同排列/文字/顏色/Arial；
-    MIL 專屬無對應的按鈕一律 `IsEnabled=False` + tooltip 標「MIL 專屬，新版未啟用」。
+11. **連線心跳偵測**：`ConnectionManager` 每 2.5s `CHECK_HEALTH`（5s 逾時、**連續 2 次失敗才判斷線**＝★8
+    實測門檻；IsBusy 時跳過視為存活），失敗→紅燈 + 自動重連（避免「假綠燈」靜默失效）。Grab / 上位機同此架構。
+12. **UI 佈局**：2026-07-31 起為 **dashboard + 側欄 5 頁 + 相機工作台五步驟動線**（已非早期「1:1 複製舊版」；
+    版面見 docs/control_程式完整說明.md §6）。保留的原則：等比 `Grid`（**非 Canvas 絕對座標**，因 Mac
+    Retina/縮放）；尚無對應功能的按鈕一律 `IsEnabled=False` + tooltip 說明緣由。
 13. **AI 現況**：IP 端 RF 模型已載入但**暫不使用**（TrueDefect 樣本不足）。缺陷分類靠 **DefectSort 人工標
     TrueDefect/Particle**（即時持久化 + classification.json），結果即未來 AI 重訓的標註資料。

@@ -44,6 +44,11 @@
 **GUI 操作**：拖拽框選 → `S` 存 8-bit 灰階 PNG + 印 AlignRoi XML 到 stdout；`R` 重設；`Q`/ESC 離開。
 （GUI 大圖自動縮放顯示，上限 2000px；存檔時用 `inv_scale` 還原回原始座標，golden_maker.cpp:160-199。）
 
+> ⚠️ **已知限制（2026-08-02 複查 T1，見 [code_review_20260802.md](code_review_20260802.md)）：GUI 模式尺度不一致。**
+> 存出的 golden 取自**縮放後**顯示圖（`g_gray(sel)`，golden_maker.cpp:191），XML 座標卻用 `inv_scale`
+> 還原成**全解析度**——影像 >2000px（線掃 8192 寬必縮，約 0.24×）時兩者尺度不符，對位分數會偏低甚至失敗。
+> **正式產 golden 請走 CLI `--mark-rect`**（從 `gray_full` 原圖裁切，尺度正確；Gap #1 L3 驗的就是此路徑）。
+
 ### 2.3 命令列參數
 
 | 參數 | 說明 | 預設 |

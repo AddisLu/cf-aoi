@@ -20,11 +20,16 @@
 | — | `control_client.cpp` | 🆕 全新（TCP client to Control）|
 | — | `frame_assembler.cpp` | 🔧 從 t40_e2e_client 抽出 |
 
-> ⚠️ **實作現況（2026-06-17 考古更新）**：本表為**原始遷移規劃**，多數尚未建檔。grab/src 現有：
-> `main.cpp` / `cam_pylon.cpp` / `rdma_sender.cpp` / `control_server.cpp`（非 client）/ `rdma_common.h` / `rdma_nslot_test.cpp`。
-> **未建檔**：`cam_ebus`（eBUS 整路徑）、`cam_manager`（多相機）、`frame_assembler`、`control_client`。
+> ⚠️ **實作現況（2026-08-02 更新，取代 2026-06-17 考古註記）**：本表為**原始遷移規劃**，與現況已分岔。
+> grab/src 現有（14 檔 ~2748 行）：`main.cpp`、**`cam_manager.{h,cpp}`（✅ 已建，2026-07-18 起：多相機陣列 +
+> Gap #21 cam_map MAC 綁定，2 台實機 L3）**、`cam_pylon.{h,cpp}`、`rdma_sender.{h,cpp}`、
+> `control_server.{h,cpp}`（非 client）、`rdma_common.h`、`rdma_nslot_test.cpp`，
+> 另有工具三檔 `image_replay_sender.cpp`／`probe_cam_nodes.cpp`／`cam_mean_gray_test.cpp`。
+> **規劃未建**：`cam_ebus`（eBUS 整路徑，L0）；`frame_assembler`（組幀邏輯已內聯於 main.cpp `frame_cb` +
+> rdma_sender，不另建檔）；`control_client`（實作方向相反：Grab 是 TCP **server**，Control 連入 8100）。
 > **`t01_pylon_mac_setup` 是懸空引用**——`Reference/cfaoi_phase1/` 與整個 Reference 樹下**無此原始檔**，
-> MAC Persistent IP 綁定能力從未存在於程式碼（`mac_ip_binder` 雙缺）。
+> MAC Persistent IP 綁定能力從未存在於程式碼；**該需求已由 `cam_map.json`（MAC↔cam_id 映射，見不變式 8）
+> 以另一機制取代**（persistent IP 設定現用 runbook 手動流程 + GVCP 廣播工具）。
 > phase1 來源實為**扁平單檔**（`t31_pylon_grab.cpp`，非 `t31_pylon_grab/` 子目錄）。詳見 [docs/grab_程式完整說明.md](../docs/grab_程式完整說明.md) §10。
 
 ---
@@ -48,22 +53,40 @@ t31_pylon_grab（測試工具）的功能：
   ✅ 保留：Pylon 初始化、GigE 傳輸最佳化、回呼機制、FPS/drop 統計
   🔧 改進：從單相機 → 多相機陣列（CInstantCameraArray 或獨立執行緒陣列）
   🔧 改進：從 main() 腳本 → 類別封裝（PylonCamPath）
-  🔧 加入：MAC-based Persistent IP 綁定（來自 t01_pylon_mac_setup）
-  🔧 加入：--cam-count 控制（從 CSV 讀取，選擇性啟用）
-  🔧 加入：每幀呼叫 FrameAssembler + RdmaSender
+  ~~🔧 加入：MAC-based Persistent IP 綁定（來自 t01_pylon_mac_setup）~~ → 來源懸空（見 §1 註）；
+     改由 cam_map.json MAC↔cam_id 映射落地（不變式 8）
+  ✅ 加入：--cam-count 控制（實作讀 cam_map.json/列舉，非 CSV）
+  ✅ 加入：每幀回呼 → main.cpp frame_cb → RdmaSender（規劃中的 FrameAssembler 未另建檔，內聯處理）
   ❌ 移除：.raw 檔案儲存、單次 500 幀測試邏輯
 
-t31_ebus_grab（測試工具）的功能：
+t31_ebus_grab（測試工具）的功能：（⚠️ 整段為規劃，cam_ebus 未建檔＝L0，eBUS SDK 未裝）
   ✅ 保留：PvDevice/PvStream 初始化、buffer queue、grab loop
   🔧 改進：從單 iPORT → 多 iPORT 並行執行緒
   🔧 加入：cam_count 控制
-  🔧 加入：每幀呼叫 FrameAssembler + RdmaSender
+  🔧 加入：每幀回呼 → RdmaSender
   ❌ 移除：.raw 儲存
 ```
 
 ---
 
-## 4. cam_manager.cpp（全新，統一介面）
+## 4. cam_manager.cpp（✅ 已建 2026-07-18；實作與原規劃不同，此節以現況為準）
+
+實作：`grab/src/cam_manager.{h,cpp}`（94+335 行；2 台實機 L3，見 STATUS「Switch 到貨日」章節）。
+與原始規劃的差異：**設定來源是 `cam_map.json`（MAC↔cam_id 穩定映射，Gap #21），不是 CSV**（`CsvLoader` 未建）；
+無 `FrameAssembler`／`EbusCam`（僅 pylon，組幀內聯於 main.cpp frame_cb）；持有 `RdmaSender` 的是 main，不是 CamManager。
+
+核心 API（詳見 cam_manager.h 檔頭註解）：
+
+| API | 行為 |
+|---|---|
+| `load_map(path, err, warn)` | 載 cam_map.json。檔案不存在=合法舊行為（warn）；格式錯/MAC 重複/cam_id 重複=**回 false 啟動中止**（不變式 8）|
+| `write_map(path, entries_json, err)` | SET_CAM_MAP 落地：寫暫存檔→**用 load_map 同一套規則驗**→過了才 rename（原子），驗證單一標準 |
+| `annotate(infos)` | LIST_CAMERAS 用：依映射填 cam_id/ccd_id/bound；未綁定誠實標 bound=false |
+| `open_all(want, serial, pkt_size, err)` | want<=0=ALL；**有映射=嚴格模式**（未列於映射的相機拒開）；任一台失敗全關（fail-fast 不半開）；冪等重用（台數符合直接重用；`primary_only_` 旗標防 idle 單台被當整陣列＝★7 修法）|
+| `start_all(max_frames, cb)` | 逐台平行 arm（skew 由 IP 端玻璃前緣對位吸收）；cb 被 N 個 thread 併發呼叫，呼叫端負責序列化 |
+| `stop_all()` / `get(cam_id)` / `get_or_open_primary(...)` | 停+清列表／依 cam_id 路由／idle 調參路徑開單台（設 `primary_only_`）|
+
+<details><summary>原始規劃碼（2026-06-17 前；保留考古——CsvLoader / FrameAssembler / EbusCam / ICam 均未建）</summary>
 
 ```cpp
 // grab/src/cam_manager.cpp
@@ -101,6 +124,7 @@ private:
     RdmaSender     rdma_sender_;
 };
 ```
+</details>
 
 ---
 
@@ -109,47 +133,72 @@ private:
 ```
 t40_e2e_client_pylon（測試工具）的功能：
   ✅ 保留：RDMA CM 連線建立、ibv_post_send、completion queue 輪詢
-  ✅ 保留：rkey/remote_addr 交換機制
-  🔧 改進：從單幀測試 → 持續非同步串流
-  🔧 改進：加入發送統計（bytes/sec、latency）
-  🔧 加入：重連機制（IP 端重啟後自動重連）
+  ✅ 保留：MrInfoEx 握手（addr/rkey 仍在 wire 上交換；SEND 資料路徑已不用遠端位址，見不變式 7）
+  ✅ 改進：單幀同步 → N-buffer 非同步串流（≤ n_slots 筆 in-flight、lazy FIFO poll）
+  ✅ 改進：發送統計 sent_frames/sent_bytes；app-CRC 由呼叫端在 send_mtx 之外先算（crc_of，37 台不佔鎖）
+  ❌ 未實作：重連機制（原規劃「IP 端重啟後自動重連」）——現況 send/poll 失敗後 connected_=false，
+     之後所有幀靜默丟棄、且 disconnect() 因 connected_==false 早退不清 QP/MR；
+     恢復唯一路徑 = GRAB_STOP → 重 GRAB_ARM。已列審計 P0-7「上線前必修」（rdma_sender.cpp 檔頭註記）。
   ❌ 移除：CRC 對比驗證（移到 IP 端做）
 ```
 
 ---
 
-## 6. 程式碼結構
+## 6. 程式碼結構（2026-08-02 對齊實際檔案）
 
 ```
 grab/
 ├── CLAUDE.md
-├── CMakeLists.txt
+├── CMakeLists.txt                5 個目標：cfaoi_grab / rdma_nslot_test / image_replay_sender /
+│                                 probe_cam_nodes / cam_mean_gray_test
+├── cam_config.example.json       每台曝光/增益模板（本機副本 cam_config.json 不版控）
+├── cam_map.example.json          MAC↔cam_id 綁定模板（Gap #21；本機副本 cam_map.json 不版控）
 └── src/
-    ├── main.cpp                  ← 🆕 進入點（解析 --cam-count/--sdk）
-    ├── cam_manager.h/.cpp        ← 🆕 統一管理 pylon/eBUS
-    ├── cam_pylon.h/.cpp          ← 🔧 升級自 t31_pylon_grab
-    ├── cam_ebus.h/.cpp           ← 🔧 升級自 t31_ebus_grab
-    ├── mac_ip_binder.h/.cpp      ← 🔧 升級自 t01_pylon_mac_setup
-    ├── frame_assembler.h/.cpp    ← 🔧 從 t40_e2e_client 抽出
-    ├── rdma_sender.h/.cpp        ← 🔧 升級自 t40_e2e_client
-    └── control_client.h/.cpp     ← 🆕 TCP JSON client（連 Control）
+    ├── main.cpp                  ← ✅ 進入點/狀態機（IDLE⇄ARMED⇄GRABBING）、frame_cb、11 個 8100 回呼接線
+    ├── cam_manager.h/.cpp        ← ✅ 多相機陣列 + cam_map MAC 綁定（原規劃「統一管理 pylon/eBUS」，現僅 pylon）
+    ├── cam_pylon.h/.cpp          ← ✅ 升級自 t31_pylon_grab（grab thread、曝光/增益、enumerate、grab_one_mean）
+    ├── rdma_sender.h/.cpp        ← ✅ 升級自 t40_e2e_client（N-buffer SEND pipeline，見 §5）
+    ├── rdma_common.h             ← ✅ 沿用 phase1 RcConn + MrInfoEx（⚠️ 與 ip/src/image_source/ 有同源副本，
+    │                                 post_recv 等 wire 相關改動必須兩份同步，見不變式 7 配套註記）
+    ├── control_server.h/.cpp     ← ✅ TCP JSON server @8100（規劃中的 control_client 方向反轉：Grab 為 server）
+    ├── rdma_nslot_test.cpp       ← 合成幀送器（免相機；threads>1 模擬 N 相機共用單 QP）
+    ├── image_replay_sender.cpp   ← 檔案回放送器（Gap #27；stdin 餵 Mono8 raw）
+    ├── probe_cam_nodes.cpp       ← GenICam 節點探測（Gap #2 Stage 0）
+    └── cam_mean_gray_test.cpp    ← 曝光/增益→mean gray 單調性驗證（Gap #2 Stage 2+3）
 ```
+
+> **規劃未建（保留考古脈絡）**：`cam_ebus.h/.cpp`（eBUS 路徑，L0）；`mac_ip_binder.h/.cpp`（來源 t01 懸空，
+> 能力由 cam_map.json 取代）；`frame_assembler.h/.cpp`（內聯於 main.cpp frame_cb）；
+> `control_client.h/.cpp`（反轉為 control_server）。
 
 ---
 
-## 7. 啟動命令
+## 7. 啟動命令（實際 CLI；未知參數直接 exit 1）
 
 ```bash
-# Step 2：單支 pylon 相機
-./build/cfaoi_grab --cam-count 1 --cam-ids 0 --rdma-dest 10.0.0.2:18515
+# Step 2：單台 pylon（legacy 語意：--cam-id 自訂 FrameHeader.camId、--serial 指定序號）
+./build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count 1 [--cam-id 0] [--serial auto]
 
-# Step 2：單支 eBUS 相機
-source /opt/pleora/ebus_sdk/.../set_puregev_env.sh
-./build/cfaoi_grab --cam-count 1 --sdk ebus --rdma-dest 10.0.0.2:18516
-
-# Step 3-5：全陣列
-./build/cfaoi_grab --config config/system_config.json
+# Step 3+：多台 / 全陣列（ALL = 列舉到的全部；有 cam_map.json 即嚴格模式，未列於映射拒開）
+./build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count ALL [--frames-per-panel N]
 ```
+
+全部旗標（main.cpp 檔頭同步維護）：
+
+| 旗標 | 預設 | 說明 |
+|------|------|------|
+| `--rdma-dest IP:PORT` | （必填）| Spark IP 端 RDMA server（如 192.168.3.1:18515）|
+| `--cam-count N\|ALL` | 1 | 啟用台數；ALL = 列舉到的全部 |
+| `--frames-per-panel N` | 0 | 每片每台張數（0=連續；GRAB_START params 可覆蓋）|
+| `--cam-id N` | 0 | 單台模式的 FrameHeader.camId（legacy）|
+| `--serial STR` | auto | pylon 序號；auto = 第一台（單台模式）|
+| `--pkt-size N` | 8192 | GevSCPSPacketSize |
+| `--ctrl-port N` | 8100 | 等 Control 連入的 TCP port |
+| `--cam-config PATH` | exe 上一層/cam_config.json | 曝光/增益 JSON（路徑錨定 grab/，不隨 CWD 漂移）|
+| `--cam-map PATH` | exe 上一層/cam_map.json | MAC↔cam_id 映射（Gap #21；同上錨定）|
+
+> 舊版此節的 `--cam-ids`／`--sdk ebus`／`--config config/system_config.json` 均**不存在於程式**
+> （eBUS 路徑 L0 未建；設定檔僅 cam_config.json / cam_map.json 兩份，無 system_config.json）。
 
 ---
 

@@ -1,8 +1,10 @@
 # IP 程式完整說明
 
-> 版本：2026-06-17 整理（逐檔靜態分析 + GB10 實機驗證對照）+ flight_recorder（行車紀錄）+ Gap #5 pixel→μm + Demo 考古補充
-> 專案：`ip/CMakeLists.txt`（C++17 / CUDA）→ 可執行檔 `cfaoi_ip`（+ `align_verify` / `coord_verify` 驗證工具）
-> 技術棧：C++ + CUDA（cuda_kernels.cu / ai_kernels.cu）+ OpenCV + nlohmann_json + fmt + cuBLAS
+> 版本：**2026-08-02 全面對齊**（SUB/融合三域管線、rdma-validate/rdma-process、SEND/RECV 資料路徑、
+> ARM64 硬體 CRC、frame_loss/edge_check/defect_rules 等 6-7 月大改動入帳；基底為 2026-06-17 逐檔靜態分析版）
+> 專案：`ip/CMakeLists.txt`（C++17 / CUDA）→ 可執行檔 `cfaoi_ip`
+> （+ `align_verify` / `coord_verify` / `crc_verify` / `edge_verify` / `rules_verify` 五個獨立驗證工具）
+> 技術棧：C++ + CUDA（cuda_kernels.cu / ai_kernels.cu）+ OpenCV + nlohmann_json + fmt + cuBLAS（+ 可選 ibverbs/rdmacm）
 > 平台：Linux RTX 2080 Super（sm_75，開發）/ DGX Spark GB10（sm_121，生產，ARM aarch64）
 
 ---
@@ -33,17 +35,25 @@
 
 IP 是 CF-AOI 分散式架構的**運算節點**，負責：
 
-- 接收**影像**（offline-file 讀檔、offline-tcp 由 Control 送圖、未來 RDMA 由 Grab 直送），在 GPU 上跑 **8 方向鄰域比較**的 LCD CF 缺陷檢測。
-- 把缺陷結果寫成 **legacy 相容**的 `ResultInfo.json` / `ResultInfo.xml` + 缺陷小圖 + overlay。
-- 提供 **TCP JSON server（port 8200）** 給 Control：載入配方、送圖檢測、缺陷遠端歸檔 / 人工分類。
+- 接收**影像**（offline-file 讀檔、offline-tcp 由 Control 送圖、**RDMA 由 Grab 直送——已實作**：
+  `rdma-validate` 傳輸驗證 / `rdma-process` 收圖＋檢測全鏈），在 GPU 上跑 LCD CF 缺陷檢測
+  （**三域**：DIV 比例式 / SUB 灰階差投票 / DIV-voting 融合，見 §7/§8）。
+- 把缺陷結果寫成 **legacy 相容**的 `ResultInfo.json` / `ResultInfo.xml` + 缺陷小圖 + overlay
+  （＋收圖遺失 `frame_loss` 與玻璃邊 `edge_check` 標記，JSON only）。
+- 提供 **TCP JSON server（port 8200）** 給 Control：載入配方、送圖檢測、對位（CHECK/SET_ALIGN）、
+  缺陷遠端歸檔 / 人工分類、遠端檔案瀏覽。**rdma 模式亦開 8200**（心跳/查詢/換配方；影像注入誠實 ERR 擋掉）。
 
 核心策略：**GPU kernel 直接複製 `Reference/gpu_algo/`，只換 I/O 外殼**。
-`cuda_kernels.cu` / `ai_kernels.cu` 的 `__global__` kernel 本體一字不改（host 端編排可改，見 §13）。
+`cuda_kernels.cu` / `ai_kernels.cu` 的 `__global__` kernel 本體一字不改（host 端編排可改，見 §13）；
+SUB 管線移植（2026-06-23）**另新增 5 個非 Demo kernel**（Sub8WayStarVoting / DivVoting8WayStar /
+Histogram256 / RemapStretch / Smooth3x3Gau8），屬新碼、不受「複製不改」約束。
 
 與 Reference `gpu_algo` 最大不同：
 - 加上 **CCL 收斂迴圈 + canonical 排序** → 同影像兩跑 **bit-exact**（reference 單趟、非決定性）。
-- I/O 外殼換成 **XML 配方 / JSON 結果 / TCP 送圖 / network-clean**（reference 是 CSV/bmp + 檔案）。
+- I/O 外殼換成 **XML 配方 / JSON 結果 / TCP 送圖 / RDMA 收圖 / network-clean**（reference 是 CSV/bmp + 檔案）。
 - 多 ROI（每個 `DetectRoi` 裁子影像各跑一次再合併）。
+- **三域守門**（`M_AlgorithmWayCompare` 權威）＋ SUB 前處理鏈 ＋ mode2 多尺度接線 ＋ CPU 後處理
+  （Blob 過濾/合併、#32 邊界略過、#16 Rule 改判，`defect_rules.h`）。
 
 ---
 
@@ -63,18 +73,24 @@ Reference gpu_algo（單機批次工具，RAG_TRAINING.md 描述）
                       ↕ 遷移（換 I/O 外殼，kernel 不改）
 CF-AOI 分散式架構 IP 程式（本文件）
 ┌──────────────────────────────────────────────┐
-│ main.cpp（模式分派 offline-file/tcp/bench）     │
-│   IImageSource（File / Tcp / [Rdma 待做]）     │
+│ main.cpp（模式分派 offline-file[--stitch]/tcp/ │
+│           bench/rdma-validate/rdma-process）    │
+│   IImageSource（File / Tcp / Rdma——已實作）    │
 │   GpuPipeline.process_frame()                  │
-│     ├ cuda_kernels.cu（複製，不改 kernel）      │
+│     ├ cuda_kernels.cu（Demo 區複製不改 +       │
+│     │   新增 SUB/DIV-voting/前處理 kernel）     │
 │     │   + CCL 收斂迴圈（host 編排，新增）        │
 │     │   + canonical 排序（host，新增）          │
+│     │   + mode2 多尺度 downsample/redetect      │
 │     └ ai_kernels.cu（複製，不改 kernel）        │
-│   ZoneConfigAdapter（RecipeInfo.xml→ZoneConfig）│
-│   ControlServer（TCP JSON @8200）              │
-│   ResultSaver（ResultInfo.json/.xml + 小圖）    │
+│   ZoneConfigAdapter（三域守門→ZoneConfig）      │
+│   defect_rules（Blob/#32/#16 CPU 後處理）       │
+│   EdgeCheck（玻璃前緣/尾緣健檢，逐 slice）       │
+│   ControlServer（TCP JSON @8200，rdma 模式亦開）│
+│   ResultSaver（ResultInfo.json/.xml + 小圖 +    │
+│                frame_loss/edge_check 標記）     │
 └──────────────────────────────────────────────┘
-            ↑ TCP JSON 8200            ↑ (未來) RDMA
+            ↑ TCP JSON 8200            ↑ RDMA SEND/RECV（N-slot + credit 背壓）
         ┌───┴────┐                 ┌───┴────┐
         │ CONTROL │                 │  GRAB   │
         └─────────┘                 └─────────┘
@@ -85,30 +101,40 @@ CF-AOI 分散式架構 IP 程式（本文件）
 
 ### 2.1 Demo 考古補充：kernel 一字不改確認 + 未搬入/死碼盤點
 
-> 2026-06-17 逐行比對 `Reference/Demo/src/cuda_kernels_fast.cu`(1377行) vs `ip/src/gpu/cuda_kernels.cu`(1395行)
-> 與兩份 `ai_kernels.cu`。
+> 2026-06-17 逐行比對 `Reference/Demo/src/cuda_kernels_fast.cu`(1377行) vs 當時的 `ip/src/gpu/cuda_kernels.cu`(1395行)
+> 與兩份 `ai_kernels.cu`。（2026-06-23 SUB 移植後 ip 檔已成長至 ~1680 行——新增部分為非 Demo 新 kernel，見下。）
 
-- **不變式 #1 屬實確認**：所有 `__global__`/`__device__` kernel 本體 **byte-exact 相同**；`cuda_kernels.h` 兩份 byte-identical。
-  唯一差異 100% 在 host launch 編排：**ip `launchFastCCLKernel`（cuda_kernels.cu:1188-1199）包了 `MAX_CCL_ITERS=1000` 收斂迴圈**，
-  Demo（cuda_kernels_fast.cu:1182）是**單趟 merge、無迴圈**。kernel call 本身一字不改。AI 11 個 kernel 全 byte-identical（無增無減）。
+- **不變式 #1 屬實確認（Demo 複製區）**：所有**源自 Demo** 的 `__global__`/`__device__` kernel 本體 **byte-exact 相同**；
+  `cuda_kernels.h` Demo 區兩份 byte-identical。Demo 區唯一差異 100% 在 host launch 編排：
+  **ip `launchFastCCLKernel` 包了 `MAX_CCL_ITERS=1000` 收斂迴圈**（現行 cuda_kernels.cu:1474-1485），
+  Demo 是**單趟 merge、無迴圈**。kernel call 本身一字不改。AI 11 個 kernel 全 byte-identical（無增無減）。
+- **2026-06-23 後檔內另有 5 個非 Demo 新 kernel**（Sub8WayStarVoting / DivVoting8WayStar / Histogram256 /
+  RemapStretch / Smooth3x3Gau8，cuda_kernels.cu:1125-1361）＋對應 wrapper——屬新碼，不在「byte-exact」比對範圍，
+  修改依一般規則＋自帶驗證（SUB 管線驗證報告）。
 
 - **複製進二進位但 ip 執行路徑未呼叫（死碼）**：
   | kernel/功能 | Demo 位置 | ip 狀態 |
   |---|---|---|
-  | 多尺度 `kernelDownsample2x/4x`、`kernelUpscaleBinaryMask2x/4x`、`allocateMultiScaleBuffers` | cuda_kernels_fast.cu:641-770,1347 | byte 同在 `.cu`，但 `gpu_pipeline.cpp::run()`(218-306) **全無呼叫**；`enable_multiscale` 帶進 ZoneConfig 但 run() 不讀 |
-  | LSC 自動校準 `calibrateLensShadingFromImage` | :999-1071 | byte 同，但 ip **無 caller**（`lsc_auto_calibrate` 不被讀；手動 LSC 校正 kernel 有接線但預設 off）|
+  | ~~多尺度 `kernelDownsample2x/4x`、`kernelUpscaleBinaryMask2x/4x`~~ | cuda_kernels_fast.cu:641-770,1347 | **✅ 已接線（2026-06-23 SUB 移植時）**：`gpu_pipeline.cpp:307-326` 於 **mode2（DIV-voting）且 `enable_multiscale>=1`** 時執行 2×（>=2 再加 4×）downsample→redetect→upscale OR-merge；mode0/mode1 仍不走多尺度 |
+  | LSC 自動校準 `calibrateLensShadingFromImage` | :999-1071 | byte 同，但 ip **無 caller**（`lsc_auto_calibrate` 不被讀；手動 LSC 校正 kernel 有接線、可由 recipe `LscEnable`/`Lsc*` 或 INI 開啟，預設 off）|
   | `inline_types.h` | Demo include | 複製進 `ip/src/config/inline_types.h` 但**全 src 無 include 引用**（孤立死碼，疑為 online 模式預留）|
-  > ⚠️ 多尺度在 Demo 本身（`batch_detector.cpp` processImage）似乎也未接 → RAG_TRAINING.md 描述多尺度生效，但**程式碼接線存疑**（兩邊皆 L0 執行路徑）。
+  > （舊註「多尺度接線存疑/L0」已作廢——現為 mode2 主路徑的一部分，SUB/融合驗證報告涵蓋。）
 
 - **Demo 有、ip 刻意不搬（職責外移或測試範式）**：合成缺陷注入 `DefectGenerator`（main.cpp:58-169；ip config_parser 仍解析 `[Debug]` 欄位但不生效）、
   auto-tune BTH/DTH 網格搜索（調參移到 Control/離線）、FFT pitch 內建（移到 Control `PitchEstimator` / `scripts/estimate_pitch.py`）、
   6 模組 TDD 框架（ip 改用 `--verify-deterministic` + flight_recorder）、`spark_scheduler`（分散式由 Control 分派每台 IP）、
   `gui_config`（移到 Control C# Avalonia）、Result.csv/result.bmp（改 ResultInfo.json/.xml + PNG overlay）。
 
-- **Demo 有、ip 待做（online 路徑 L0）**：`RivermaxReceiver`/`SocketReceiver`（真 ibverbs/UDP 多播收圖）、
-  `frame_assembler`（線掃 slice 逐行組裝；新架構由 Grab 組幀）、`inline_controller` 產線主迴圈、34-CCD JSON 配置（ip 改用每台一份 RecipeInfo.xml 多 DetectRoi）。對應 STATUS「image-capture / online 模式 L0」。
+- **Demo 有、ip 以不同方案取代**：`RivermaxReceiver`/`SocketReceiver` → **`image_source/rdma_source.cpp`
+  已實作**（ibverbs RC、N-slot SEND/RECV + credit 背壓，見 §4.7）；`frame_assembler`（線掃 slice 組裝）→
+  由 Grab 組幀、IP 逐 slice 檢測（`--stitch` 供離線全 panel 拼接）；`inline_controller` 產線主迴圈 →
+  `rdma-process` 模式；34-CCD JSON 配置 → 每台一份 RecipeInfo.xml 多 DetectRoi。
+  （舊註「image-capture / online 模式 L0」已由 rdma-process＋存圖控制承接，見 §6.1。）
 
-- **ip 改寫新增、Demo 沒有**：CCL 收斂迴圈、canonical 排序、network-clean、多 ROI、flight_recorder、ZoneConfigAdapter DIV-only 強制、ResultSaver legacy JudgeResult 輸出、Gap #5 pixel→μm（§10.8）。
+- **ip 改寫新增、Demo 沒有**：CCL 收斂迴圈、canonical 排序、network-clean、多 ROI、flight_recorder、
+  ZoneConfigAdapter **三域守門**（M_AlgorithmWayCompare 權威，取代舊 DIV-only）、SUB/DIV-voting kernel
+  ＋前處理鏈（remap/smooth）、defect_rules CPU 後處理、EdgeCheck 玻璃邊健檢、frame_loss 收圖遺失標記、
+  ResultSaver legacy JudgeResult 輸出、Gap #5 pixel→μm（§10.8）、ARM64 硬體 CRC32（shared/FrameHeader.h）。
 
 ---
 
@@ -118,8 +144,11 @@ CF-AOI 分散式架構 IP 程式（本文件）
 ╔═══════════════════════════════════════════════════════╗
 ║ 進入點 / 模式分派 (main.cpp)                          ║
 ║   parse_args → from_ini/from_recipe_xml → GpuPipeline ║
-║   分派：offline-file / offline-tcp / bench            ║
+║   分派：offline-file[--stitch] / offline-tcp / bench  ║
+║         / rdma-validate / rdma-process                ║
 ║   process_image()：多 zone 裁切 → process_frame 合併   ║
+║   （rdma-process 另含 frame_loss 對帳＋逐 slice        ║
+║     edge_check＋defect_flood 訊號）                    ║
 ╚═══════════════════════════════════════════════════════╝
         ↑ 影像來源                    ↑ TCP 命令
 ╔══════════════════════════╗  ╔══════════════════════════╗
@@ -127,8 +156,13 @@ CF-AOI 分散式架構 IP 程式（本文件）
 ║  IImageSource（介面）     ║  ║  TCP JSON server @8200   ║
 ║  FileImageSource         ║  ║  newline-JSON + raw bytes║
 ║  TcpImageSource          ║  ║  FrameQueue（送圖佇列）   ║
-║  FrameQueue（MPSC 佇列）  ║  ║  deliver_result（會合）   ║
-╚══════════════════════════╝  ╚══════════════════════════╝
+║  RdmaImageSource（N-slot ║  ║  deliver_result（會合）   ║
+║   SEND/RECV+credit 背壓） ║  ║  對位/DefectSort/遠端瀏覽 ║
+║  SourceImageWriter（原始 ║  ║  （rdma 模式亦開；影像    ║
+║   圖非同步 ring writer）  ║  ║   注入命令誠實 ERR）      ║
+║  FrameQueue（MPSC＋緩衝  ║  ╚══════════════════════════╝
+║   回收池，背壓/上限）     ║
+╚══════════════════════════╝
         ↓ uint8 Mono8 + ZoneConfig
 ╔═══════════════════════════════════════════════════════╗
 ║ GPU 運算層 (gpu/)                                     ║
@@ -179,10 +213,14 @@ main()
   ├─ FlightRecorder::begin_session(...)                pipe 後（拿 zero_copy/ai）；bench 不啟用→全 no-op（§13#16）
   ├─ zones = --recipe ? from_recipe_xml(...) : { base }  RecipeError → record_incident("recipe_load") + 2
   └─ switch(--mode)
-       ├─ offline-file → §4.2
+       ├─ offline-file → §4.2（--stitch：目錄內全部 slice vconcat 成整片 panel 再偵測一次）
        ├─ offline-tcp  → §4.3
-       └─ bench        → §4.5
+       ├─ bench        → §4.5
+       ├─ rdma-validate → §4.7（傳輸驗證：seq 連續性＋二次 CRC，無檢測管線）
+       └─ rdma-process  → §4.7（RDMA 收圖＋GPU 檢測全鏈 = Step 4/5 現行承接）
 ```
+> CLI 演算法覆寫（驗證/比較用）：`--algo-mode 0/1/2`、`--bth/--dth`、`--dark-eps`、`--multiscale`
+> 於 recipe 載入後套用至所有 zones（main.cpp:565-578）。
 
 ### 4.2 offline-file（讀檔批次，main.cpp:250-271）
 
@@ -257,6 +295,28 @@ IP：
         回 {"status":"OK","result":{...}}（或 TIMEOUT）
 ```
 
+### 4.7 RDMA 收圖（rdma-validate / rdma-process，image_source/rdma_source.cpp + main.cpp）
+
+```
+init：cudaHostAlloc N-slot pinned ring（Portable|Mapped，GB10 不用 nvidia_peermem）
+  → serve/accept RDMA RC 連線 → 預掛 N 個 post_recv（各指向一個 slot，wr_id=slot 編號 = N 個 credit）
+  → min_rnr_timer=12（~0.64ms，避開 655ms RNR 長等）→ SEND MrInfoEx 握手 → 啟動 recv_thread
+recv_thread（單執行緒）：
+  poll → IBV_WC_RECV → slot_id = wc.wr_id（SEND/RECV：落點由收端 WQE 決定，2026-07-30 ★2 根治）
+  → 驗 magic/version/尺寸/wc.byte_len 對帳 → memcpy slot→payload（FrameQueue 緩衝回收池，
+    take_buffer+assign 免歸零免 page fault）→ CRC32（ARM64 硬體指令 ~1.9ms/幀；CFAOI_RDMA_NOCRC 可跳過）
+  → push_blocking（佇列滿→阻塞→不補 WQE→Grab RNR = credit 背壓）→ repost 本 slot WQE
+  驗證失敗 → 丟棄＋record_lost（LostFrame：cam/slice/seq）＋frame_validation incident＋仍補 credit
+rdma-process 主迴圈：
+  next_frame → 吸收 take_lost() → per-cam frame_loss 對帳（slice0=新片歸零；seq 跳號備援）
+  → process_image（同 offline 檢測路徑）→ 逐 slice edge_check（slice0 前緣/末 slice 尾緣）
+  → 本片有遺失 → ResultInfo.json 標 frame_loss.panel_incomplete（XML 不動，保 CF_GET_RESULT 鏈）
+  → ResultSaver::save（overlay_on_defect_only：0 缺陷跳過 ~410ms/幀 的 overlay）
+```
+- 8200 於兩模式**皆開且先於 `rdma_src.init`**（init 內 accept_conn 阻塞等 Grab；順序反了心跳會 refused）。
+- 容量實測（2026-07-30，8 緒模擬 37 台）：含硬體 CRC **98.6 幀/s** vs 需求 88.8 → 12kHz 跑得動；
+  詳見 STATUS「37 台 @12kHz 吞吐量容量評估」。
+
 ---
 
 ## 5. 主要模組職責
@@ -265,11 +325,16 @@ IP：
 
 | 模組 | 檔案 | 職責 |
 |------|------|------|
-| `main` | `src/main.cpp` | 解析參數、建 ZoneConfig、模式分派、`process_image()` 多 zone 裁切合併、verify/bench 邏輯 |
-| `IImageSource` | `src/image_source/image_source.h` | 影像來源介面 `next_frame(hdr, payload)`；註解預留 RdmaImageSource（需 libibverbs，尚未實作）|
+| `main` | `src/main.cpp` | 解析參數、建 ZoneConfig、模式分派（含兩個 rdma 模式）、`process_image()` 多 zone 裁切合併、verify/bench、frame_loss 對帳、edge_check 呼叫 |
+| `IImageSource` | `src/image_source/image_source.h` | 影像來源介面 `next_frame(hdr, payload)` |
 | `FileImageSource` | `image_source/file_source.cpp` | offline-file：`cv::imread(IMREAD_UNCHANGED)`，目錄排序、取 ch[0]、只收 8-bit |
 | `TcpImageSource` | `image_source/tcp_source.cpp` | offline-tcp：從 `FrameQueue` 取出 ControlServer push 的影像 |
-| `FrameQueue` | `image_source/image_source.h` | MPSC 阻塞佇列（ControlServer 生產 / TcpImageSource 消費）|
+| `RdmaImageSource` | `image_source/rdma_source.{h,cpp}` | **RDMA 收圖（已實作）**：N-slot pinned ring、SEND/RECV、credit 背壓、CRC/尺寸驗證、LostFrame 追蹤（§4.7）|
+| `RcConn` | `image_source/rdma_common.h` | ibverbs/rdmacm RC 樣板（與 `grab/src/rdma_common.h` **同源雙副本，兩份須同步改**）|
+| `SourceImageWriter` | `image_source/source_image_writer.h` | SaveSourceImage 原始圖非同步 ring writer（固定 slots、滿則 drop，不變式 #19）|
+| `FrameQueue` | `image_source/image_source.h` | MPSC 阻塞佇列＋**緩衝回收池**（push 背壓/push_blocking/take_buffer；上限由計算器設定）|
+| `EdgeCheck` | `edge_check.{h,cpp}` | 玻璃前緣/尾緣健檢（Align Fail / 傳送異常；INI [EdgeCheck]；逐 slice 模式供 rdma-process）|
+| `defect_rules` | `defect_rules.h` | CPU 後處理：Step E Blob size 過濾＋鄰近合併、#32 邊界略過、#16 Rule 改判（全預設關，不破 bit-exact）|
 
 ### GPU 運算
 
@@ -277,13 +342,13 @@ IP：
 |------|------|------|
 | `GpuPipeline` | `gpu/gpu_pipeline.{h,cpp}` | PIMPL；`process_frame()` 單 zone 全流程；CCL 收斂迴圈、canonical 排序、AI gate |
 | `GPUMemoryManager` | `gpu/gpu_pipeline.cpp` | 偵測 integrated GPU → zero-copy(mapped) / discrete(pinned+async)；持久 buffer 重用 |
-| CUDA kernels | `gpu/cuda_kernels.cu/.h` | 8-way 比較（含局部搜尋 §7.3）/ CCL / fused blob stats / 多尺度 / LSC（**複製不改**）|
+| CUDA kernels | `gpu/cuda_kernels.cu/.h` | 8-way 比較（含局部搜尋 §7.3）/ CCL / fused blob stats / 多尺度 / LSC（**Demo 區複製不改**）＋🆕 SUB 8-Way-Star 投票 / DIV-voting 融合 / remap / smooth（2026-06-23 新增）|
 
 ### 設定 / 配方
 
 | 模組 | 檔案 | 職責 |
 |------|------|------|
-| `ZoneConfigAdapter` | `config/zone_config_adapter.{h,cpp}` | `from_ini` / `from_recipe_xml(_content)`：DetectRoi→ZoneConfig；**DIV-only 強制**；多 zone |
+| `ZoneConfigAdapter` | `config/zone_config_adapter.{h,cpp}` | `from_ini` / `from_recipe_xml(_content)`：DetectRoi→ZoneConfig；**三域守門（M_AlgorithmWayCompare 權威，取代舊 DIV-only）**；多 zone；`parse_ioi_list`（#23）|
 | `ConfigParser` | `config/config_parser.h` | INI 解析（[Image]/[Pattern]/[LensShading]/[Threshold]/[Debug]/[GPU]）|
 | `ZoneConfig` | `config/zone_config_adapter.h` | 純 CPU 參數（ROI / pitch / 閾值 / LSC / block_dim）|
 
@@ -300,15 +365,19 @@ IP：
 
 ## 6. 執行模式與命令列參數
 
-### 6.1 三種模式（`main.cpp`）
+### 6.1 五種模式（`main.cpp`）
 
 | `--mode` | 用途 | 影像來源 | 起 TCP server |
 |----------|------|---------|--------------|
-| `offline-file`（預設） | 讀檔批次驗證（MIL/真實影像）| FileImageSource | ❌ |
+| `offline-file`（預設） | 讀檔批次驗證（MIL/真實影像；`--stitch` 全 panel 拼接）| FileImageSource | ❌ |
 | `offline-tcp` | Control 送圖（Step 1）| TcpImageSource | ✅ @8200 |
-| `bench` | 純 GPU 量速（容量規劃）| 單張檔 | ❌ |
+| `bench` | 純 GPU 量速（容量規劃；flight_recorder 全 no-op）| 單張檔 | ❌ |
+| `rdma-validate` | Step 2-3 傳輸驗證（seq 連續性＋二次 CRC，無檢測）| RdmaImageSource | ✅ @8200（LOAD_RECIPE 誠實 ERR）|
+| `rdma-process` | **Step 4/5 收圖＋檢測全鏈**（生產路徑）| RdmaImageSource | ✅ @8200（影像注入 ERR 擋掉）|
 
-> `rdma-validate` / `image-capture` / `online` 模式**尚未實作**（`modes/` 空、無 RdmaImageSource）。CMake 偵測到 ibverbs 會印「RDMA enabled」但無對應原始碼（define-only gate）。
+> 兩個 rdma 模式需編譯期偵測到 libibverbs（`CFAOI_HAS_RDMA`，`rdma_source.cpp` 條件編譯）。
+> **無獨立 `image-capture` / `online` 模式**——由 `rdma-process` ＋ 存圖控制（SaveSourceImage /
+> overlay_on_defect_only / TuningRecipe）承接（舊版文件「modes/ 空、無 RdmaImageSource」敘述已作廢）。
 
 ### 6.2 命令列參數（全部）
 
@@ -317,7 +386,8 @@ IP：
 | `--mode <m>` | offline-file | 模式分派 |
 | `--input <path>` | "" | offline-file/bench：影像檔或目錄 |
 | `--output <dir>` | output | 結果輸出根目錄 |
-| `--recipe <xml>` | "" | legacy RecipeInfo.xml 路徑（多 ROI，DIV-only）|
+| `--recipe <xml>` | "" | legacy RecipeInfo.xml 路徑（多 ROI；三域守門 DIV/SUB/融合，§8）|
+| `--stitch` | （off） | offline-file：目錄內全部 slice 依檔名序 vconcat 成整片 panel 再偵測（legacy 拼接座標 recipe 用）|
 | `--ini <path>` | config/default_zone.ini | 預設參數 INI |
 | `--control-port <n>` | 8200 | offline-tcp 監聽 port |
 | `--ai-model-dir <dir>` | models/gpu_model | AI 模型目錄（找不到→停用 AI）|
@@ -330,33 +400,50 @@ IP：
 | `--verify-deterministic` | （off） | offline-file：每 zone 跑兩次比對 bit-exact（不一致 return 4）|
 | `--bench-iters <n>` | 100 | bench 量測張數 |
 | `--bench-warmup <n>` | 10 | bench 暖機張數（丟棄）|
-| `--bth <f>` / `--dth <f>` | -1 | 覆寫單一全幅 zone 的 BTH/DTH（bench 掃負載；≥0 才生效）|
+| `--bth <f>` / `--dth <f>` | -1 | 覆寫所有 zone 的 BTH/DTH（bench 掃負載 / 離線比較；≥0 才生效）|
 | `--pitch-x <n>` / `--pitch-y <n>` | -1 | 覆寫 pitch（bench；>0 才生效）|
+| `--algo-mode <0/1/2>` | -1 | 強制覆寫 zone 演算法域（0 DIV / 1 SUB / 2 DIV-voting；離線驗證/比較用）|
+| `--dark-eps <n>` | -1 | 覆寫 DIV-voting 暗區棄權門檻（MeanLowThreshold）|
+| `--multiscale <0/1/2>` | -1 | 覆寫多尺度（0 關 / 1 +2× / 2 +2×+4×；僅 mode2 執行）|
+| `--overlay-always` | （off） | rdma-process 也逐幀存 overlay（預設僅有缺陷時存；生產不建議）|
+| `--max-defect-count-pass <n>` | -1 | offline-file 設 MaxDefectCountPass 截斷（驗決定性用）|
+| `--max-queue-size <n>` / `--max-src-ring-size <n>` | -1 | 覆寫 FrameQueue / SourceRing 上限（背壓 / OOM 防護驗證）|
+| `--test-consumer-delay-ms <n>` / `--test-source-writer-delay-ms <n>` | 0 | 壓測人工延遲（觸發背壓 ERR / ring drop）|
+| `--rdma-bind <ip>` / `--rdma-port <p>` | 0.0.0.0 / 18515 | RDMA server 綁定（rdma-* 模式）|
+| `--rdma-slots <n>` | 4 | N-slot ring 深度 = 初始 credit（4×40MB=160MB pinned）|
 | `-h` / `--help` | — | 印用法 |
 
-**回傳碼**：0 OK｜1 參數/缺輸入｜2 配方載入錯（RecipeError）｜3 server.start 失敗｜4 非決定性。
+**回傳碼**：0 OK｜1 參數/缺輸入｜2 配方載入錯（RecipeError）｜3 server/RDMA 初始化失敗｜4 非決定性 / rdma-validate 有錯誤幀 / rdma-process 零收幀。
 
 ---
 
 ## 7. GPU 檢測管線
 
-### 7.1 process_frame 單 zone 全流程（gpu_pipeline.cpp:218-306）
+### 7.1 process_frame 單 zone 全流程（gpu_pipeline.cpp::GpuPipelineImpl::run）
 
 ```
 run(img, w, h, cfg):
-  1. gpu_mem.allocate(w,h,MAX_DEFECTS)          同尺寸則重用（不重配）
+  1. gpu_mem.allocate(w,h,MAX_DEFECTS)          同尺寸則重用（不重配；尺寸變 → 全套重配）
   2. cudaEventRecord(ev_start)
   3. uploadImage                                zero-copy:memcpy→mapped→D2D / discrete:memcpy→pinned→H2D
   4.(可選) LensShadingCorrection                cfg.enable_lsc（預設 off 保 bit-exact）
-  5. KernelParams = {w,h,pitch_x,pitch_y,search_range_x,search_range_y,BTH,DTH}
-  6. launchFast8WayKernel(... fast_search_range)  8 方向鄰域比較（DIV 比例 §7.2；局部搜尋 §7.3）
-  7. launchFastCCLKernel                         CCL：init → 收斂迴圈（§7.3）
+  5. KernelParams = {w,h,pitch,search,BTH,DTH,pitch_times,choose_amount,dark_eps}
+  6. 三域 dispatch（cfg.algo_mode）：
+       mode 1/2 前處理：remap（僅 mode1，Ip_Remap 對比拉伸）→ 3×3 高斯 ×smooth_times2
+       mode 0 → launchFast8WayKernel（DIV 比例 §7.2；局部搜尋 §7.3）
+       mode 1 → launchSubVotingKernel（SUB 灰階差 8-Way-Star 投票，legacy 忠實移植）
+       mode 2 → launchDivVotingKernel（DIV 比值逐路投票＋暗區棄權 dark_eps）
+  6.5(僅 mode2 且 enable_multiscale>=1) 多尺度：downsample 2×(/4×) → 同參數 redetect
+       → upscale binary OR-merge（大顆 Defect 補強）
+  7. launchFastCCLKernel                         CCL：init → 收斂迴圈（§7.4）
   8. launchFastBlobAnalysis                      fused flatten+blob stats → DefectInfo[]
   9. cudaEventRecord(ev_stop) + sync
  10.(可選) AI：classifyAndFilterGPU              僅 ai_on && ai_active（§11）
  11. process_time_ms = event elapsed
- 12. canonical 排序（§7.4）
+ 12. canonical 排序（§7.5）
  13. 統計 bright/dark；pass = (num_defects==0)
+（zone 迴圈層另有 CPU 後處理：defect_rules::apply_blob（Blob 過濾/合併）→ apply（#32/#16）→ recount，
+  以及 MaxDefectCountPass 截斷——皆在 main.cpp::process_image，非本函式。）
 ```
 
 ### 7.2 DIV 比例式閾值（cuda_kernels.cu，8-way kernel）
@@ -454,7 +541,8 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 | `block_dim` | **16×16（from_ini 硬寫死，無條件覆寫，忽略 INI 的 `[GPU] block_dim` 不論 16/32）** | zone_config_adapter.cpp:69-70 |
 | Blob 分析 block | 32×32 | cuda_kernels.cu:1219 |
 | 多尺度 dispatch | `width < 8000`（8160 全幅 → 走 texture 8-way）| cuda_kernels.cu:1110 |
-| blob 過濾 | min=1, max=300, aspect>5&density<0.3 剔除 | cuda_kernels.cu:1275/811 |
+| blob 過濾（GPU 收集階段） | min=1, max=300, aspect>5&density<0.3 剔除（wrapper 硬編碼）| cuda_kernels.cu:1561/816-831 |
+| | ⚠️ **已知限制**：此 GPU 端硬編碼過濾先於 recipe 的 `BlobMaxSize`（CPU `defect_rules`）——size>300 或細長 blob 在 GPU 端即被丟，recipe Blob 參數看不到它們（2026-08-02 複查列管）| |
 | DeathMargin | `pitch*2 + fast_search_range`（x,y，§7.3）| cuda_kernels.cu:135-136 |
 
 ### 7.7 __global__ kernels（cuda_kernels.cu）
@@ -469,8 +557,14 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 | `kernelFastCCLMerge` | 一趟 union-find（8 鄰同型 atomicMin）|
 | `kernelFusedFlattenBlobStats` | 融合：flatten + 稀疏 hash 統計（count/sum_x/sum_y/sum_gl/bbox/is_bright）|
 | `kernelSparseCollectDefects` | 每 unique-label → 過濾 → 輸出 DefectInfo（atomicAdd）|
-| `kernelDownsample2x/4x` | 2×/4× 面積平均降採樣（多尺度）|
+| `kernelDownsample2x/4x` | 2×/4× 面積平均降採樣（多尺度，mode2 已接線）|
 | `kernelUpscaleBinaryMask2x/4x` | 低解析二值 OR 回全幅 |
+| 🆕 `kernelSub8WayStarVoting` | SUB 灰階差 8-Way-Star 投票（legacy `Algo_8WAY_STAR_SUB_8bits` 忠實移植；每路 3×3 SAD 匹配、≥choose_amount 路超標判缺陷）|
+| 🆕 `kernelDivVoting8WayStar` | DIV-voting 融合（比值逐路投票＋dark_eps 暗區棄權）|
+| 🆕 `kernelHistogram256` / `kernelRemapStretch` | SUB 前處理 Ip_Remap（256-bin 直方圖取 min/max → 線性拉伸）|
+| 🆕 `kernelSmooth3x3Gau8` | 3×3 高斯平滑（[0,1,0;1,4,1;0,1,0]/8，×SmoothTimes2）|
+
+> 🆕 = 2026-06-23 SUB 管線移植新增（非 Demo 複製，屬新碼）；其餘為 Demo byte-exact 複製區（禁改）。
 
 ### 7.8 缺陷欄位（GPU 計算）
 
@@ -485,21 +579,35 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 > ⚠️ 配方是序列化的 legacy **`Recipe`**（`Recipe → M_AlignRoi + DetectRoiList + DetectIoiList`），每台 IP 一份。
 > 閾值欄位是 **`BrightThreshold`/`DarkThreshold`**（不是 ThB/ThD）。
 
-`ZoneConfigAdapter::from_recipe_xml_content`（zone_config_adapter.cpp:86-163，純字串解析，無 XML lib）逐 `<DetectRoi>` 轉一個 ZoneConfig：
+`ZoneConfigAdapter::from_recipe_xml_content`（zone_config_adapter.cpp:101-251，純字串解析，無 XML lib）逐 `<DetectRoi>` 轉一個 ZoneConfig。
+
+### 三域守門（2026-06-23，取代舊「DIV-only 強制」）
+
+權威欄位 = **`<M_AlgorithmWayCompare>`**（legacy enum 為準；`<AlgorithmCompare>` 為 stale 字串，僅 fallback
+——舊守門只比字串曾被「掛 DIV 實為 SUB」的 recipe 騙過 → **靜默假 PASS，血淚教訓**）：
+
+- 含 `Sub` → `algo_mode=1` **SUB**（BTH/DTH=灰階差；讀 `PitchTime`/`ChooseAmount`/`M_ImagePreproc`/`SmoothTimes2`）
+- 含 `div`＋投票標記（`star`/`way`）→ `algo_mode=2` **DIV-voting**（BTH/DTH=比值；讀 `MeanLowThreshold`/`EnableMultiscale`/`Lsc*`）
+  ⚠️ 已知限制：legacy `Awc_*_Way_*_Div` 全含 "Way" → 現行一律路由 mode2、mode0 幾乎不可達，
+  路由語意待裁示（詳見 ip/CLAUDE.md §5 / docs/CLAUDE.md §5，2026-08-02 複查）。
+- 含 `div`（無投票標記）或 `AlgorithmCompare="DIV"` → `algo_mode=0` **DIV**（防呆：標 DIV 但 `DarkThreshold<0` → 拒載）
+- 判不出 → 拋 `RecipeError` 拒載（含 zone index + 修正建議）；無 `<DetectRoi>` 亦拋。
 
 | ZoneConfig | legacy DetectRoi | 說明 |
 |------------|-----------------|------|
-| `BTH` | `BrightThreshold` | 亮閾值（**僅 DIV，嚴格相等**）|
-| `DTH` | `DarkThreshold` | 暗閾值（同上）|
+| `BTH` / `DTH` | `BrightThreshold` / `DarkThreshold` | 同名欄位**依域解讀**（DIV/mode2=比值、SUB=灰階差）；不做跨域轉換 |
 | `pitch_x` / `pitch_y` | `PitchX` / `PitchY` | 網格週期 |
 | `search_range_x/y` | `SearchX` / `SearchY` | 搜尋範圍 |
-| `fast_search_range` | `clamp(SearchY, 0, 2)` | kernel 實吃的垂直局部搜尋（§7.3）|
+| `fast_search_range` | `clamp(SearchY, 0, 2)` | mode0 kernel 實吃的垂直局部搜尋（§7.3）|
+| `pitch_times` / `choose_amount` | `PitchTime` / `ChooseAmount` | SUB/mode2 投票路數/門檻（**已讀入**，mode0 忽略）|
+| `mean_low_threshold` | `MeanLowThreshold` | mode2 暗區棄權（dark_eps）|
+| `preproc_remap` / `smooth_times2` | `M_ImagePreproc` / `SmoothTimes2` | 前處理（remap 僅 mode1；`SmoothTimes` 5×5 尚未支援，僅解析）|
+| `blob_min/max_size` / `blob_merge_distance` | `BlobMinSize/BlobMaxSize/BlobAllMergeDistance` | **已讀入**（CPU defect_rules，所有模式，0=關）|
+| `enable_multiscale` / `enable_lsc`+`lsc_*` | `EnableMultiscale` / `LscEnable`+`Lsc*` | 缺省沿用 INI；多尺度僅 mode2 執行 |
 | `roi_start_x/y`,`roi_end_x/y` | `StartX/StartY/EndX/EndY` | -1 = 全幅；每 DetectRoi 一個 zone |
-| LSC / multiscale / block_dim | （XML 無）| 取 `from_ini` 預設；block_dim 固定 16×16 |
+| block_dim | （XML 無）| 固定 16×16 |
 
-- **DIV-only 強制**（不變式 #9）：`<AlgorithmCompare>` 非 `"DIV"`（SUB / 缺 tag）→ 拋 `RecipeError` 拒絕載入（含 zone index + 修正建議）。
-- **忽略並 log**：`AlgorithmWay` / `PitchTime` / `ChooseAmount` / `Blob*`（gpu_algo kernel 無對應）。
-- 無 `<DetectRoi>` → 拋 RecipeError。
+（舊敘述「PitchTime/ChooseAmount/Blob* 無對應 → 忽略並 log」「DIV-only 強制」已作廢。）
 
 ---
 
@@ -514,12 +622,21 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 | `GET_STATUS` | 無 | `status`, `data`={processed, ai, zones} |
 | `LOAD_RECIPE` | `recipe`, **`recipe_xml`(XML 全文)**, `panel_id` | `status`（失敗附 `error`）|
 | `SEND_IMAGE_STREAM_BEGIN` | （無；重置 frame_seq=0）| `status` |
-| `SEND_IMAGE_FOR_REVIEW` | `width`,`height`,`payload_bytes`,`panel_id`,`cam_id`,`frame_seq`,`last`,`debug` + 緊接 raw Mono8 bytes | `status`, `frame_seq`, `result`{...}（或 TIMEOUT）|
+| `SEND_IMAGE_FOR_REVIEW` | `width`,`height`,`payload_bytes`,`panel_id`,`cam_id`,`frame_seq`,`last`,`debug`,`no_wait`(入隊即 ACK),`crc32`(可選宣告值) + 緊接 raw Mono8 bytes | `status`, `frame_seq`, `result`{...}（或 TIMEOUT / `queued`）|
 | `LIST_DEFECT_FOLDERS` | `date`(yyyyMMdd，""=全部) | `status`, `folders`[{folder_name, panel_id, date, defect_count}] |
 | `SORT_DEFECTS` | `date`,`output_subdir`,`by_id_folder`,`selected_folders`[] | `status`, `results`[{folder, copied}], `total`, `output_dir` |
 | `LIST_DEFECT_PATCHES` | `date`,`folder_name` | `status`, `patches`[{patch_id, run_index, roi_index, GC_X, GC_Y, Size, Type, current_class}] |
 | `GET_DEFECT_PATCHES_BATCH` | `date`,`folder_name`,`patch_ids`[] | `status`, `patches`[{patch_id, png_base64}] |
 | `SAVE_DEFECT_CLASSIFICATION` | `date`,`folder_name`,`classifications`[{patch_id, class}] | `status`, `TrueDefect`, `Particle`, `total`, `output_dir` |
+| `CHECK_ALIGN` | `width`,`height`,`payload_bytes`,`panel_id` + 緊接搜尋 ROI raw bytes | `status`, `shift_x/y`, `score`, `angle_deg`（失敗 ERR＋score；AlignEnable=false 回 `skipped`）|
+| `SET_ALIGN` | `shift_x`,`shift_y` | `status`（套回所有 zones 的 aligned_*）|
+| `LIST_DIR` | `path`（支援 `~` 展開） | `status`, `dir`, `entries`[{name,is_dir,size,path}]（遠端檔案瀏覽器）|
+| `GET_IMAGE_PREVIEW` | `path`,`max_width` | `status`, `png_base64`（縮圖）, `full_width/height`（display-only，不進檢測）|
+| `REVIEW_LOCAL_IMAGE` | `path`,`panel_id`,`debug` | 同 SEND_IMAGE_FOR_REVIEW（讀 IP 機磁碟全解析度影像，免傳大圖）|
+
+> **rdma 模式守門**：`SEND_IMAGE_STREAM_BEGIN` / `SEND_IMAGE_FOR_REVIEW` / `REVIEW_LOCAL_IMAGE` 於
+> rdma-validate/rdma-process 回誠實 ERR（影像來源是 RDMA，注入會弄壞 seq/遺失對帳；payload 先讀完再拒，
+> 框架不失步）；其餘命令（心跳/查詢/LOAD_RECIPE/對位/DefectSort）照常。
 
 - **收圖驗證**（不變式 #17）：`SEND_IMAGE_FOR_REVIEW` 收圖先過**尺寸守衛**（width/height ∈ [1,16384]）+ **magic/version/headerBytes/payloadBytes + CRC32** 驗證（offline-tcp 另可帶 `crc32` 宣告值比對偵測傳輸損壞）；任一失敗 → 回 `ERR` 並記 `frame_validation` incident、**拒收不 enqueue**。
 - **network-clean**（不變式 #11）：`LOAD_RECIPE` 傳 **XML 內容**（非路徑）；缺陷小圖以 **base64 PNG** 經 TCP 回傳；IP 不讀寫對方硬碟。
@@ -541,6 +658,11 @@ blob analysis 用 `atomicAdd` append → 陣列順序隨 race 變動（集合同
 ```
 - `IpName` 取 panel 名第一個 `_` 前 token（`IP02_Origin000001`→`IP02`），與資料夾一致；`--ip-name` 為 fallback（不變式 #12）。
 - `Slice<ff>` = `cy / frame_height`（線掃 slice）；`Run<nn>` = 缺陷序（max_patches 截斷時仍 ++ 保序）。
+- **overlay 生產策略**（2026-07-30）：`SaveOptions.overlay_on_defect_only`（rdma-process 預設開）→
+  0 缺陷的幀跳過 overlay（8160×5000×3ch PNG 實測 406-410ms/幀 = GPU 檢測 56 倍）；`--overlay-always` 還原。
+- **JSON 專屬欄位**（XML 刻意不加，保 CF_GET_RESULT 上位機鏈相容）：`edge_check`（玻璃前緣/尾緣健檢結果）、
+  `frame_loss`（`panel_incomplete`/`lost_frames`/`lost_slices`/`unattributed`——收圖遺失標記；
+  **DefectCnt=0 但 panel_incomplete=true ≠ 乾淨 PASS**）。無遺失/未啟用時整欄省略，舊收端無感知。
 
 ### 10.2 ResultInfo 欄位（JSON + XML 一致，legacy JudgeResult）
 
@@ -688,14 +810,15 @@ DefectInfo: RunIndex, GlobalPosX/Y, GlobalPosX_um/GlobalPosY_um, CcdIndex, Size,
 5. 同影像兩跑 **bit-exact**（`--verify-deterministic` 驗）。
 7. **CCL 收斂迴圈**：host wrapper 迴圈 `kernelFastCCLMerge` 直到 `d_changed==0`（從 Reference 重抄會覆蓋此迴圈 → 決定性壞掉，須加回）。
 8. **canonical 排序**：下載後依 label→center_y→center_x→size。
-9. **DIV-only**：`from_recipe_xml` 只收 `AlgorithmCompare="DIV"`，SUB/缺 tag 拒絕；BTH/DTH 嚴格相等。
+9. **三域守門**（取代舊 DIV-only）：`from_recipe_xml` 以 `M_AlgorithmWayCompare` 為權威判 DIV/SUB/DIV-voting；
+   判不出域或域值錯配（標 DIV 但 DTH<0）→ 拒載報錯不靜默預設；BTH/DTH 依域解讀、不做跨域轉換（§8）。
 9'. **重測先清 panel 夾舊 `Defect_*`**（避免 DefectSort 殘留疊加）。
 12. **缺陷檔名 IpName 取 panel 前綴**。
 13. **AI 預設停用**（`待人工複核`）。
 14. **Pitch 正確性**：偏差 1~4px 就爆量（26→30 → 561→10000 觸頂）；新面板先 FFT 估算。
 15. **GB10 block_dim 固定 16×16、效能基準 ~7.4ms/張、1 台 Spark 足夠**（見 §16 與驗證報告）。
-16. **行車紀錄純觀測，不得擾動運算**：`record_frame` 在 cudaEvent 計時區外、`set_scene` 寫 ring 只鎖極短 → 不影響 gpu_ms/bit-exact；bench 不 `begin_session`→全 no-op（process_image 路徑無 scene hook）。跨執行緒抓現場用全域 `atomic<const FrameScene*> latest_`（非 thread_local）：`atexit`+`cudaPeekAtLastError`→`cuda_fatal`、`set_terminate`→`uncaught_exception`。incident kind：cuda_fatal/frame_validation/recipe_load/bad_json/uncaught_exception。
-17. **收圖入口驗證**：control_server 收圖驗 magic/version/headerBytes/payloadBytes + CRC32（`shared/FrameHeader.h::crc32_ieee`）+ 尺寸守衛（width/height ∈ [1,16384]，擋 bogus→OOM）；offline-tcp 另支援 client 宣告 `crc32` 比對。失敗 → 記 `frame_validation` + ERR 拒收。（offline-tcp header 本地建構故 magic 恆對，wire 驗證主擋未來 RDMA 收圖；該分支待 `rdma_source` 實作後生效。）
+16. **行車紀錄純觀測，不得擾動運算**：`record_frame` 在 cudaEvent 計時區外、`set_scene` 寫 ring 只鎖極短 → 不影響 gpu_ms/bit-exact；bench 不 `begin_session`→全 no-op（process_image 路徑無 scene hook）。跨執行緒抓現場用全域 `atomic<const FrameScene*> latest_`（非 thread_local）：`atexit`+`cudaPeekAtLastError`→`cuda_fatal`、`set_terminate`→`uncaught_exception`。incident kind：cuda_fatal/frame_validation/recipe_load/bad_json/uncaught_exception/queue_overflow/queue_high_watermark/source_ring_full/rdma_validate/defect_flood/**align_fail/transport_anomaly/frame_loss**（後三種 = edge_check 與收圖遺失，2026-07 新增）。另有 `record_recipe`（LOAD_RECIPE 成功留痕）與 `tick_stats`（每 200 張一行）低頻結構化留痕。
+17. **收圖入口驗證**：control_server 收圖驗 magic/version/headerBytes/payloadBytes + CRC32（`shared/FrameHeader.h::crc32_ieee`）+ 尺寸守衛（width/height ∈ [1,16384]，擋 bogus→OOM）；offline-tcp 另支援 client 宣告 `crc32` 比對。失敗 → 記 `frame_validation` + ERR 拒收。**RDMA 收圖分支已生效**（rdma_source recv_thread：magic/version/尺寸/`wc.byte_len` 對帳/CRC，失敗丟棄＋record_lost＋incident；CRC 用 ARM64 硬體指令 `crc32d/b`，與 x86 表格版位元級等價——`crc_verify` 2163 比對點守門）。
 
 ---
 
@@ -704,8 +827,12 @@ DefectInfo: RunIndex, GlobalPosX/Y, GlobalPosX_um/GlobalPosY_um, CcdIndex, Size,
 ### 14.1 依賴與建置（`CMakeLists.txt`）
 
 - **REQUIRED**：`CUDAToolkit`、`OpenCV`(core/imgproc/imgcodecs)、`nlohmann_json`、`fmt`、`Threads`。
-- **可選**：ONNX Runtime（`CFAOI_HAS_ORT`，AI offline 後端；找不到→停用，無影響）、libibverbs（`CFAOI_HAS_RDMA`，僅 define gate，無對應原始碼）。
-- 連結：`CUDA::cudart`、`CUDA::cublas`、OpenCV、nlohmann_json、fmt、Threads。
+- **可選**：ONNX Runtime（`CFAOI_HAS_ORT`，AI offline 後端；找不到→停用，無影響）、
+  libibverbs＋librdmacm（`CFAOI_HAS_RDMA` → **條件編譯 `src/image_source/rdma_source.cpp`**，
+  啟用 rdma-validate / rdma-process 模式；無 ibverbs → 僅 offline 模式）。
+- 連結：`CUDA::cudart`、`CUDA::cublas`、OpenCV、nlohmann_json、fmt、Threads（+ 可選 ORT/ibverbs/rdmacm）。
+- 另編 5 個獨立驗證器：`crc_verify` / `align_verify` / `coord_verify` / `edge_verify` / `rules_verify`
+  （各自 add_executable，多數不需 CUDA）。
 - `CUDA_SEPARABLE_COMPILATION ON`；`CMAKE_CUDA_ARCHITECTURES` 未指定 → `native`。
 
 ```bash
@@ -718,8 +845,8 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 
 | 平台 | GPU | sm | CUDA | 記憶體 | 支援模式 |
 |------|-----|----|----|------|--------|
-| Linux RTX 2080S（開發）| RTX 2080S | 75 | 12.x | discrete pinned+async | offline-file/tcp, bench |
-| DGX Spark GB10（生產，ARM）| GB10 | 121 | 13.0 | zero-copy mapped | offline-file/tcp, bench（RDMA 模式待做）|
+| Linux RTX 2080S（開發）| RTX 2080S | 75 | 12.x | discrete pinned+async | offline-file/tcp, bench（＋rdma-*，需 ibverbs）|
+| DGX Spark GB10（生產，ARM）| GB10 | 121 | 13.0 | zero-copy mapped | **全部**：offline-file/tcp, bench, rdma-validate, rdma-process（RDMA 收圖用 cudaHostAlloc pinned，不用 nvidia_peermem）|
 
 ---
 
@@ -741,13 +868,15 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 
 | 項目 | 狀態 | 證據 |
 |------|------|------|
-| GPU 演算法引擎（DIV-only）| L4 | RTX2080S + GB10 實機 |
+| GPU 演算法引擎（DIV mode0）| L4 | RTX2080S + GB10 實機 |
+| **SUB / DIV-voting 融合管線（mode1/mode2，含多尺度/前處理/Blob）** | L3 | SUB 管線移植驗證（見 `docs/SUB_pipeline_verification_20260623.html` / STATUS）；分階段對 legacy 基準比對 |
 | CCL 決定性（收斂 + 排序）| L4 | `--verify-deterministic` x86 & GB10 全 bit-exact |
-| 結構化輸出 / patch / DefectSort 遠端命令 | L3–L4 | 真機 offline + python client |
+| 結構化輸出 / patch / DefectSort 遠端命令 | L3–L4 | 真機 offline + python client；跨機（Mac→Spark）F 項全 PASS |
 | **ARM/GB10 運算 + 跨架構一致性** | **L4** | [verification_report_arm_20260615.md](verification/verification_report_arm_20260615.md)：26 張真實面板 25/26 一致；正常面板 ~7.4ms/張 → 1 台 Spark |
-| RDMA 收圖主程式（rdma-validate/image-capture/online）| L0 | `modes/` 空、無 RdmaImageSource |
+| **RDMA 收圖（rdma-validate / rdma-process）** | **L3** | 2026-07-30/31 damac↔Spark 實機（經 5945 交換機）：SEND/RECV 根治 slot 覆寫（★2，slots=2/4/16 全 err=0）、2 相機混解析度全鏈 CRC 全對、frame_loss 注入驗證 6/6 歸屬正確、8 緒容量 98.6 幀/s（含 ARM 硬體 CRC）；37 台同時未驗（相機未到貨）|
+| 8200 於 rdma 模式（串流中心跳/LOAD_RECIPE/查詢）| L3 | 2026-07-31：串流中 381 次 CHECK_HEALTH/GET_STATUS 全 OK；注入守門 ERR |
 | AI 推論 | L1 | 模型載入但預設停用 |
-| **行車紀錄（flight_recorder）** | **L3**（RDMA-wire CRC 分支 L1）| RTX2080 6 項驗證全過（5 種 incident kind + 決定性不破 + bench 無 `_diag`/gpu_ms 不變 + JSON 全可解析）；**GB10 待補驗**（atexit/atomic 在 ARM 記憶體模型）；RDMA-wire magic/CRC 分支待 `rdma_source` |
+| **行車紀錄（flight_recorder）** | **L3** | RTX2080 6 項驗證全過（+ 2026-07-12 擴充：record_recipe/tick_stats/defect_flood/節流/race 修復）；RDMA-wire magic/CRC 分支已隨 rdma_source 上線（7/30 實機注入驗證）；**GB10 atexit/atomic ARM 記憶體模型仍待專項補驗** |
 
 詳見 [docs/STATUS.md](STATUS.md)。
 
@@ -761,6 +890,11 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 | 影像來源介面 | [src/image_source/image_source.h](../ip/src/image_source/image_source.h) |
 | 讀檔來源 | [src/image_source/file_source.cpp](../ip/src/image_source/file_source.cpp) |
 | TCP 來源 | [src/image_source/tcp_source.cpp](../ip/src/image_source/tcp_source.cpp) |
+| RDMA 來源（N-slot SEND/RECV） | [src/image_source/rdma_source.cpp](../ip/src/image_source/rdma_source.cpp) / [.h](../ip/src/image_source/rdma_source.h) / [rdma_common.h](../ip/src/image_source/rdma_common.h) |
+| 原始圖非同步存檔 | [src/image_source/source_image_writer.h](../ip/src/image_source/source_image_writer.h) |
+| 玻璃邊健檢 | [src/edge_check.cpp](../ip/src/edge_check.cpp) / [.h](../ip/src/edge_check.h) / [src/edge_verify.cpp](../ip/src/edge_verify.cpp) |
+| CPU 後處理（Blob/#32/#16） | [src/defect_rules.h](../ip/src/defect_rules.h) / [src/rules_verify.cpp](../ip/src/rules_verify.cpp) |
+| CRC wire 相容守門 | [src/crc_verify.cpp](../ip/src/crc_verify.cpp) + [shared/FrameHeader.h](../shared/FrameHeader.h)（ARM64 硬體 CRC）|
 | GPU 管線 | [src/gpu/gpu_pipeline.cpp](../ip/src/gpu/gpu_pipeline.cpp) / [.h](../ip/src/gpu/gpu_pipeline.h) |
 | CUDA kernels | [src/gpu/cuda_kernels.cu](../ip/src/gpu/cuda_kernels.cu) / [.h](../ip/src/gpu/cuda_kernels.h) |
 | 配方→ZoneConfig | [src/config/zone_config_adapter.cpp](../ip/src/config/zone_config_adapter.cpp) / [.h](../ip/src/config/zone_config_adapter.h) |
@@ -777,4 +911,4 @@ cmake --build build -j$(nproc)                       # 產出 build/cfaoi_ip
 
 ---
 
-*本文件由原始碼逐檔靜態分析整理（3 個並行 reader agent 全讀 ~5600 行），對照 GB10 實機驗證（2026-06-15）。2026-06-15 補 flight_recorder（行車紀錄）章節 + block_dim 三處一致性。2026-06-16 補 §7.3 Local Search（局部搜尋/線掃傾斜容忍）專節，對照 Reference/Demo 確認 ip 實作完整。2026-06-17 補 §2.1 Demo 考古（kernel byte-exact 確認 + 死碼/未搬盤點）+ §10.8 Gap #5 pixel→μm。格式對齊 [control_程式完整說明.md](control_程式完整說明.md) / [grab_程式完整說明.md](grab_程式完整說明.md)。*
+*本文件由原始碼逐檔靜態分析整理（3 個並行 reader agent 全讀 ~5600 行），對照 GB10 實機驗證（2026-06-15）。2026-06-15 補 flight_recorder（行車紀錄）章節 + block_dim 三處一致性。2026-06-16 補 §7.3 Local Search（局部搜尋/線掃傾斜容忍）專節，對照 Reference/Demo 確認 ip 實作完整。2026-06-17 補 §2.1 Demo 考古（kernel byte-exact 確認 + 死碼/未搬盤點）+ §10.8 Gap #5 pixel→μm。**2026-08-02 全面對齊現行程式**（複查後修正漂移）：三域守門 SUB/DIV/融合（§1/§2.1/§5/§8/§13#9/§16）、多尺度已接線（§2.1/§7.1）、rdma-validate/rdma-process 模式與 RdmaImageSource（§1/§2/§4.7/§6.1/§14/§16）、SEND/RECV 資料路徑＋ARM64 硬體 CRC＋緩衝回收池（§4.7/§13#17）、overlay_on_defect_only／frame_loss／edge_check／defect_rules（§3/§5/§10）、8200 命令表補齊 15 命令（§9）、CLI 參數表補齊（§6.2）。格式對齊 [control_程式完整說明.md](control_程式完整說明.md) / [grab_程式完整說明.md](grab_程式完整說明.md)。*

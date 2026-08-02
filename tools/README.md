@@ -34,7 +34,11 @@ make -j4
 - `R` → 重設框選
 - `Q` / ESC → 離開
 
-**CLI fallback**（SSH server / headless，知道 Mark 座標）：
+> ⚠️ **已知限制（2026-08-02 複查 T1）**：GUI 存出的 golden 取自**縮放後**顯示圖（>2000px 自動縮，
+> 線掃 8192 寬約 0.24×），XML 座標卻已還原成全解析度 → 兩者尺度不符、對位會失分。
+> **正式產 golden 請用下方 CLI `--mark-rect`**（原圖裁切，尺度正確）。
+
+**CLI fallback**（SSH server / headless，知道 Mark 座標；**亦為推薦的正式路徑**）：
 
 ```bash
 ./golden_maker --image frame.png --mark-rect x,y,w,h [--output mark.png] [--search-margin 3]

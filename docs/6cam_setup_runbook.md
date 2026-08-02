@@ -3,6 +3,21 @@
 > 依據：2026-07-30/31 HPE 5945 + 2 相機實機驗證的全部經驗（STATUS.md「Switch 到貨日」章節）。
 > 到貨當天照本檢查單逐項執行；每個坑都是實際踩過的，**不要跳步**。
 > 環境：HPE FlexFabric 5945（`CFAOI-SW1`）｜damac（截取中心）｜spark-c16f（IP）。
+>
+> ⚠️ **2026-08-02 全面複查後追加的到貨日注意事項**（未修的已知缺陷，會直接影響下列步驟；
+> 完整清單見 [code_review_20260802.md](code_review_20260802.md)）：
+> 1. **起 grab 一律用 `--cam-count 6`，不要用 `ALL`**（B4）：`ALL` 沒有「應到幾台」概念，
+>    某台沒上電/link 沒起時 **ARM 照樣回 OK 只跑 5 台**；`--cam-count 6` 走 fail-fast 會當場報錯。
+> 2. **`GET_CAM_NODES` 目前只會回 cam0 的參數**（X1，Control 端未送 cam_id）：§5 逐台健檢時
+>    **改用 8100 直下並自帶 `cam_id`** 核對，不要只看 Control UI 顯示（會靜默看到同一台）。
+> 3. **idle 狀態（未 ARM）下的 `GET_CAM_NODES`/`TUNE_MEAN` 會開「列舉第一台」而非指定台**（B6）；
+>    `TUNE_MEAN` 還會把量到的曝光**寫進指定 cam_id 的設定槽** → §5 健檢請**先 `GRAB_ARM` 再逐台查**。
+> 4. **單台隔離排障時 `--cam-count 1` 會讓 `--cam-id` 蓋掉 MAC 綁定**（B7）：該台會以 `camId=0` 送圖
+>    並套用 CCD00 的曝光 → 單台測試結果要自行換算，勿直接當該槽位的結論。
+> 5. **一台相機拔線/斷電會讓整個 cfaoi_grab 行程死亡**（B1，pylon 例外未攔）：6 台同時中斷。
+>    現場動線材前先 `GRAB_STOP`；若行程消失，先查是否有人碰線。
+> 6. **RDMA 送失敗後會靜默丟幀且 `dropped` 仍為 0**（B2）：對帳只信 **Spark 端 `recv ok/err`**，
+>    不要只看 Grab 的 `sent_frames`。
 
 ---
 
@@ -52,8 +67,8 @@ save force
 
 ## 4. MAC 綁定（Gap #21，嚴格模式）
 
-1. 起 grab：`grab/build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count ALL`
-   （啟動 log 確認 `cam_config →`/`cam_map →` 指向 `grab/` 下的檔案）。
+1. 起 grab：`grab/build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count 6`
+   （★ **用 6 不用 ALL**，見標頭注意事項 1；啟動 log 確認 `cam_config →`/`cam_map →` 指向 `grab/` 下的檔案）。
 2. `LIST_CAMERAS` 抄下 6 台 MAC。
 3. `SET_CAM_MAP` 寫入完整表（Control 拓樸頁綁定鈕，或 8100 直下）：
    `{"cmd":"SET_CAM_MAP","params":{"entries":[{"mac":"..","cam_id":0,"ccd_id":"CCD00"},...]}}`
@@ -64,8 +79,11 @@ save force
 
 ## 5. 逐台健檢（idle，不需 RDMA）
 
+- [ ] **先 `GRAB_ARM` 再逐台查**（★ 重要，B6）：idle 未 ARM 時 `GET_CAM_NODES`/`TUNE_MEAN` 會落到
+      「列舉第一台」而非指定台（回應的 cam_id 回聲仍是你問的那台 = 靜默錯台）。
 - [ ] `GET_CAM_NODES {"cam_id":N}` 每台：解析度/PixelFormat=Mono8/TriggerMode=Off/packet_size=8192
-      （★4 已修：回應帶 cam_id 回聲，錯 cam_id 回 ERR 不再靜默回錯台）。
+      （★4 已修 Grab 端：回應帶 cam_id 回聲、錯 cam_id 回 ERR；
+      ⚠️ 但 **Control UI 的「讀取機器層參數」鈕不送 cam_id、永遠顯示 cam0**（X1 未修）→ 逐台核對請走 8100 直下）。
 - [ ] `SET_CAM_PARAMS`/`TUNE_MEAN` 每台可調（★5 已修：cam_id≠0 不再被擋）。
 - [ ] **`TUNE_MEAN` 測完曝光會留在相機上**——調參後務必 `SET_CAM_PARAMS` 復原
       （踩過：留在 2000µs → 6s/幀 0.11fps，誤判成傳輸問題）。
@@ -80,7 +98,7 @@ save force
 | 1 | Spark 起收端 | `ip/build/cfaoi_ip --mode rdma-process --recipe <recipe> --output <dir>`；**8200 起動即通**（2026-07-31 起不用等 Grab 連上），Control 心跳應綠 |
 | 2 | 觸發鏈 | `scripts/verify_step3_trigger.py <damac> 8100 5 6` → **6/6 PASS**（expect_cams=6） |
 | 3 | ARM 冷啟時間 | 外推 ≈ **3.8s**（實測 1 台 542ms／2 台 1257ms，線性；37 台 ≈23s）。確認產線時序 ARM 遠早於觸發；冪等重呼應 ms 級 |
-| 4 | 全鏈對帳 | 每台 5 幀：`grabbed=30 sent=30 dropped=0`；Spark `recv ok=30 err=0` CRC 全對；輸出夾 CCD00–CCD05 各 5 |
+| 4 | 全鏈對帳 | 每台 5 幀：`grabbed=30 sent=30 dropped=0`；Spark `recv ok=30 err=0` CRC 全對；輸出夾 CCD00–CCD05 各 5。⚠️ **以 Spark 端 recv 為準**——RDMA 送失敗時 Grab 端 `dropped` 仍是 0（B2）|
 | 5 | 連續兩片 | 第二片不重 ARM、觸發 <1ms、seq 不歸零（★3 已修）、輸出夾不覆蓋 |
 | 6 | 串流中控制 | 串流中 Control 心跳/GET_STATUS 應全 OK（2026-07-31 實測 2 台 381 次 0 失敗）；`LIST_CAMERAS` 並存不掉幀（已驗） |
 
