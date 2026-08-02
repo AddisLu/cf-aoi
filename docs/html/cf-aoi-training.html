@@ -521,6 +521,29 @@ nav.side .navitem.dimmed:hover { opacity: .85; }
   color: var(--ink-3); white-space: nowrap; flex-shrink: 0;
 }
 .tabbar-hint kbd { font-family: var(--mono); font-size: 10px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+/* ══ Tab 引導式閱讀（ghost text）══
+   刻意做成「浮動提示」而非插入文件流：本書單頁最長 3000+ px 且含 mermaid，
+   在捲動中插入/移除區塊會造成版面跳動與圖表重排。浮動層零 reflow。 */
+.ghost {
+  position: fixed; right: 22px; bottom: 74px; z-index: 38;
+  display: flex; align-items: center; gap: 9px; max-width: min(430px, 44vw);
+  padding: 8px 14px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--ink-3);
+  font-size: 12.5px; cursor: pointer; box-shadow: var(--shadow);
+  opacity: 0; animation: ghostin .45s .45s forwards;
+  transition: opacity .15s, border-color .15s, color .15s, background .15s;
+}
+.ghost[hidden] { display: none; }
+.ghost:hover { opacity: 1 !important; border-color: var(--accent); color: var(--ink); background: var(--panel); }
+@keyframes ghostin { to { opacity: .62; } }
+.ghost .gh-a { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+.ghost .gh-t { color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ghost .gh-k { display: flex; gap: 5px; align-items: center; flex-shrink: 0; margin-left: 3px; }
+.ghost kbd { font-family: var(--mono); font-size: 10.5px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--ink-2); }
+body.cp-open .ghost { right: calc(var(--cpw) + 22px); }
+@media (prefers-reduced-motion: reduce) { .ghost { animation: none; opacity: .62; } }
+@media (max-width: 900px) { .ghost { display: none; } }
 nav.side { top: var(--chrome); height: calc(100vh - var(--chrome)); }
 .navgroup { cursor: pointer; user-select: none; }
 .navgroup::before { content: "▾ "; font-size: 9px; color: var(--ink-3); }
@@ -6051,6 +6074,117 @@ if (TABBAR && !cursorOff) {
   /* 開機：把目前章節（深連結 > 續讀，已由 block J 決定）釘成第一個分頁 */
   ensureTab(curId() || LS.get('lastPage', 'ch0'), { pin: true });
   renderTabs();
+}
+
+/* ── L. Tab 引導式閱讀（Cursor ghost text）────────────────────────────────
+   讀到哪就提示「下一步」，按 Tab 接受、連按一路走完；Esc 本章不再提示。
+   下一步來源：① 章內下一個 h3 → ② section 的 data-next 覆寫 → ③ allIds 全書順序。
+   ③ 用的正是 chapterStep(←/→) 的同一份陣列 → Tab 與方向鍵保證同步、不會各走各的。 */
+if (!cursorOff) {
+  const ghost = document.createElement('div');
+  ghost.className = 'ghost'; ghost.id = 'ghostNext'; ghost.hidden = true;
+  ghost.setAttribute('role', 'button');
+  document.body.appendChild(ghost);
+
+  const ghostSkip = new Set();                 // 本次 session 按過 Esc 的章節
+  let ghostOn = LS.get('ghost', true) !== false;
+  let ghostTo = null;                          // { kind:'h3'|'chap', el|id, t }
+
+  function h3sOf(sec) {
+    const hs = Array.from(sec.querySelectorAll('h3'));
+    hs.forEach((h, i) => { if (!h.id) h.id = sec.id + '-h3-' + i; });
+    return hs;
+  }
+  function nextStop(sec) {
+    const hs = h3sOf(sec);
+    const mid = window.innerHeight * 0.55;
+    let cur = -1;
+    hs.forEach((h, i) => { if (h.getBoundingClientRect().top < mid) cur = i; });
+    /* 已捲到文件底部 → 一律視為讀完本章（否則最後一節若短到永遠停在中線下方，
+       就永遠提示不到「下一章」，Tab 會卡在原地）。 */
+    const atEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 120;
+    if (!atEnd && cur < hs.length - 1) {
+      const h = hs[cur + 1];
+      return { kind: 'h3', el: h, t: h.textContent.trim().replace(/\s+/g, ' ').slice(0, 30) };
+    }
+    const nx = sec.dataset.next ||
+      (() => { const i = allIds.indexOf(sec.id); return i >= 0 && i < allIds.length - 1 ? allIds[i + 1] : null; })();
+    return nx && document.getElementById(nx) ? { kind: 'chap', id: nx, t: titleOf(nx) } : null;
+  }
+  function renderGhost() {
+    const id = curId();
+    const sec = id && document.getElementById(id);
+    if (!ghostOn || !sec || ghostSkip.has(id)) { ghost.hidden = true; ghostTo = null; return; }
+    const st = nextStop(sec);
+    if (!st) { ghost.hidden = true; ghostTo = null; return; }
+    ghostTo = st;
+    ghost.hidden = false;
+    ghost.textContent = '';
+    const a = document.createElement('span'); a.className = 'gh-a'; a.textContent = st.kind === 'h3' ? '↓' : '→';
+    const t = document.createElement('span'); t.className = 'gh-t'; t.textContent = st.t;
+    const k = document.createElement('span'); k.className = 'gh-k';
+    k.innerHTML = '<kbd>Tab</kbd> 接受 · <kbd>Esc</kbd> 略過';
+    ghost.append(a, t, k);
+    ghost.title = (st.kind === 'h3' ? '跳到本章下一節：' : '前往下一章：') + st.t;
+  }
+  function acceptGhost() {
+    if (!ghostTo) return;
+    if (ghostTo.kind === 'h3') {
+      const el = ghostTo.el;
+      el.scrollIntoView({ block: 'start' });
+      el.classList.remove('flash-target'); void el.offsetWidth; el.classList.add('flash-target');
+      requestAnimationFrame(renderGhost);
+    } else {
+      show(ghostTo.id);
+      window.scrollTo(0, 0);
+    }
+  }
+
+  ghost.addEventListener('click', acceptGhost);
+  let ghostRaf = 0;
+  window.addEventListener('scroll', () => {
+    if (ghostRaf) return;
+    ghostRaf = requestAnimationFrame(() => { ghostRaf = 0; renderGhost(); });
+  }, { passive: true });
+
+  document.addEventListener('keydown', e => {
+    /* Esc：先讓既有的逐層關閉處理浮層，只有在沒有浮層開著時才收 ghost */
+    if (e.key === 'Escape' && !ghost.hidden) {
+      const anyOverlay = [$$('cmdkBack'), $$('kbdBack'), $$('askBack')].some(x => x && !x.hidden);
+      if (!anyOverlay) { ghostSkip.add(curId()); ghost.hidden = true; ghostTo = null; }
+      return;
+    }
+    if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (ghost.hidden || !ghostTo) return;
+    /* 無障礙閘門：任一浮層開著、或焦點在可互動元件上 → 一律放行原生 Tab 焦點切換 */
+    const overlays = [$$('cmdkBack'), $$('kbdBack'), $$('askBack'), $$('codePanel')];
+    if (overlays.some(x => x && !x.hidden)) return;
+    const t = e.target, tag = (t.tagName || '').toLowerCase();
+    if (t !== document.body && (t.isContentEditable ||
+        ['input', 'textarea', 'select', 'button', 'a', 'kbd'].includes(tag) ||
+        (t.closest && t.closest('input,textarea,select,button,a,[contenteditable],nav.side,.tabbar')))) return;
+    e.preventDefault();
+    acceptGhost();
+  });
+
+  /* 換章時清掉捲動殘留狀態並重算 */
+  const _showGhost = show;
+  show = function(id) { _showGhost(id); requestAnimationFrame(renderGhost); };
+
+  /* topbar 開關（偏好持久化） */
+  const gb = document.createElement('button');
+  gb.className = 'tb-btn'; gb.id = 'ghostBtn'; gb.textContent = '⇥';
+  gb.title = 'Tab 導讀：開／關';
+  gb.style.opacity = ghostOn ? '1' : '.4';
+  gb.addEventListener('click', () => {
+    ghostOn = !ghostOn; LS.set('ghost', ghostOn);
+    gb.style.opacity = ghostOn ? '1' : '.4';
+    ghostSkip.clear(); renderGhost();
+  });
+  const tools = document.querySelector('.tb-tools');
+  if (tools) tools.insertBefore(gb, tools.firstChild);
+
+  renderGhost();
 }
 })();
 </script>
