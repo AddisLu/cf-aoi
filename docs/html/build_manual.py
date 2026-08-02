@@ -146,6 +146,28 @@ def demo_log():
             except Exception as e: print(f"[warn] demo {fn}: {e}", file=sys.stderr)
     return d if d["jsonl"] else None
 
+def check_chapter_structure(html):
+    """守門：每個 <section class="chapter"> 內的 <div> 必須平衡。
+
+    為何要查：多一個 </div> 不會報任何錯，只會讓瀏覽器**提早關閉 section**，
+    後面的內容靜默掉到區段外——章節看起來還在，但 mermaid 懶渲染
+    （只掃 section.chapter.visible .mmd）再也找不到它，圖就永遠不出現。
+    2026-08-02 手改 r4 時真的踩到，靠肉眼截圖才發現。
+    """
+    bad = []
+    for m in re.finditer(r'<section class="chapter"[^>]*id="([^"]+)"', html):
+        st = m.start()
+        en = html.find("</section>", st)
+        if en < 0:
+            bad.append((m.group(1), "找不到 </section>")); continue
+        seg, depth = html[st:en], 0
+        for t in re.finditer(r"<div\b|</div>", seg):
+            depth += 1 if t.group(0).startswith("<div") else -1
+        if depth != 0:
+            bad.append((m.group(1), f"div 淨深度 {depth:+d}"))
+    return bad
+
+
 def main():
     files = collect()
     # docs/html 只額外收 incident-viewer（其餘 .html 是獨立報告頁/舊版文件，不進 bundle）
@@ -186,6 +208,12 @@ def main():
              f"window.DEMO_LOG={js(demo)};\n"
              "</script>")
     html = open(HTML, encoding="utf-8").read()
+    struct = check_chapter_structure(html)
+    if struct:
+        for cid, why in struct:
+            print(f"[error] 章節 {cid} 標籤不平衡：{why}"
+                  f"（會讓 section 提早關閉，後續內容與 mermaid 靜默失效）", file=sys.stderr)
+        sys.exit(2)
     pat = re.compile(r"<script id=\"srcdata\">.*?</script>", re.S)
     if not pat.search(html):
         print("[error] 找不到 <script id=\"srcdata\"> 佔位區塊", file=sys.stderr); sys.exit(1)
