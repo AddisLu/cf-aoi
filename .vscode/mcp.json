@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "spec-forge": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/tools/spec-forge-mcp/index.js"]
+    }
+  }
+}

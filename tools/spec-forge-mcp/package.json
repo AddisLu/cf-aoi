@@ -1,0 +1,13 @@
+{
+  "name": "spec-forge-mcp",
+  "version": "0.1.0",
+  "description": "MCP server：產生/驗證/入列夜間 auto-coding 執行級 spec（task spec + domain constitution）",
+  "type": "module",
+  "main": "index.js",
+  "bin": { "spec-forge-mcp": "index.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  }
+}

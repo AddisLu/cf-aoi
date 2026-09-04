@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "spec-forge": {
+      "command": "node",
+      "args": ["tools/spec-forge-mcp/index.js"]
+    }
+  }
+}
