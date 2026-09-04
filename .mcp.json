@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "spec-forge": {
-      "command": "node",
-      "args": ["tools/spec-forge-mcp/index.js"]
+      "command": "sh",
+      "args": [
+        "-c",
+        "cd \"$(git rev-parse --show-toplevel)\" && exec node tools/spec-forge-mcp/index.js"
+      ]
     }
   }
 }
