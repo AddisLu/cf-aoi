@@ -73,7 +73,9 @@ def collect():
     return files
 
 # ── 函式/類別索引（輕量 regex；求「找得到」不求編譯器級精確）────────────────
-CPP_FN   = re.compile(r"^[A-Za-z_][\w:<>,\s\*&~]*?\b([A-Za-z_]\w*)\s*\([^;{]*\)\s*(?:const\s*)?\{", re.M)
+# 參數區允許成對的 {}：否則帶預設參數（`const RecipeSavingConfig& cfg = {}`）的函式整個漏掉——
+# process_image 就是這樣缺席索引的，而它是全書引用最多的函式。
+CPP_FN   = re.compile(r"^[A-Za-z_][\w:<>,\s\*&~]*?\b([A-Za-z_]\w*)\s*\((?:[^;{]|\{\})*\)\s*(?:const\s*)?\{", re.M)
 CPP_KIND = re.compile(r"^\s*(?:class|struct)\s+([A-Za-z_]\w*)", re.M)
 CPP_GLOB = re.compile(r"__global__\s+\w+\s+([A-Za-z_]\w*)")
 CS_FN    = re.compile(r"^\s*(?:public|private|protected|internal|static|async|override|partial|sealed|virtual)[\w\s<>,\[\]\?]*?\b([A-Za-z_]\w*)\s*\([^;)]*\)\s*(?:where[^{]*)?\{", re.M)
