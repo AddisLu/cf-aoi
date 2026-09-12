@@ -15,7 +15,10 @@
       ],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
-      "stopAtEntry": false
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
     }
   ]
 }

@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cmake-configure-golden_maker",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-S", "${workspaceFolder}/golden_maker",
+        "-B", "${workspaceFolder}/golden_maker/build",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "build-golden_maker",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "${workspaceFolder}/golden_maker/build", "--target", "golden_maker", "-j"],
+      "dependsOn": ["cmake-configure-golden_maker"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    }
+  ]
+}

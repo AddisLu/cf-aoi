@@ -1,0 +1,57 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "golden_maker: CLI (--mark-rect，headless/SSH)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-golden_maker",
+      "program": "${workspaceFolder}/golden_maker/build/golden_maker",
+      "args": [
+        "--image", "${input:goldenImagePath}",
+        "--mark-rect", "${input:goldenMarkRect}",
+        "--output", "${input:goldenOutputPath}"
+      ],
+      "cwd": "${workspaceFolder}/golden_maker",
+      "MIMode": "gdb",
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    },
+    {
+      "name": "golden_maker: GUI（框選模式，需桌面）",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-golden_maker",
+      "program": "${workspaceFolder}/golden_maker/build/golden_maker",
+      "args": ["--image", "${input:goldenImagePath}", "--output", "${input:goldenOutputPath}"],
+      "cwd": "${workspaceFolder}/golden_maker",
+      "MIMode": "gdb",
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "goldenImagePath",
+      "type": "promptString",
+      "description": "來源影像路徑（--image）",
+      "default": "frame.png"
+    },
+    {
+      "id": "goldenOutputPath",
+      "type": "promptString",
+      "description": "輸出 Golden PNG 路徑（--output）",
+      "default": "mark.png"
+    },
+    {
+      "id": "goldenMarkRect",
+      "type": "promptString",
+      "description": "Mark 矩形 x,y,w,h（--mark-rect，僅 CLI 模式用）",
+      "default": "1170,770,60,60"
+    }
+  ]
+}
