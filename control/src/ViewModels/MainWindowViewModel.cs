@@ -74,14 +74,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private string currentScreen = "dashboard";
 
     public bool IsDashboard => CurrentScreen == "dashboard";
-    public bool IsStep1     => CurrentScreen == "step1";
-    public bool IsZone      => CurrentScreen == "zone";
-    public bool IsSort      => CurrentScreen == "sort";
-    public bool IsSettings  => CurrentScreen == "settings";
+    public bool IsStep1 => CurrentScreen == "step1";
+    public bool IsZone => CurrentScreen == "zone";
+    public bool IsSort => CurrentScreen == "sort";
+    public bool IsSettings => CurrentScreen == "settings";
     public bool IsSingleCcd => CurrentScreen == "singleccd";   // 塊3：單 CCD 設定整合頁
     public bool IsWorkbench => CurrentScreen == "workbench";   // 相機工作台（五步驟動線）
 
-    [RelayCommand] private void Navigate(string? screen)
+    [RelayCommand]
+    private void Navigate(string? screen)
     { if (!string.IsNullOrEmpty(screen)) CurrentScreen = screen!; }
 
     // 系統 log 分頁（系統 / 錯誤 / 警告）— 純 UI 狀態
@@ -90,9 +91,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsLogError))]
     [NotifyPropertyChangedFor(nameof(IsLogWarn))]
     private string logTab = "sys";
-    public bool IsLogSys   => LogTab == "sys";
+    public bool IsLogSys => LogTab == "sys";
     public bool IsLogError => LogTab == "error";
-    public bool IsLogWarn  => LogTab == "warn";
+    public bool IsLogWarn => LogTab == "warn";
     [RelayCommand] private void SetLogTab(string? t) { if (!string.IsNullOrEmpty(t)) LogTab = t!; }
 
     // ===== Recipe 區：用共用 Store（下拉 + PrimaryZone 預覽）=====
@@ -196,7 +197,8 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) { _log.Error($"SaveRecipe: {ex.Message}"); }
     }
 
-    [RelayCommand] private void Refresh()
+    [RelayCommand]
+    private void Refresh()
     {
         CurCommand = "REFRESH";
         Store.RefreshNames();
