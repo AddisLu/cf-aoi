@@ -1,13 +1,34 @@
 cmake_minimum_required(VERSION 3.24)
+# GPU 架構：以 nvcc 內附的 __nvcc_device_query 實測本機 GPU compute capability。
+# 必須在 project() 之前設定並寫進 cache——CMake 在 enable_language(CUDA) 時就會把
+# CMAKE_CUDA_ARCHITECTURES 定義成自己偵測的值（3.28 不認得 Blackwell，RTX 5070 會誤判成 75）。
+# RTX 2080 Super=75、RTX 5070=120、DGX Spark(GB10)=121；可用 -DCMAKE_CUDA_ARCHITECTURES=<n> 覆寫。
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    find_program(_cfaoi_nvcc nvcc HINTS ENV CUDA_PATH PATHS /usr/local/cuda/bin)
+    if(_cfaoi_nvcc)
+        get_filename_component(_cfaoi_cuda_bin "${_cfaoi_nvcc}" DIRECTORY)
+        # VS Code 的 task 走非互動 shell，.bashrc 的 CUDA PATH 不會生效 → project() 找不到
+        # nvcc。這裡把找到的 nvcc 直接指定給 CMake，讓 build task 不必依賴 shell PATH。
+        if(NOT DEFINED CMAKE_CUDA_COMPILER)
+            set(CMAKE_CUDA_COMPILER "${_cfaoi_nvcc}" CACHE FILEPATH "自動尋得的 nvcc")
+        endif()
+        execute_process(COMMAND "${_cfaoi_cuda_bin}/__nvcc_device_query"
+                        OUTPUT_VARIABLE _cfaoi_cc
+                        RESULT_VARIABLE _cfaoi_cc_rc
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET)
+        string(REGEX MATCH "[0-9]+" _cfaoi_cc "${_cfaoi_cc}")   # 多 GPU 時取第一張
+        if(_cfaoi_cc_rc EQUAL 0 AND _cfaoi_cc)
+            set(CMAKE_CUDA_ARCHITECTURES "${_cfaoi_cc}" CACHE STRING "本機實測 GPU 架構")
+            message(STATUS "CUDA arch (auto-detect) = ${_cfaoi_cc}")
+        endif()
+    endif()
+endif()
+
 project(cfaoi_ip LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# GPU 架構：預設 native；RTX 2080 Super=75，DGX Spark(GB10)=121
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES "native")
-endif()
 
 find_package(CUDAToolkit REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
