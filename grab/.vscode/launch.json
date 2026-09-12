@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Grab: cfaoi_grab (單台/多台，靠 cam_map)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-grab",
+      "program": "${workspaceFolder}/build/cfaoi_grab",
+      "args": [
+        "--cam-config", "cam_config.json",
+        "--cam-map", "cam_map.example.json",
+        "--rdma-dest", "127.0.0.1:18515",
+        "--ctrl-port", "8100"
+      ],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "stopAtEntry": false
+    }
+  ]
+}

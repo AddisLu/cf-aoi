@@ -1,0 +1,49 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "IP: offline-file",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-ip",
+      "program": "${workspaceFolder}/build/cfaoi_ip",
+      "args": ["--mode", "offline-file", "--ini", "config/default_zone.ini", "--input", "test_images/", "--output", "output/"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "stopAtEntry": false
+    },
+    {
+      "name": "IP: offline-tcp (8200)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-ip",
+      "program": "${workspaceFolder}/build/cfaoi_ip",
+      "args": ["--mode", "offline-tcp", "--ini", "config/default_zone.ini", "--control-port", "8200"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "stopAtEntry": false
+    },
+    {
+      "name": "IP: bench",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-ip",
+      "program": "${workspaceFolder}/build/cfaoi_ip",
+      "args": ["--mode", "bench", "--ini", "config/default_zone.ini", "--input", "test_images/", "--bench-iters", "100"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "stopAtEntry": false
+    },
+    {
+      "name": "IP: rdma-process",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build-ip",
+      "program": "${workspaceFolder}/build/cfaoi_ip",
+      "args": ["--mode", "rdma-process", "--ini", "config/default_zone.ini", "--control-port", "8200"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "stopAtEntry": false
+    }
+  ]
+}

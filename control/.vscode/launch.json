@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Control (Avalonia): 執行",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-control",
+      "program": "${workspaceFolder}/src/bin/Debug/net8.0/CfAoiControl.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Control (Avalonia): --selftest",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-control",
+      "program": "${workspaceFolder}/src/bin/Debug/net8.0/CfAoiControl.dll",
+      "args": ["--selftest", "${input:selftestSub}"],
+      "cwd": "${workspaceFolder}/src",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "selftestSub",
+      "type": "pickString",
+      "description": "--selftest 子命令（不帶子命令只會印用法）",
+      "default": "store",
+      "options": [
+        "store", "settings", "singleccd", "recipemgmt", "workbench", "recipesaving",
+        "sort", "patches", "camera", "topology", "upstream", "grabtrigger",
+        "remoteimg", "heartbeat", "recipe", "send", "parse", "fft"
+      ]
+    }
+  ]
+}
