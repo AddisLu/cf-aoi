@@ -100,6 +100,12 @@ target_link_libraries(cfaoi_ip PRIVATE
 
 set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 
+# Debug build 才加 -G（device debug symbols，cuda-gdb 斷點/單步用）；
+# 會關掉大部分 device 端優化，效能數字（不變式 15）不可拿 Debug build 量測。
+target_compile_options(cfaoi_ip PRIVATE
+    $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CUDA>>:-G;-g>
+)
+
 # ── crc_verify（純 CPU；驗 ARM64 硬體 CRC32 與表格版位元級等價 = wire 相容守門）──
 add_executable(crc_verify src/crc_verify.cpp)
 target_include_directories(crc_verify PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

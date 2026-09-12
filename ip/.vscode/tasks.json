@@ -5,7 +5,7 @@
       "label": "cmake-configure-ip",
       "type": "shell",
       "command": "cmake",
-      "args": ["-S", "${workspaceFolder}", "-B", "${workspaceFolder}/build", "-DCMAKE_BUILD_TYPE=Debug"],
+      "args": ["-S", "${workspaceFolder}", "-B", "${workspaceFolder}/build", "-DCMAKE_BUILD_TYPE=Debug", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
       "problemMatcher": []
     },
     {

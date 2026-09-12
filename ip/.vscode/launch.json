@@ -10,7 +10,10 @@
       "args": ["--mode", "offline-file", "--ini", "config/default_zone.ini", "--input", "test_images/", "--output", "output/"],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
-      "stopAtEntry": false
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
     },
     {
       "name": "IP: offline-tcp (8200)",
@@ -21,7 +24,10 @@
       "args": ["--mode", "offline-tcp", "--ini", "config/default_zone.ini", "--control-port", "8200"],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
-      "stopAtEntry": false
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
     },
     {
       "name": "IP: bench",
@@ -32,7 +38,10 @@
       "args": ["--mode", "bench", "--ini", "config/default_zone.ini", "--input", "test_images/", "--bench-iters", "100"],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
-      "stopAtEntry": false
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
     },
     {
       "name": "IP: rdma-process",
@@ -43,7 +52,23 @@
       "args": ["--mode", "rdma-process", "--ini", "config/default_zone.ini", "--control-port", "8200"],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
-      "stopAtEntry": false
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    },
+    {
+      "name": "IP: offline-file (CUDA, cuda-gdb)",
+      "type": "cuda-gdb",
+      "request": "launch",
+      "preLaunchTask": "build-ip",
+      "program": "${workspaceFolder}/build/cfaoi_ip",
+      "args": ["--mode", "offline-file", "--ini", "config/default_zone.ini", "--input", "test_images/", "--output", "output/"],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "setupCommands": [
+        { "description": "啟用 gdb pretty-printing（std::string/vector 顯示內容而非內部欄位）", "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
     }
   ]
 }

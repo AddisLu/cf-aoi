@@ -321,6 +321,11 @@ set_property(TARGET cfaoi_ip PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 
 *需要 libibverbs（CFAOI_HAS_RDMA）
 
+> 🔧 **TODO（2026-09-12）**：VS Code debug 設定（`.vscode/launch.json` / `tasks.json` /
+> `c_cpp_properties.json` + `CMakeLists.txt` 的 nvcc/GPU 架構自動偵測）目前只在 Linux RTX 2080 Super /
+> RTX 5070 驗證機上弄好、確認可用；**DGX Spark（ARM, sm_121, CUDA 13.0）那台的 debug 環境尚未設定**，
+> 待之後上機時比照本機設定補上（注意架構/路徑與 x86 機器不同，不能直接照搬 `.vscode/` 設定）。
+
 ---
 
 ## 9. 不變式
