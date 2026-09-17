@@ -32,7 +32,7 @@
 | 層      | 平台                           | 角色                 | 整體狀態          |
 | ------- | ------------------------------ | -------------------- | ----------------- |
 | Control | C# / Avalonia（Mac·Win·Linux） | 控制平面 + 操作 UI   | **L1–L3（混合）** |
-| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2；2026-07-30 改經 HPE 5945 交換機全鏈重驗 20 幀 dropped=0/CRC 全對）；多相機 **2 台 L3**（2026-07-30/31 damac 實機：同步觸發 skew 1.45–1.72ms、SEND/RECV 背壓 err=0、cam_map MAC 綁定、4 片×3 張×2 台=24 幀 CRC/seq 錯 0）；6 台待 8/M 到貨、37 台全陣列 L0** |
+| Grab    | Linux / C++                    | 相機擷取 + RDMA 發送 | **單相機路徑 L4（2026-06-15 Step 2；2026-07-30 改經 HPE 5945 交換機全鏈重驗 20 幀 dropped=0/CRC 全對）；多相機 **2 台 L3**（2026-07-30/31 damac 實機：同步觸發 skew 1.45–1.72ms、SEND/RECV 背壓 err=0、cam_map MAC 綁定、4 片×3 張×2 台=24 幀 CRC/seq 錯 0）；**4 台 2026-09-17/18 damac 實機：身分（DeviceUserID=CCDnn）+ ROI 8192×5000（相機 2×2500 拼接）+ 開相機/取像 dropped=0 = L3，但 RDMA 全鏈當日未驗（Spark 在 offline-tcp）**；37 台全陣列 L0** |
 | IP      | Linux / CUDA（→ DGX Spark）    | GPU 演算法 + 推論    | **L4（DGX Spark GB10 sm_121 實機：編譯+運算正確性+跨架一致性+速度，2026-06-15）** |
 
 ---
@@ -106,7 +106,7 @@
 | ⤷ Gap #2+：Control 相機陣列總覽 view（KPI/實體陣列/分群/明細）| **L2（邏輯）/ L1（版面待 Mac 目視）** | SystemSettings 相機 tab 演進為總覽（資訊架構照 `camera_overview_mockup.html`）：KPI（配置/上線/已綁定/待綁定/離線）+ 實體陣列色碼（綠/琥珀/灰）+ 分群清單 + 明細面板（重用 Gap #2 曝光/增益,改 `SelectedCamera.CamId`）。**2026-06-18 `dotnet build` 0 警告 0 錯誤 + `--selftest camera`（假 server 多台 bound+unbound）全 PASS**：列舉 2 台 / KPI 配置2上線2綁1待綁1離0 / 分群 bound[CCD00]+unbound[CCD01]+offline 空 / 預選第一台 / 欄位解析。**離線群維持 0（無 config↔CCD 映射,不假造）**。版面待 Addis Mac 目視 → L1。**defer（= Gap #21）**：綁定動作（指派 IP/位置映射,按鈕停用標 #21）/ 配置 vs 偵測映射（現配置數=偵測數）/ cam_id↔MAC 穩定映射（現以列舉 index 暫派,重啟可能對到別台,cam_config per-cam 存檔亦繼承此不穩,多台改 MAC keying）。多相機（37 台）/離線格待 SN2201 Switch + 相機陣列。|
 | ⤷ Gap #2+：GigE 機器層參數補齊（PixelFormat/Auto/Trigger）| **L3** | **2026-06-18 damac 實機**：加強版 probe_cam_nodes 查 raL8192:`PixelFormat` RW(Mono8/Mono12/YUV)、`ExposureAuto/GainAuto` RW、`TriggerMode=Off`/`TriggerSelector` 有 LineStart/`TriggerSource` 有 ShaftEncoderModuleOut、`Width 8160 Height 3000(max3587)`、`GevSCPSPacketSize 9000`/`GevSCPD 0`、persistent IP 節點 RW。考古確認 legacy 只 runtime 設曝光(µs)+增益(dB)、其餘烤在 .dcf;GigE 無 .dcf → `open()` 顯式補 `PixelFormat=Mono8`+`ExposureAuto/GainAuto=Off`+`TriggerMode=Off`,開機 log 實機確認生效。**注:此相機無 `AcquisitionLineRate`,線掃時序靠 Trigger(可接 encoder)**;`Gain` 只有 GainRaw(256~2047) 無 dB。**2026-06-18 加 `GET_CAM_NODES` + Control 明細「讀取機器層參數」鈕 → 看得到(實機回 PixelFormat=Mono8/ExposureAuto=Off/GainAuto=Off/TriggerMode=Off(FrameStart/Line3)/ROI 8160×3000/PacketSize 8192/SCPD 0)。**|
 | ⤷ Gap #2+：調參效果確認 mean gray（TUNE_MEAN）| **L3** | **2026-06-18 damac 實機**:`TUNE_MEAN{exp,gain}` → 開相機(免 RDMA)+set+抓 1 幀算 uint8 平均 → 回 `mean_gray`(`cam_pylon::grab_one_mean`,timeout 隨曝光×Height 自適應 3~15s,exp=2000µs 不再逾時)。機制驗通:exp 70/500/2000、gain 256/1024 皆正常回真實 mean。Control 明細加「套用並驗證(抓幀看 mean)」鈕顯示 X→Y Δ。**⚠️ 現為暗場 → mean 都 ~2.5(noise floor),變化不明顯;打光後可見(同 Gap #2 Stage2:加光源 exp70→3.30/exp500→7.63 ratio 2.31)。機制完成,「看到變化」需打光,非程式問題。** |
-| ⤷ Gap #2+：encoder 行觸發 / GevSCPD / ROI Height / persistent IP 綁定 | **L0（defer 陣列時）** | 現況 1 台、已綁定(persistent 192.168.5.1)、free-run 正常 → 依使用者裁示 **3/4 階段待陣列**:encoder 行觸發(TriggerSelector=LineStart+Source=Encoder)待接產線 encoder;GevSCPD/ROI Height 待多相機;persistent IP 綁定動作(寫 GevPersistentIP,節點已確認 RW)= Gap #21,待 Switch+陣列(風險:設錯失聯,需 ForceIP 救援,故帶安全網)。 |
+| ⤷ Gap #2+：encoder 行觸發 / GevSCPD / ROI Height / persistent IP 綁定 | **ROI Height + persistent IP = L3（2026-09-17/18）；encoder / GevSCPD 仍 L0** | **2026-09-17/18 已落地**：ROI 由 grab open 設定（`--width/--height`，5000 行以相機 2×2500 拼接，設不進即 ARM 失敗）；persistent IP + DeviceUserID 由 `grab/build/cam_provision` 寫入（4 台 = CCD00–03 @192.168.5.1–.4，ForceIp 立即生效，斷電複驗待做）——見「4 相機到貨日」節。以下為原始記錄：現況 1 台、已綁定(persistent 192.168.5.1)、free-run 正常 → 依使用者裁示 **3/4 階段待陣列**:encoder 行觸發(TriggerSelector=LineStart+Source=Encoder)待接產線 encoder;GevSCPD/ROI Height 待多相機;persistent IP 綁定動作(寫 GevPersistentIP,節點已確認 RW)= Gap #21,待 Switch+陣列(風險:設錯失聯,需 ForceIP 救援,故帶安全網)。 |
 | ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端（Phase-1 測試套件） | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
 
 ### Phase-1 硬體路徑（2026-06-11 實機 PASS）→ 證據：[docs/verification/verification_report_20260611.md](verification/verification_report_20260611.md)
@@ -146,10 +146,10 @@
 | ---- | ---- |
 | 開發機 RTX 2080 Super（sm_75, CUDA 12.x） | ✅ IP offline 演算法運作中（本盤點實跑） |
 | DGX Spark（GB10 sm_121, CUDA 13） | **RDMA→GPU 收圖路徑 2026-06-11 實機 PASS（L4）**；**AOI 演算法 2026-06-15 GB10 實機驗證 PASS（L4）**：編譯零警告、26 張真實面板跨架一致、~7.4ms/張 → **1 台 Spark 足夠**（餘裕 ~73%）|
-| Basler raL8192-12gm（1 台，pylon 26.05） | ✅ 實機取像 PASS（500 幀零掉幀）；**2026-07-30 改經 HPE 5945 交換機取像 PASS**（8160×3000 Mono8、pkt 8192、20 幀 dropped=0）；37 台陣列未接（Step 3+）|
-| 18× L803K+iPORT（eBUS） | 未接（eBUS SDK 未裝；Step 2+）|
+| Basler raL8192-12gm（**2026-09-17 起 4 台**，pylon 26.05） | ✅ 實機取像 PASS（500 幀零掉幀）；**2026-07-30 經 HPE 5945 取像 PASS**（8160×3000、20 幀 dropped=0）；**2026-09-17/18 新 4 台 = CCD00–03 @192.168.5.1–.4（身分存相機 DeviceUserID）、ROI 8192×5000（相機 2×2500 拼接）、連續取像 dropped=0、~410ms/張**（見「4 相機到貨日」節）；37 台陣列其餘未接 |
+| 18× L803K+iPORT（eBUS） | 未接（eBUS SDK 未裝；Step 2+）。調機路徑已收編 `tools/cam_align`（GVCP/GVSP 自製 + CL 序列埠，不需 eBUS），但 **2026-09-18 當日 iPORT 未接線 → L803K 側未驗**|
 | Mellanox ConnectX-5（截取中心）/ ConnectX-7（Spark） | ✅ 100G RDMA 鏈路實測 PASS |
-| 交換器（實為 **HPE FlexFabric 5945 48SFP28+8QSFP28+2SFP**，非原規劃 SN2201）| ✅ **2026-07-30 到貨並設定完成**（Comware 7.1.070 R6715，sysname `CFAOI-SW1`，`save force` 已存檔）。埠位命名：`WGE1/0/1-24`+`WGE1/0/33-56`=25G SFP28、`HGE1/0/25-32`=100G QSFP28、`GE1/0/57-58`=1G SFP。現接線：`WGE1/0/33`（1000BASE-T RJ45 SFP）→ CCD00 相機；`HGE1/0/25` → damac `enp1s0f1np1`。**關鍵坑：25G SFP28 埠位插 1G 銅纜模組時 auto-negotiation 不會 link up，必須明確 `speed 1000`**（該指令套用範圍 = port-group 33–36）；下完立刻 UP 1000Mbps/F。jumbo 原廠已 `Maximum frame length: 9416`，無需另設。兩埠加 `stp edged-port`。37 台陣列接線待相機到貨。|
+| 交換器（實為 **HPE FlexFabric 5945 48SFP28+8QSFP28+2SFP**，非原規劃 SN2201）| ✅ **2026-07-30 到貨並設定完成**（Comware 7.1.070 R6715，sysname `CFAOI-SW1`，`save force` 已存檔）。埠位命名：`WGE1/0/1-24`+`WGE1/0/33-56`=25G SFP28、`HGE1/0/25-32`=100G QSFP28、`GE1/0/57-58`=1G SFP。現接線：`WGE1/0/33`（1000BASE-T RJ45 SFP）→ CCD00 相機；`HGE1/0/25` → damac `enp1s0f1np1`。**關鍵坑：25G SFP28 埠位插 1G 銅纜模組時 auto-negotiation 不會 link up，必須明確 `speed 1000`**（該指令套用範圍 = port-group 33–36）；下完立刻 UP 1000Mbps/F。jumbo 原廠已 `Maximum frame length: 9416`，無需另設。兩埠加 `stp edged-port`。**2026-09-17 收口：全部 48 個 25G 埠（WGE1/0/1–24、33–56）已預設 `speed 1000` + `stp edged-port` 並 `save force`** → 相機插任一 WGE 埠即通（當日 4 台失聯正是 37–40／41–44 兩組仍是 `auto`；同一個坑第二次）。console = damac `/dev/ttyUSB0` 9600 8N1。37 台陣列其餘接線待相機到貨。|
 
 ---
 
@@ -921,6 +921,109 @@ status JSON 在錯誤訊息含引號/反斜線時仍能被 `json::parse` 還原�
 GRAB_START 後拔一台網線 → `pgrep -x cfaoi_grab` 仍在 + `CHECK_HEALTH` 回 `faulted=1` 且指到正確
 cam_id + 另一台 `grabbed`/`sent_frames` 持續增加。
 ⚠️ stub 不涵蓋真 pylon API 契約與真相機行為——**L3 仍不可略過**。
+
+---
+
+## 4 相機到貨日（2026-09-17/18）：失聯排除 → CCD 身分改制 → 8192×5000 拼接 → 調機軟體收編
+
+> 環境：**HPE 5945**（`CFAOI-SW1`）｜damac `enp1s0f1np1`（相機網段）｜4 台新 raL8192-12gm。
+> commit：`0bc21b1`（身分）、`829d366`（ROI/拼接）、`cc00b5a`+`88d5e8d`+`7975b0f`（調機工具/崩潰修正）。
+
+### ① 4 台全失聯 → 交換機埠未設 1G（**同一個坑第二次**）
+
+主機端先自證清白：探索廣播送得出去（`tx_broadcast_phy` 遞增）、收得到交換機 multicast，
+但 **開機 3 天 `rx_broadcast_phy` = 0**（相機一包都沒進來）→ 問題在 L2 不在 IP 設定。
+console（damac `/dev/ttyUSB0`，9600 8N1）查得相機接 `WGE1/0/37/39/41/43`，
+而 **37–40、41–44 兩個 port-group 仍是 `auto`**（33–36 早已設過）。
+下 `speed 1000` + 回答 `[Y/N]` → 4 埠立刻 UP 1G，MAC table 學到 4 個 `0030-53xx`。
+
+**收口（避免第三次）**：全部 48 個 25G 埠（WGE1/0/1–24、33–56）預設 `speed 1000` + `stp edged-port`，
+`save force` 已存檔 → 相機插任一 WGE 埠即通。25G/10G 用途需對該 port-group 重下 `speed`。
+
+⚠️ 排障工具本身也有坑：GVCP 廣播探索的 socket **必須 bind 0.0.0.0**（相機回的是
+`255.255.255.255` 廣播，綁特定來源 IP 的 socket 收不到）——舊筆記只記了 `SO_BINDTODEVICE`。
+
+### ② CCD 身分改以相機 `DeviceUserID` 為準（取代 MAC 映射為主）— **L3**
+
+`CamManager::resolve()` 優先序：**DeviceUserID `CCDnn`（存相機 flash）> `cam_map.json` MAC（備援）> 未綁定**。
+嚴格模式維持：無身分 / UserID 非 `CCDnn` / cam_id 重複 → **ARM 拒開並點名序號**；衝突以 UserID 為準 + WARN。
+**換相機 SOP 變成零改檔**：pylon Viewer 設 Device User ID + 固定 IP（或 `grab/build/cam_provision set <SN> CCDnn`，
+一次寫 UserID + persistent IP 並 ForceIp）。舊 `grab/cam_map.json`（2 筆舊 MAC）已刪。
+
+| 埠 | SN | MAC | CCD | IP |
+|---|---|---|---|---|
+| WGE1/0/37 | 25564093 | 00:30:53:54:E6:BD | CCD00 | 192.168.5.1 |
+| WGE1/0/39 | 25563179 | 00:30:53:54:E3:2B | CCD01 | 192.168.5.2 |
+| WGE1/0/41 | 25563177 | 00:30:53:54:E3:29 | CCD02 | 192.168.5.3 |
+| WGE1/0/43 | 25563161 | 00:30:53:54:E3:19 | CCD03 | 192.168.5.4 |
+
+**證據**：`LIST_CAMERAS` 4 台皆 `bound=true`、`bind_source="user_id"`、ccd_id 正確；
+ARM log `cam0=CCD00 … cam3=CCD03 來源=user_id`。`grab/test/ccd_identity/` 31 項離線測試全過
+（含未命名/打錯字/重名/與 cam_map 衝突四種拒開路徑）。
+⚠️ persistent IP **尚未斷電重開驗證**（本次以 ForceIp 立即生效）。
+
+### ③ GigE 單幀行數上限 → grab 端拼接 8192×5000 — **L3**
+
+新相機出廠 **8192×256**（PayloadSize 僅 2MB 且不報錯 = 靜默只送 256 行）。
+raL8192 單幀受機上緩衝限制（寬 8192 ≤3573 行、8160 ≤3587 行，乘積皆 ≈2927 萬 px），
+**拍不出舊 L803K（Camera Link，擷取卡組幀）的 8192×5000** → `--width/--height`（預設 8192/5000）
+由 open() 推 k、相機 Height=N/k，取像時每 k 張拼成一張（5000 = 2×2500）。
+拼到一半掉幀（BlockID 缺口 / skipped / GrabFailed）→ **半張作廢重對齊**，不送斷層影像；
+幀大小不符 → 故障（B1 路徑）。`grabbed` / `frames_per_panel` 以送出幀計。
+
+**證據**：4 台 ARM 皆 `8192x5000 PayloadSize=40960000（相機 2×2500 行拼接）`；
+SN25564093 連續 3 張 dropped=0、**~410ms/張（≈12.2kHz，相機行頻上限）**；
+`--height 5000` 於寬 8160 會被相機拒（`Max = 3587`）→ ARM 直接 ERR，不靜默。
+`grab/test/stitch/` 22 項離線測試全過；反向對照（拿掉作廢邏輯）3 項 FAIL。
+⚠️ 暗場（無光源）驗的是「兩段都有資料」，**拼接處畫面是否連續未驗**——需打光或真面板。
+⚠️ **IP 端 `frame_lines = 5000` 假設不變**（故選 5000 而非 3000/3587）；
+Control ROI 編輯器仍 clamp X≤8160，8192 最右 32 px 框不到（未修）。
+
+### ④ 光學調機軟體收編 `tools/cam_align/`，兩型相機共用 — **L3（raL8192）／L1（L803K 未驗）**
+
+原 `~/Addis/iport`（未版控）。工具本就「參數一律由相機 GenICam XML 解出、不寫死機型」，
+但三處只在 iPORT 上測過，raL8192 首次接入全踩：
+
+| 症狀 | 真因 | 修法 |
+|---|---|---|
+| `Corrupt extra field` 參數載入失敗 | Basler XML zip 夾帶非標準 extra field（0x4347 "GCV0"），Python `zipfile` 嚴格解析拒絕 | 退回手動 local header + raw deflate |
+| 取像逾時（**影像其實收到了**） | GVSP **標準 ID** 的 trailer 整包僅 16 bytes，舊碼 `len(pkt)<20` 一律丟 → 永遠等不到結束封包；iPORT 走擴充 ID（≥28B）才沒踩到 | `parse_gvsp()`：表頭長度依 ID 型式判斷 |
+| 沒有增益、曝光顯示 `700`（無單位） | raL8192 用公式節點：GainRaw 位址由 GainSelector 經 IntSwissKnife 算（pAddress）、ExposureTimeAbs(µs) 由 Converter 換算 | GenICam 公式求值（遞迴下降→受限 Python 運算式、白名單變數）+ pAddress 動態位址 + Converter 雙向換算 + pIsAvailable 過濾 + Sign 負值 |
+
+**證據**：4 台 `增益 256(256–2047)／曝光 70.0µs(2–10000)／黑位準 50(−2048–2047)／行數 2500(1–3573)`
+（與 pylon 側 cam_config 完全一致）、每台連續取像 dropped=0、行數即時生效；
+增益/曝光寫入讀回正確並已還原。`tools/cam_align/test_offline.py` 34 項（不需相機）全過，
+反向對照 3 項 FAIL。`MAX_CAMS=6` 是**光學模組單位（6 顆/模組）**，非待辦。
+⚠️ **L803K 路徑未驗**：iPORT 接 `enp0s31f6`，當日未接線（三處修改皆只放寬、未改原行為，但沒實機不算數）。
+
+### ⑤ 相機被別的程式佔用 → `cfaoi_grab` **SIGSEGV 全滅**（**已修，L3**）
+
+不變式 9 的漏洞：例外圍堵做了，**收尾動作卻留在 catch 內**。`PylonTerminate()` 卸載傳輸層 `.so`，
+而正在處理的 `GenericException` 解構碼就在那顆 `.so` 裡 → catch 結束銷毀例外時跳進已卸載記憶體
+→ 整個行程死亡（8100 + RDMA + 其餘相機全斷）。**觸發情境很日常**：有人開 pylon Viewer /
+`tools/cam_align` 調機佔著某台相機時 ARM。
+
+**重現**（2026-09-18）：持 CCP → `GRAB_ARM` → grab **exit 139**；`probe_cam_nodes` 同樣模式亦然。
+**修法**：catch 內只複製訊息，`delete`/`PylonTerminate` 移到 catch 之外。
+**修後**：`{"status":"ERR","error":"cam0 (SN=...) open 失敗"}`、行程存活（CHECK_HEALTH/LIST_CAMERAS 照常）、
+結束碼 0；釋放後 4 台正常開啟。⚠️ **stub 抓不到此類崩潰**（無 `.so` 卸載）→ 只能靠實機。
+
+### ⑥ 三種用法輪流共用同一批相機（實測）
+
+| 用法 | 結果 |
+|---|---|
+| pylon SDK / Viewer | 4 台列得到（顯示 CCD00–03）、開相機取像 3 張 8192×5000 dropped=0 |
+| `tools/cam_align` 調機 | 4 台取像 dropped=0、6 參數可調 |
+| `cfaoi_grab` ARM | 4 台依 UserID 綁定、ROI 8192×5000 |
+| 輪流（調機→pylon→grab） | 後者覆蓋前者留下的設定，互不干擾 |
+| 同時搶同一台 | 明確報錯（`controlled by another application`），**其餘相機不受影響** |
+
+### ⑦ 當日未完成（待硬體）
+
+- **RDMA 全鏈**：Spark 當日跑 `--mode rdma-process` 以外的模式（`offline-tcp`）→ ARM 停在
+  `RDMA connect failed`。切模式後照 [6cam_setup_runbook](6cam_setup_runbook.md) §6 補驗。
+- **L803K / iPORT 路徑**：接線後 `python3 tools/cam_align/cam_align.py --test`。
+- **persistent IP 斷電重開複驗**、**拼接處畫面連續性（需打光）**。
 
 ---
 
