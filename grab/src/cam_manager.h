@@ -80,6 +80,9 @@ public:
     // 平行啟動全部（每台自帶 grab thread）；max_frames_per_cam=0 → 連續（legacy）。
     // cb 會被 N 個相機 thread 併發呼叫 → 呼叫端負責 thread-safe（RDMA 單 QP 需序列化）。
     void start_all(uint64_t max_frames_per_cam, FrameCb cb);
+
+    // 之後每次開相機（open_all / get_or_open_primary）都套用的 ROI。0 = 不動相機現值。
+    void set_roi(Roi roi) { roi_ = roi; }
     void stop_all();   // 停 thread + 關相機 + 清列表
 
     size_t    size()  const { return cams_.size(); }
@@ -114,4 +117,5 @@ private:
     // true = 目前 cams_ 是 idle 調參路徑（get_or_open_primary）開的單台，非完整陣列。
     // open_all 看到此旗標一律重開，避免把單台當成整個陣列（靜默少台）。
     bool primary_only_ = false;
+    Roi  roi_;
 };

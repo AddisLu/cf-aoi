@@ -44,6 +44,15 @@ struct MachineParams {
     long long width = 0, height = 0, packet_size = 0, scpd = 0;
 };
 
+// 影像 ROI（open 時設定）。0 = 不動相機現值。
+// height = **送出的**每幀行數。GigE 相機單幀受機上緩衝限制（raL8192 寬 8192 時 ≤3573 行），
+// 超過時 open() 自動把相機 Height 設成 height/k，取像時每 k 張相機幀拼成一張送出
+// （舊 L803K 為 Camera Link，由擷取卡組幀，無此限制）。
+struct Roi {
+    int64_t width  = 0;
+    int64_t height = 0;
+};
+
 class CamPylon {
 public:
     CamPylon() = default;
@@ -55,9 +64,12 @@ public:
 
     // open：初始化相機（auto = 第一台，或給序號）、設 GevSCPSPacketSize。
     // 成功後可呼叫 payload_size() 取得幀大小，再去連 RDMA。
-    bool open(const std::string& serial = "auto", int64_t pkt_size = 8192);
+    // roi 非 0 → 設 Width/Height 並讀回確認；設不進（超出相機範圍等）→ open 失敗（fail-fast，
+    // 不可默默用相機現值：新相機出廠 Height=256，不設 = 每幀 256 行且無任何錯誤）。
+    bool open(const std::string& serial = "auto", int64_t pkt_size = 8192, Roi roi = {});
 
-    int64_t payload_size() const { return payload_; }
+    int64_t  payload_size() const { return payload_; }   // 送出幀大小（已含拼接）
+    uint32_t stitch_count() const { return stitch_; }    // 每張送出幀 = 幾張相機幀（1 = 不拼接）
 
     void set_frame_callback(FrameCb cb) { cb_ = std::move(cb); }
 
@@ -71,8 +83,8 @@ public:
 
     bool     is_open()    const { return opened_; }
     bool     is_running() const { return running_.load(); }
-    uint64_t grabbed()    const { return grabbed_; }
-    uint64_t dropped()    const { return dropped_; }
+    uint64_t grabbed()    const { return grabbed_; }   // 送出幀數（拼接後）
+    uint64_t dropped()    const { return dropped_; }   // 相機幀單位：遺失 + 拼接中途作廢
 
     // ---- B1：取像 thread 故障狀態（docs/code_review_20260802.md B1 修法）----
     // grab_loop 攔到例外（拔線/斷電/交換機掉埠、或 frame_cb 內部丟出）後：
@@ -127,5 +139,10 @@ private:
     // ctrl thread（CHECK_HEALTH）無鎖讀——監控用途 x86 實務可用，正式屬 data race。
     uint64_t grabbed_ = 0;
     uint64_t dropped_ = 0;
-    uint64_t max_frames_ = 0;   // 0 = 不限；>0 = 收滿自動停（每片 N 張）
+    uint64_t max_frames_ = 0;   // 0 = 不限；>0 = 收滿自動停（每片 N 張，送出幀單位）
+
+    // 拼接（open 時決定；stitch_>1 才用 stitch_buf_，於 open 預先配置，取像中不配置）
+    uint32_t             stitch_      = 1;
+    int64_t              chunk_bytes_ = 0;   // 單張相機幀大小
+    std::vector<uint8_t> stitch_buf_;
 };

@@ -5,6 +5,8 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <stdexcept>
 
 using namespace Pylon;
 
@@ -56,7 +58,7 @@ std::vector<CamInfo> CamPylon::enumerate_cameras() {
     return out;
 }
 
-bool CamPylon::open(const std::string& serial, int64_t pkt_size) {
+bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
     if (opened_) return true;
 
     PylonInitialize();
@@ -86,7 +88,42 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size) {
         CEnumParameter(nm, "GainAuto").TrySetValue("Off");
         CEnumParameter(nm, "TriggerMode").TrySetValue("Off");
 
-        payload_ = CIntegerParameter(nm, "PayloadSize").GetValue();
+        // 4) ROI Width/Height：2026-09-17 新到 raL8192 出廠為 8192×256 → PayloadSize 只有 2MB 且不報錯。
+        //    SetValue 超出範圍會擲 GenericException（訊息含合法範圍）→ 走下方 catch = open 失敗。
+        //    Width 先設：Height 上限隨 Width 變（機上緩衝固定，8192→3573、8160→3587）。
+        std::string roi_err;
+        auto set_dim = [&](const char* name, int64_t want) {
+            if (want <= 0) return;
+            CIntegerParameter p(nm, name);
+            p.SetValue(want);
+            const int64_t got = p.GetValue();
+            if (got != want)
+                roi_err += std::string(roi_err.empty() ? "" : "，") + name + " 要求 " +
+                           std::to_string(want) + " 讀回 " + std::to_string(got);
+        };
+        set_dim("Width", roi.width);
+        stitch_ = 1;
+        if (roi.height > 0) {
+            // 送出 roi.height 行 = k 張相機幀 × (roi.height/k) 行；k 取最小且整除者
+            const int64_t hmax = CIntegerParameter(nm, "Height").GetMax();
+            int64_t k = hmax > 0 ? (roi.height + hmax - 1) / hmax : 1;
+            while (roi.height % k) ++k;
+            stitch_ = (uint32_t)k;
+            set_dim("Height", roi.height / k);
+        }
+        if (!roi_err.empty()) {
+            fprintf(stderr, "[cam_pylon] open 失敗：ROI 設定未生效（%s）\n", roi_err.c_str());
+            c->Close();
+            delete c;
+            camera_ptr_ = nullptr;
+            PylonTerminate();
+            return false;
+        }
+
+        chunk_bytes_ = CIntegerParameter(nm, "PayloadSize").GetValue();
+        payload_     = chunk_bytes_ * stitch_;
+        if (stitch_ > 1) stitch_buf_.assign((size_t)payload_, 0);
+        else             std::vector<uint8_t>().swap(stitch_buf_);
         opened_  = true;
 
         // 印出實際生效值（確認真的設成功，非只送指令）
@@ -98,10 +135,12 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size) {
                enumOr("PixelFormat").c_str(), enumOr("ExposureAuto").c_str(),
                enumOr("GainAuto").c_str(), enumOr("TriggerMode").c_str());
 
-        printf("[cam_pylon] 開啟 %s SN=%s  PayloadSize=%lld\n",
+        const long long cam_h = (long long)CIntegerParameter(nm, "Height").GetValue();
+        printf("[cam_pylon] 開啟 %s SN=%s  %lldx%lld  PayloadSize=%lld（相機 %u×%lld 行拼接）\n",
                c->GetDeviceInfo().GetModelName().c_str(),
                c->GetDeviceInfo().GetSerialNumber().c_str(),
-               (long long)payload_);
+               (long long)CIntegerParameter(nm, "Width").GetValue(),
+               cam_h * stitch_, (long long)payload_, stitch_, cam_h);
         return true;
 
     } catch (const GenericException& e) {
@@ -196,6 +235,7 @@ void CamPylon::grab_loop_body() {
 
     CGrabResultPtr res;
     int64_t prev_block = -1;
+    uint32_t parts = 0;   // 拼接中：本張已收的相機幀數（每次 start 都從 0 開始）
     auto t_log = std::chrono::steady_clock::now();
     uint64_t log_frames = 0;
 
@@ -204,35 +244,60 @@ void CamPylon::grab_loop_body() {
         if (!res) continue;
 
         if (res->GrabSucceeded()) {
-            ++grabbed_;
-            ++log_frames;
-
             // drop 偵測：BlockID 缺口 + GetNumberOfSkippedImages **相加**（舊註解「兩種取較大」有誤）。
             // 兩來源語意不同：BlockID 缺口=相機端跳號（線路/相機丟幀）；SkippedImages=pylon 驅動端
             // 因緩衝滿丟棄。極端情境同一幀可能被兩邊各計一次（偏保守=寧多報勿漏報）。
-            uint64_t skipped = res->GetNumberOfSkippedImages();
-            int64_t  bid     = (int64_t)res->GetBlockID();
+            uint64_t lost = res->GetNumberOfSkippedImages();
+            int64_t  bid  = (int64_t)res->GetBlockID();
             if (prev_block >= 0 && bid > prev_block + 1)
-                dropped_ += (uint64_t)(bid - prev_block - 1);
-            dropped_ += skipped;
+                lost += (uint64_t)(bid - prev_block - 1);
+            dropped_ += lost;
             prev_block = bid;
 
-            cb_(cam_id_,
-                (const uint8_t*)res->GetBuffer(),
-                (uint32_t)res->GetImageSize(),
-                (uint32_t)res->GetWidth(),
-                (uint32_t)res->GetHeight());
+            const uint8_t* buf  = (const uint8_t*)res->GetBuffer();
+            const size_t   size = res->GetImageSize();
+            bool emitted = false;
+            if (stitch_ == 1) {
+                cb_(cam_id_, buf, (uint32_t)size, (uint32_t)res->GetWidth(), (uint32_t)res->GetHeight());
+                emitted = true;
+            } else {
+                if ((int64_t)size != chunk_bytes_)
+                    throw std::runtime_error("拼接：相機幀 " + std::to_string(size) + " bytes ≠ 預期 " +
+                                             std::to_string(chunk_bytes_));
+                // 拼到一半掉幀 → 這張若照拼，中間會少一段行（影像斷層且無從察覺）→ 整張作廢，
+                // 以本幀為新一張的開頭重新對齊。作廢的相機幀計入 dropped_。
+                if (lost > 0 && parts > 0) {
+                    dropped_ += parts;
+                    parts = 0;
+                }
+                std::memcpy(stitch_buf_.data() + (size_t)parts * (size_t)chunk_bytes_, buf, size);
+                if (++parts == stitch_) {
+                    parts = 0;
+                    cb_(cam_id_, stitch_buf_.data(), (uint32_t)payload_,
+                        (uint32_t)res->GetWidth(), (uint32_t)res->GetHeight() * stitch_);
+                    emitted = true;
+                }
+            }
 
-            // 每片 N 張：收滿自動結束（thread 自然退出；同舊系統 M_FRAMES_PER_TRIGGER(N) 語意）
-            if (max_frames_ > 0 && grabbed_ >= max_frames_) {
-                printf("[cam_pylon] cam%u 收滿 %llu 張，自動停止取像\n",
-                       cam_id_, (unsigned long long)grabbed_);
-                break;
+            if (emitted) {
+                ++grabbed_;
+                ++log_frames;
+                // 每片 N 張：收滿自動結束（thread 自然退出；同舊系統 M_FRAMES_PER_TRIGGER(N) 語意）
+                if (max_frames_ > 0 && grabbed_ >= max_frames_) {
+                    printf("[cam_pylon] cam%u 收滿 %llu 張，自動停止取像\n",
+                           cam_id_, (unsigned long long)grabbed_);
+                    break;
+                }
             }
 
         } else {
             fprintf(stderr, "[cam_pylon] GrabFailed: %s\n",
                     res->GetErrorDescription().c_str());
+            // 拼接中遇到失敗幀 → 半張作廢（失敗幀本身由下一張成功幀的 BlockID 缺口計入 dropped_）
+            if (parts > 0) {
+                dropped_ += parts;
+                parts = 0;
+            }
         }
 
         // 每 5 秒印一次 FPS

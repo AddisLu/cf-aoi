@@ -6,10 +6,25 @@ namespace Pylon {
 
 class CIntegerParameter {
 public:
-    CIntegerParameter(GenApi::INodeMap&, const char*) {}
-    bool    TrySetValue(int64_t) { return true; }
-    void    SetValue(int64_t)    {}
-    int64_t GetValue() const     { return 0; }
+    CIntegerParameter(GenApi::INodeMap&, const char* name) : name_(name) {}
+    bool    TrySetValue(int64_t v) { PylonStub::ints[name_] = v; return true; }
+    void    SetValue(int64_t v) {
+        if (v > GetMax()) throw GenericException();
+        PylonStub::ints[name_] = v;
+    }
+    int64_t GetValue() const {
+        auto& m = PylonStub::ints;
+        if (name_ == "PayloadSize" && m.count("Width") && m.count("Height"))
+            return m.at("Width") * m.at("Height");
+        auto it = m.find(name_);
+        return it == m.end() ? 0 : it->second;
+    }
+    int64_t GetMax() const {
+        auto it = PylonStub::int_max.find(name_);
+        return it == PylonStub::int_max.end() ? (int64_t)1 << 30 : it->second;
+    }
+private:
+    std::string name_;
 };
 
 class CFloatParameter {

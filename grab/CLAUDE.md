@@ -149,8 +149,8 @@ t40_e2e_client_pylon（測試工具）的功能：
 ```
 grab/
 ├── CLAUDE.md
-├── CMakeLists.txt                5 個目標：cfaoi_grab / rdma_nslot_test / image_replay_sender /
-│                                 probe_cam_nodes / cam_mean_gray_test
+├── CMakeLists.txt                6 個目標：cfaoi_grab / rdma_nslot_test / image_replay_sender /
+│                                 probe_cam_nodes / cam_mean_gray_test / cam_provision
 ├── cam_config.example.json       每台曝光/增益模板（本機副本 cam_config.json 不版控）
 ├── cam_map.example.json          MAC↔cam_id 綁定模板（Gap #21；本機副本 cam_map.json 不版控）
 └── src/
@@ -164,6 +164,7 @@ grab/
     ├── rdma_nslot_test.cpp       ← 合成幀送器（免相機；threads>1 模擬 N 相機共用單 QP）
     ├── image_replay_sender.cpp   ← 檔案回放送器（Gap #27；stdin 餵 Mono8 raw）
     ├── probe_cam_nodes.cpp       ← GenICam 節點探測（Gap #2 Stage 0）
+    ├── cam_provision.cpp         ← 相機身分配置：DeviceUserID=CCDnn + persistent IP（換相機 CLI 路徑）
     └── cam_mean_gray_test.cpp    ← 曝光/增益→mean gray 單調性驗證（Gap #2 Stage 2+3）
 ```
 
@@ -193,9 +194,11 @@ grab/
 | `--cam-id N` | 0 | 單台模式的 FrameHeader.camId（legacy）|
 | `--serial STR` | auto | pylon 序號；auto = 第一台（單台模式）|
 | `--pkt-size N` | 8192 | GevSCPSPacketSize |
+| `--width N` | 8192 | 相機 ROI 寬；0 = 不動相機現值。設不進 → 開相機失敗 |
+| `--height N` | 5000 | **送出**的每幀行數。超過相機單幀上限（raL8192@寬 8192 = 3573）→ 相機 Height 設 N/k、每 k 張拼成一張（5000 = 2×2500）；0 = 不動、不拼接 |
 | `--ctrl-port N` | 8100 | 等 Control 連入的 TCP port |
 | `--cam-config PATH` | exe 上一層/cam_config.json | 曝光/增益 JSON（路徑錨定 grab/，不隨 CWD 漂移）|
-| `--cam-map PATH` | exe 上一層/cam_map.json | MAC↔cam_id 映射（Gap #21；同上錨定）|
+| `--cam-map PATH` | exe 上一層/cam_map.json | MAC↔cam_id **備援**映射（CCD 身分以相機 DeviceUserID 為準；同上錨定）|
 
 > 舊版此節的 `--cam-ids`／`--sdk ebus`／`--config config/system_config.json` 均**不存在於程式**
 > （eBUS 路徑 L0 未建；設定檔僅 cam_config.json / cam_map.json 兩份，無 system_config.json）。
@@ -235,13 +238,16 @@ grab/
    **實測數據**：2026-06-17 `rdma_nslot_test` 120 幀 CRC=OK（WRITE 版）；
    2026-07-30 SEND 版 4 片×3 張×2 台=24 幀 CRC/seq 錯誤 0、背壓下 slots=2 亦 ok=20 err=0。
 
-8. **cam_id 必須來自 MAC 穩定映射，不可用列舉順序（Gap #21，2026-07-30）**：
-   `cam_map.json`（每機本地，模板 `cam_map.example.json`）以 `{mac, cam_id, ccd_id}` 綁定。
-   - 有映射 → **嚴格模式**：列舉到但未列於映射的相機**直接報錯拒開**，不默默佔用槽位
-     （docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）
+8. **cam_id 必須來自相機身分，不可用列舉順序（Gap #21 2026-07-30；2026-09-17 改以 DeviceUserID 為準）**：
+   優先序 = 相機 **DeviceUserID `CCDnn`**（存在相機 flash、pylon Viewer 可見可改；換相機只需設名稱）
+   > `cam_map.json` 的 MAC 綁定（備援，`{mac, cam_id, ccd_id}`）> 未綁定。邏輯集中在 `CamManager::resolve()`。
+   - 任一台有 UserID 或有映射 → **嚴格模式**：沒有身分、UserID 非 `CCDnn`、cam_id 重複 → **ARM 報錯拒開**，
+     不默默佔用槽位（docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）
+   - UserID 與映射衝突 → 以 UserID 為準 + WARN
+   - 迴歸測試：`grab/test/ccd_identity/`
    - 映射檔格式錯 / `cam_id` 重複 / MAC 重複 → **啟動即中止（exit 1）**，
      不可默默退回列舉順序（那會在無人察覺下把槽位對錯台）
-   - 無映射檔 → 退回舊行為 + 明確 WARN（僅限開發；正式陣列必須有映射）
+   - 無映射檔且相機皆無 UserID → 退回舊行為 + 明確 WARN（僅限開發；正式陣列必須設 UserID）
    **為何**：cam_id 決定 `cam_config.json` 的曝光/增益、`FrameHeader.camId`、
    IP 端輸出夾 `CCD{camId}`。2026-07-30 實測：接上第二台後 raL8192 由 cam_id 0 變成 1。
 
@@ -256,6 +262,15 @@ grab/
      間歇掉幀，違反本專案「不靜默假成功」原則。恢復＝人為 GRAB_STOP → 排除 → GRAB_ARM。
    - ⚠️ 連帶紀律：故障台 `is_running()==false`，與「收滿 N 張正常停」外觀相同 →
      **任何「是否收完」的判斷都必須先看 `faulted_count()==0`**。
-   **改動 `grab_loop` 後請重跑迴歸測試**：`grab/test/b1_fault_containment/`（pylon stub 注入例外，
+   **改動 `grab_loop` 後請重跑迴歸測試**：`grab/test/b1_fault_containment/` 與 `grab/test/stitch/`（pylon stub 注入例外，
    任何機器可跑、不需相機）。該測試失效時的表現是**整支被 terminate 殺掉**而非回報 FAIL——
    跟產線失效模式一致，所以「有跑完」本身就是證據。
+
+10. **GigE 單幀行數有上限 → grab 端拼接（2026-09-17）**：raL8192 機上緩衝固定（寬 8192 ≤3573 行、8160 ≤3587 行），
+   拍不出舊 L803K（Camera Link，擷取卡組幀）的 8192×5000。`CamPylon::open()` 依 `--height` 推 k，
+   相機 Height=N/k，`grab_loop_body` 每 k 張 memcpy 進預配置的 `stitch_buf_` 再送出。
+   - **拼到一半掉幀（BlockID 缺口 / skipped / GrabFailed）→ 半張作廢、以下一張重新對齊**，
+     不可照拼（中間少一段行 = 影像斷層且下游無從察覺）；作廢的相機幀計入 `dropped`（相機幀單位）。
+   - 相機幀大小 ≠ 預期 → 視為故障（B1 路徑），不送錯位影像。
+   - `grabbed` / `frames_per_panel` 以**送出幀**計；`GET_CAM_NODES` 的 Height 是**相機**值（2500）。
+   - 迴歸測試：`grab/test/stitch/`（stub 腳本幀）；實機：2026-09-17 SN25564093 3 張 8192×5000 dropped=0、~410ms/張。

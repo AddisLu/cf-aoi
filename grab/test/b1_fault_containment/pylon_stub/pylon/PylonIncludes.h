@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -50,8 +51,26 @@ inline int throw_on_retrieve = 0;   // RetrieveResult 擲 GenericException（模
 inline int throw_on_stop     = 0;   // StopGrabbing 擲（斷線後收尾自己也會擲 → 必須被吞）
 inline int deliver_frames    = 0;   // RetrieveResult 回幾張成功的幀（測 frame_cb 擲例外）
 inline int grabbing_ticks    = 0;   // IsGrabbing 回 true 的剩餘次數
+
+// 拼接測試用：依腳本逐張交出幀（優先於 deliver_frames）
+struct ScriptFrame {
+    bool     ok = true;          // false = GrabFailed
+    int64_t  block_id = 0;
+    uint64_t skipped = 0;
+    uint8_t  fill = 0;           // 整張填同一值，方便驗拼接順序
+    size_t   size = 0;
+    uint32_t width = 0, height = 0;
+};
+inline std::vector<ScriptFrame> script;
+inline size_t                   script_pos = 0;
+
+// GenICam 整數節點模擬：SetValue 超過 int_max 擲例外；PayloadSize 由 Width×Height 推得
+inline std::map<std::string, int64_t> ints;
+inline std::map<std::string, int64_t> int_max;
+
 inline void reset() { throw_on_start = throw_on_retrieve = throw_on_stop
-                    = deliver_frames = grabbing_ticks = 0; }
+                    = deliver_frames = grabbing_ticks = 0;
+                      script.clear(); script_pos = 0; ints.clear(); int_max.clear(); }
 } // namespace PylonStub
 
 namespace Pylon {
@@ -96,14 +115,25 @@ public:
 
 class CGrabResultData {
 public:
-    bool     GrabSucceeded()           const { return true; }
-    uint64_t GetNumberOfSkippedImages()const { return 0; }
-    int64_t  GetBlockID()              const { return 0; }
-    const void* GetBuffer()            const { return nullptr; }
-    size_t   GetImageSize()            const { return 0; }
-    uint32_t GetWidth()                const { return 0; }
-    uint32_t GetHeight()               const { return 0; }
+    bool     GrabSucceeded()           const { return ok_; }
+    uint64_t GetNumberOfSkippedImages()const { return skipped_; }
+    int64_t  GetBlockID()              const { return block_id_; }
+    const void* GetBuffer()            const { return buf_.empty() ? nullptr : buf_.data(); }
+    size_t   GetImageSize()            const { return buf_.size(); }
+    uint32_t GetWidth()                const { return w_; }
+    uint32_t GetHeight()               const { return h_; }
     String_t GetErrorDescription()     const { return String_t("stub-err"); }
+
+    void stub_load(const PylonStub::ScriptFrame& f) {   // stub only
+        ok_ = f.ok; block_id_ = f.block_id; skipped_ = f.skipped;
+        buf_.assign(f.size, f.fill); w_ = f.width; h_ = f.height;
+    }
+private:
+    bool     ok_ = true;
+    int64_t  block_id_ = 0;
+    uint64_t skipped_ = 0;
+    std::vector<uint8_t> buf_;
+    uint32_t w_ = 0, h_ = 0;
 };
 
 class CGrabResultPtr {
@@ -140,9 +170,16 @@ public:
 
     void RetrieveResult(int, CGrabResultPtr& r, ETimeoutHandling) {
         if (PylonStub::throw_on_retrieve) throw GenericException();
+        r.stub_set(nullptr);             // 真 pylon：逾時（TimeoutHandling_Return）回空 result
+        if (PylonStub::script_pos < PylonStub::script.size()) {
+            static CGrabResultData d;
+            d.stub_load(PylonStub::script[PylonStub::script_pos++]);
+            r.stub_set(&d);
+            return;
+        }
         if (PylonStub::deliver_frames > 0) {
             --PylonStub::deliver_frames;
-            static CGrabResultData d;
+            static CGrabResultData d;    // 預設：成功、空 buffer
             r.stub_set(&d);              // 交出一張「成功」的幀 → 呼叫端會呼叫 frame_cb
         }
     }

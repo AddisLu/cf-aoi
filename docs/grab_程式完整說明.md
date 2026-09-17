@@ -251,6 +251,8 @@ send_frame(cam_id, seq, panel_hash, payload, bytes, w, h, slice, total_slice, cr
 | `--cam-id N` | 0 | 單台模式 FrameHeader.camId（legacy）|
 | `--serial STRING` | auto | pylon 序號；`auto`=第一台（單台模式）|
 | `--pkt-size N` | 8192 | `GevSCPSPacketSize`（GigE jumbo）|
+| `--width N` | 8192 | 相機 ROI 寬；0 = 不動相機現值。設不進 → 開相機失敗 |
+| `--height N` | 5000 | **送出**的每幀行數；超過相機單幀上限（raL8192@8192 = 3573）時自動拼接（5000 = 相機 2×2500）；0 = 不動、不拼接 |
 | `--ctrl-port N` | 8100 | 等 Control 連入的 TCP port |
 | `--cam-config PATH` | exe 上一層/cam_config.json | 曝光/增益 JSON（**路徑錨定 grab/**，不隨 CWD 漂移；明確給值時維持相對 CWD 語意）|
 | `--cam-map PATH` | exe 上一層/cam_map.json | MAC↔cam_id 映射（Gap #21；同上錨定）|

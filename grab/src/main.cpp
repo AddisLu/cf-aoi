@@ -24,6 +24,9 @@
 //   --cam-id      N          單台模式 cam_id（預設 0；多台依列舉順序 0..N-1）
 //   --serial      STRING     pylon 序號；auto = 第一台（僅單台模式，預設 auto）
 //   --pkt-size    N          GevSCPSPacketSize（預設 8192）
+//   --width       N          相機 ROI 寬（預設 8192；0 = 不動相機現值）
+//   --height      N          送出的每幀行數（預設 5000）。超過相機單幀上限（raL8192@8192 寬 = 3573）時
+//                            自動設相機 Height=N/k 並每 k 張拼成一張；0 = 不動相機現值、不拼接
 //   --ctrl-port   N          等 Control 連入的 port（預設 8100）
 //   --cam-config  PATH       相機參數 JSON（預設 <exe上一層>/cam_config.json = grab/，
 //                            不隨 CWD 漂移；每台一筆 cam_id 條目）
@@ -164,6 +167,7 @@ int main(int argc, char** argv) {
     uint16_t    cam_id      = 0;       // 單台模式使用；多台依列舉順序派 0..N-1
     std::string serial      = "auto";
     int64_t     pkt_size    = 8192;
+    Roi         roi{8192, 5000};           // 設不進相機 → 開相機失敗（fail-fast）；5000 行 = 相機 2×2500 拼接
     int         ctrl_port   = 8100;
     std::string cam_cfg_path;                  // 空 = 預設 exe 上一層/cam_config.json
     std::string cam_map_path;                  // 空 = 預設 exe 上一層/cam_map.json
@@ -180,6 +184,8 @@ int main(int argc, char** argv) {
         else if (a == "--cam-id")      cam_id       = (uint16_t)atoi(next());
         else if (a == "--serial")      serial       = next();
         else if (a == "--pkt-size")    pkt_size     = atoll(next());
+        else if (a == "--width")       roi.width    = atoll(next());
+        else if (a == "--height")      roi.height   = atoll(next());
         else if (a == "--ctrl-port")   ctrl_port    = atoi(next());
         else if (a == "--cam-config")  cam_cfg_path = next();
         else if (a == "--cam-map")     cam_map_path = next();
@@ -220,6 +226,7 @@ int main(int argc, char** argv) {
 
     // ---- 元件 ----
     CamManager    mgr;
+    mgr.set_roi(roi);
     RdmaSender    sender;
     ControlServer ctrl(ctrl_port);
 
@@ -571,9 +578,10 @@ int main(int argc, char** argv) {
     }
     {
         auto cfg = load_cam_config(cam_cfg_path, 0);
-        printf("[main] cfaoi_grab 就緒  ctrl_port=%d  rdma→%s:%s  cam_count=%s  frames/panel=%d\n",
+        printf("[main] cfaoi_grab 就緒  ctrl_port=%d  rdma→%s:%s  cam_count=%s  frames/panel=%d  roi=%lldx%lld\n",
                ctrl_port, rdma_host.c_str(), rdma_port.c_str(),
-               cam_count == 0 ? "ALL" : std::to_string(cam_count).c_str(), cli_frames);
+               cam_count == 0 ? "ALL" : std::to_string(cam_count).c_str(), cli_frames,
+               (long long)roi.width, (long long)roi.height);
         printf("[main] cam_config=%s  cam0: exp=%.1fµs  gain=%d raw\n",
                cam_cfg_path.c_str(), cfg.exposure_us, cfg.gain_raw);
     }

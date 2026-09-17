@@ -68,6 +68,11 @@ pylon Viewer 清單直接顯示 CCD 名稱；grab 依此綁定，不必改任何
       但 **pylon IP Configurator 看得到**（廣播探索）；也可用 GVCP 原始廣播（`DISCOVERY_CMD` flag=0x11，
       **須 `SO_BINDTODEVICE` 綁 `enp1s0f1np1` 且 socket 綁 0.0.0.0**——相機回的是 255.255.255.255 廣播，
       綁特定 IP 的 socket 收不到）。
+- [ ] **ROI 由 grab 開相機時設定**（預設 `--width 8192 --height 5000`）：新相機出廠是 8192×256
+      （PayloadSize 只有 2MB 且不報錯），grab 會強制設定並讀回；設不進就 ARM 失敗。
+      raL8192 單幀最多 3573 行（機上緩衝），5000 行由 grab **拼接相機 2×2500**。
+      ARM log 應見 `開啟 raL8192-12gm SN=… 8192x5000 PayloadSize=40960000（相機 2×2500 行拼接）`。
+      pylon Viewer 裡看到的 Height 是 2500（相機值），屬正常。
 - [ ] `packet_size=8192`、`GevSCPD=0`（**不要開** inter-packet delay：每台獨立 1G access port +
       100G 上行，實測 wire rate 跑滿、p99 抖動近零、37 台帳面僅 100G 的 37%）。
 
