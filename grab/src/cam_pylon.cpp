@@ -64,6 +64,7 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
     PylonInitialize();
     auto* c = new CInstantCamera();
     camera_ptr_ = c;
+    std::string open_err;
 
     try {
         if (serial == "auto") {
@@ -111,14 +112,8 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
             stitch_ = (uint32_t)k;
             set_dim("Height", roi.height / k);
         }
-        if (!roi_err.empty()) {
-            fprintf(stderr, "[cam_pylon] open 失敗：ROI 設定未生效（%s）\n", roi_err.c_str());
-            c->Close();
-            delete c;
-            camera_ptr_ = nullptr;
-            PylonTerminate();
-            return false;
-        }
+        if (!roi_err.empty())
+            throw std::runtime_error("ROI 設定未生效（" + roi_err + "）");
 
         chunk_bytes_ = CIntegerParameter(nm, "PayloadSize").GetValue();
         payload_     = chunk_bytes_ * stitch_;
@@ -144,12 +139,24 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
         return true;
 
     } catch (const GenericException& e) {
-        fprintf(stderr, "[cam_pylon] open 失敗：%s\n", e.GetDescription());
-        delete c;
-        camera_ptr_ = nullptr;
-        PylonTerminate();
-        return false;
+        // ⚠️ 只把訊息**複製**出來，收尾一律留到 catch 之外（2026-09-18 實機 SIGSEGV）：
+        //   PylonTerminate() 會卸載傳輸層 .so，而正在處理中的例外物件其解構碼就在那顆 .so 裡
+        //   → catch 結束銷毀例外時跳進已卸載的記憶體 = 整個行程死亡。
+        //   觸發情境很日常：相機被 pylon Viewer / 調機工具佔用時 ARM（open 擲
+        //   "The device is controlled by another application"）→ 6 台陪葬 + 8100/RDMA 全斷
+        //   （違反不變式 9「一台故障不得殺行程」）。
+        open_err = e.GetDescription();
+    } catch (const std::exception& e) {
+        open_err = e.what();       // 例：ROI 設定未生效
     }
+    fprintf(stderr, "[cam_pylon] open 失敗：%s\n", open_err.c_str());
+    if (c) {
+        try { c->Close(); } catch (...) {}
+        delete c;
+    }
+    camera_ptr_ = nullptr;
+    PylonTerminate();              // 此時例外已銷毀 → 卸載傳輸層才安全
+    return false;
 }
 
 void CamPylon::start(uint16_t cam_id) {

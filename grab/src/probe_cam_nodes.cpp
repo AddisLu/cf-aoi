@@ -9,6 +9,7 @@
 #include <pylon/PylonIncludes.h>
 #include <pylon/ParameterIncludes.h>
 #include <cstdio>
+#include <string>
 #include <cstring>
 #include <cstdlib>
 
@@ -85,6 +86,7 @@ int main(int argc, char** argv) {
     // cam in explicit scope so destructor runs before PylonTerminate()
     {
         CInstantCamera cam;
+        std::string open_err;
         try {
             if (serial) {
                 CDeviceInfo want;
@@ -95,9 +97,14 @@ int main(int argc, char** argv) {
             }
             cam.Open();
         } catch (const GenericException& e) {
-            fprintf(stderr, "[ERROR] 開相機失敗：%s\n", e.GetDescription());
-            PylonTerminate();
-            return 1;
+            // PylonTerminate 不可在 catch 內呼叫：它卸載傳輸層 .so，而例外物件的解構碼
+            // 就在那裡 → catch 結束時 SIGSEGV（2026-09-18 實機：相機被別的程式佔用時重現）
+            open_err = e.GetDescription();
+        }
+        if (!open_err.empty()) {
+            fprintf(stderr, "[ERROR] 開相機失敗：%s\n", open_err.c_str());
+            fflush(stderr);
+            std::_Exit(1);         // 同下方成功路徑：略過會在 pylon 收尾後爆掉的全域解構
         }
 
         printf("\n相機型號：%s  SN：%s\n",
