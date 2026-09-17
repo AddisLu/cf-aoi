@@ -27,9 +27,8 @@ bool CamManager::load_map(const std::string& path, std::string& err, std::string
 
     std::ifstream f(path);
     if (!f) {
-        warn = "找不到 " + path + "：cam_id 退回列舉順序暫派，**重插拔/加減相機後會對到別台**"
-               "（cam_config.json 的曝光增益、FrameHeader.camId、IP 端輸出夾 CCD{camId} 皆受影響）。"
-               "正式陣列請由 cam_map.example.json 複製並填實際 MAC。";
+        warn = "找不到 " + path + "：CCD 身分僅由相機 DeviceUserID（CCDnn）決定；"
+               "相機未設 UserID 時 cam_id 退回列舉順序暫派，**重插拔/加減相機後會對到別台**。";
         return true;      // 沒有檔案 = 合法的舊行為，不算錯誤
     }
 
@@ -77,7 +76,7 @@ bool CamManager::load_map(const std::string& path, std::string& err, std::string
         warn = path + " 的 cameras 為空 → 等同無映射，cam_id 退回列舉順序暫派。";
         return true;
     }
-    printf("[cam_manager] cam_map 已載入：%zu 筆 MAC↔cam_id 綁定（嚴格模式：未列於映射的相機將拒開）\n",
+    printf("[cam_manager] cam_map 已載入：%zu 筆 MAC↔cam_id 備援綁定（DeviceUserID 優先；無身分的相機將拒開）\n",
            mac_map_.size());
     return true;
 }
@@ -150,20 +149,74 @@ bool CamManager::write_map(const std::string& path, const std::string& entries_j
     return true;
 }
 
-void CamManager::annotate(std::vector<CamInfo>& infos) const {
+bool CamManager::parse_ccd_name(const std::string& s, uint16_t& cam_id) {
+    if (s.size() != 5 || s.compare(0, 3, "CCD") != 0) return false;
+    if (!std::isdigit((unsigned char)s[3]) || !std::isdigit((unsigned char)s[4])) return false;
+    cam_id = (uint16_t)((s[3] - '0') * 10 + (s[4] - '0'));
+    return true;
+}
+
+bool CamManager::resolve(std::vector<CamInfo>& infos, std::string& err) const {
+    bool strict = has_map();
+    std::vector<std::string> unbound;
     for (size_t i = 0; i < infos.size(); ++i) {
-        auto it = mac_map_.find(normalize_mac(infos[i].mac));
-        if (it != mac_map_.end()) {
-            infos[i].cam_id = it->second.cam_id;
-            infos[i].ccd_id = it->second.ccd_id;
-            infos[i].bound  = true;
+        CamInfo& ci = infos[i];
+        uint16_t uid = 0;
+        auto it = mac_map_.find(normalize_mac(ci.mac));
+        if (parse_ccd_name(ci.user_id, uid)) {
+            // ① 相機自帶身分（權威）
+            strict = true;
+            ci.cam_id = uid;
+            ci.ccd_id = ci.user_id;
+            ci.bound = true;
+            ci.bind_source = "user_id";
+            if (it != mac_map_.end() && it->second.cam_id != uid)
+                fprintf(stderr, "[cam_manager] ⚠ SN=%s DeviceUserID=%s 與 cam_map（MAC→cam%u）不一致，"
+                                "以 DeviceUserID 為準；請更新或刪除 cam_map.json 該筆\n",
+                        ci.serial.c_str(), ci.user_id.c_str(), it->second.cam_id);
+        } else if (it != mac_map_.end()) {
+            // ② MAC 映射（過渡/備援）
+            ci.cam_id = it->second.cam_id;
+            ci.ccd_id = it->second.ccd_id;
+            ci.bound = true;
+            ci.bind_source = "mac";
         } else {
-            // 無映射/未列於映射：維持列舉 index，但誠實標 bound=false（不假裝已綁定）
-            infos[i].cam_id = (int)i;
-            infos[i].ccd_id.clear();
-            infos[i].bound  = false;
+            // 未綁定：維持列舉 index，但誠實標 bound=false（不假裝已就位）
+            ci.cam_id = (int)i;
+            ci.ccd_id.clear();
+            ci.bound = false;
+            ci.bind_source.clear();
+            unbound.push_back((ci.mac.empty() ? std::string("(無MAC)") : ci.mac) + " SN=" + ci.serial +
+                              (ci.user_id.empty() ? "" : " UserID=\"" + ci.user_id + "\"（非 CCDnn 格式）"));
         }
     }
+    if (!strict) return true;
+
+    std::vector<std::string> problems;
+    if (!unbound.empty()) {
+        // 不默默以列舉順序暫派：未知相機一旦頂用某個 CCD 槽位，配方/曝光/座標全會錯配
+        std::string m = "下列相機沒有 CCD 身分（請在 pylon Viewer 設 Device User ID = CCDnn，"
+                        "或補進 cam_map.json）：";
+        for (size_t k = 0; k < unbound.size(); ++k) m += (k ? "、" : "") + unbound[k];
+        problems.push_back(m);
+    }
+    std::map<int, std::string> seen;
+    for (const auto& ci : infos) {
+        if (!ci.bound) continue;
+        auto ins = seen.emplace(ci.cam_id, ci.serial);
+        if (!ins.second)
+            problems.push_back("cam_id " + std::to_string(ci.cam_id) + "（" + ci.ccd_id + "）重複：SN=" +
+                               ins.first->second + " 與 SN=" + ci.serial + "（換相機後舊機請改名或移除）");
+    }
+    if (problems.empty()) return true;
+    err.clear();
+    for (size_t k = 0; k < problems.size(); ++k) err += (k ? "；" : "") + problems[k];
+    return false;
+}
+
+void CamManager::annotate(std::vector<CamInfo>& infos) const {
+    std::string ignored;
+    resolve(infos, ignored);
 }
 
 bool CamManager::open_all(int want, const std::string& cli_serial,
@@ -185,9 +238,16 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
     }
     primary_only_ = false;   // 以下為正式開陣列路徑
 
-    // 無映射 + 單台：沿用舊語意（auto/指定序號），不需先列舉（保留 legacy 快路徑）。
-    // 有映射時即使單台也要列舉，才拿得到 MAC 來查真正的 cam_id。
-    if (!has_map() && want == 1) {
+    auto infos = CamPylon::enumerate_cameras();
+    if (infos.empty()) { err = "enumerate 找不到任何相機"; return false; }
+
+    std::string rerr;
+    if (!resolve(infos, rerr)) { err = rerr; return false; }
+    bool strict = false;
+    for (const auto& ci : infos) strict = strict || ci.bound;
+
+    // 非嚴格 + 單台：沿用舊語意（auto/指定序號）。
+    if (!strict && want == 1) {
         Entry e;
         e.cam = std::make_unique<CamPylon>();
         e.cam_id = 0;
@@ -200,31 +260,13 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
         return true;
     }
 
-    auto infos = CamPylon::enumerate_cameras();
-    if (infos.empty()) { err = "enumerate 找不到任何相機"; return false; }
-
     // 決定「開哪些、各自的 cam_id 是多少」
-    struct Pick { uint16_t cam_id; std::string serial, mac, ccd_id; };
+    struct Pick { uint16_t cam_id; std::string serial, mac, ccd_id, source; };
     std::vector<Pick> picks;
+    for (const auto& ci : infos)
+        picks.push_back({(uint16_t)ci.cam_id, ci.serial, ci.mac, ci.ccd_id, ci.bind_source});
 
-    if (has_map()) {
-        // ── 嚴格模式：每台都必須在 cam_map.json 裡有綁定 ────────────────────────
-        std::vector<std::string> unmapped;
-        for (const auto& ci : infos) {
-            auto it = mac_map_.find(normalize_mac(ci.mac));
-            if (it == mac_map_.end()) {
-                unmapped.push_back((ci.mac.empty() ? std::string("(無MAC)") : ci.mac) +
-                                   " SN=" + ci.serial + " " + ci.model);
-                continue;
-            }
-            picks.push_back({it->second.cam_id, ci.serial, ci.mac, it->second.ccd_id});
-        }
-        if (!unmapped.empty()) {
-            // 不默默以列舉順序暫派：未知相機一旦頂用某個 CCD 槽位，配方/曝光/座標全會錯配
-            err = "下列相機未列於 cam_map.json，拒絕暫派槽位（請補進映射或移除該相機）：";
-            for (size_t k = 0; k < unmapped.size(); ++k) err += (k ? "、" : "") + unmapped[k];
-            return false;
-        }
+    if (strict) {
         // 依 cam_id 由小到大（--cam-count N 取前 N 台時才是決定性的，不隨列舉順序飄）
         std::sort(picks.begin(), picks.end(),
                   [](const Pick& a, const Pick& b) { return a.cam_id < b.cam_id; });
@@ -236,12 +278,10 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
             if (picks.empty()) { err = "列舉中找不到序號 " + cli_serial; return false; }
         }
     } else {
-        // ── 無映射：舊行為（列舉順序暫派）+ 明確警告 ──────────────────────────
-        for (size_t i = 0; i < infos.size(); ++i)
-            picks.push_back({(uint16_t)i, infos[i].serial, infos[i].mac, std::string()});
+        // ── 無任何身分來源：舊行為（列舉順序暫派）+ 明確警告 ──────────────────
         fprintf(stderr,
-                "[cam_manager] ⚠ 無 cam_map.json → cam_id 依列舉順序暫派 0..N-1；"
-                "重插拔或加減相機後會對到別台（Gap #21）。正式陣列請建立 cam_map.json。\n");
+                "[cam_manager] ⚠ 相機皆無 DeviceUserID（CCDnn）且無 cam_map.json → cam_id 依列舉順序暫派 0..N-1；"
+                "重插拔或加減相機後會對到別台。請在 pylon Viewer 設 Device User ID。\n");
     }
 
     // ⚠️ 已知限制（docs/code_review_20260802.md B4）：want<=0（ALL）無「應到幾台」基準——
@@ -259,6 +299,7 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
         e.serial = picks[i].serial;
         e.mac    = picks[i].mac;
         e.ccd_id = picks[i].ccd_id;
+        e.bind_source = picks[i].source;
         if (!e.cam->open(e.serial, pkt_size)) {
             err = "cam" + std::to_string(e.cam_id) + " (SN=" + e.serial + ") open 失敗";
             stop_all();                     // fail-fast：不留半開陣列
@@ -266,12 +307,12 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
         }
         cams_.push_back(std::move(e));
     }
-    printf("[cam_manager] 開啟 %zu/%zu 台相機（want=%d，cam_id 來源=%s）\n",
-           cams_.size(), infos.size(), want, has_map() ? "cam_map.json(MAC)" : "列舉順序(暫派)");
+    printf("[cam_manager] 開啟 %zu/%zu 台相機（want=%d）\n", cams_.size(), infos.size(), want);
     for (const auto& e : cams_)
-        printf("[cam_manager]   cam%u%s%s  SN=%s  MAC=%s\n",
+        printf("[cam_manager]   cam%u%s%s  SN=%s  MAC=%s  來源=%s\n",
                e.cam_id, e.ccd_id.empty() ? "" : " = ", e.ccd_id.c_str(),
-               e.serial.c_str(), e.mac.empty() ? "-" : e.mac.c_str());
+               e.serial.c_str(), e.mac.empty() ? "-" : e.mac.c_str(),
+               e.bind_source.empty() ? "列舉順序(暫派)" : e.bind_source.c_str());
     return true;
 }
 

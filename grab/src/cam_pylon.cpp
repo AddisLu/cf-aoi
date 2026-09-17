@@ -22,7 +22,7 @@ std::vector<CamInfo> CamPylon::enumerate_cameras() {
         for (size_t i = 0; i < devices.size(); ++i) {
             const CDeviceInfo& di = devices[i];
             CamInfo ci;
-            ci.cam_id       = (int)i;                       // 暫派；MAC 穩定映射 = #21
+            ci.cam_id       = (int)i;                       // 暫派；身分由 CamManager::resolve 決定
             ci.model        = di.GetModelName().c_str();
             ci.serial       = di.GetSerialNumber().c_str();
             ci.device_class = di.GetDeviceClass().c_str();
@@ -41,6 +41,7 @@ std::vector<CamInfo> CamPylon::enumerate_cameras() {
                     ci.mac = raw;
                 }
             }
+            if (di.IsUserDefinedNameAvailable()) ci.user_id = di.GetUserDefinedName().c_str();
             if (di.IsIpAddressAvailable())  ci.ip  = di.GetIpAddress().c_str();
             if (di.IsIpConfigCurrentAvailable())
                 ci.ip_config = di.GetIpConfigCurrent().c_str();

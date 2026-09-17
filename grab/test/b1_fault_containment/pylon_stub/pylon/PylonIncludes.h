@@ -74,6 +74,8 @@ public:
     String_t GetMacAddress()   const { return String_t("003053531941"); }
     String_t GetIpAddress()    const { return String_t("192.168.1.10"); }
     String_t GetIpConfigCurrent() const { return String_t("Persistent"); }
+    String_t GetUserDefinedName() const { return String_t("CCD00"); }
+    bool IsUserDefinedNameAvailable() const { return true; }
     bool IsMacAddressAvailable()     const { return true; }
     bool IsIpAddressAvailable()      const { return true; }
     bool IsIpConfigCurrentAvailable()const { return true; }

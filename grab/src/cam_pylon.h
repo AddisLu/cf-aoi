@@ -19,11 +19,14 @@ using FrameCb = std::function<void(uint16_t cam_id,
 // 相機列舉結果（CTlFactory::EnumerateDevices 後讀 CDeviceInfo，不需開相機）。
 // 只用 std 型別，不洩漏 pylon header 給非 pylon 檔。供 LIST_CAMERAS 用。
 struct CamInfo {
-    // cam_id/ccd_id/bound 由 CamManager::annotate() 依 cam_map.json 填入（Gap #21）。
-    // CamPylon::enumerate_cameras() 本身只填列舉 index + bound=false（它不認識映射）。
-    int         cam_id      = 0;     // 有映射 = 綁定的槽位；無映射 = 列舉 index（不穩定）
+    // cam_id/ccd_id/bound/bind_source 由 CamManager::resolve() 填入
+    // （相機 DeviceUserID "CCDnn" 優先，其次 cam_map.json 的 MAC 綁定）。
+    // CamPylon::enumerate_cameras() 本身只填列舉 index + bound=false（它不認識身分規則）。
+    int         cam_id      = 0;     // 已綁定 = 槽位；未綁定 = 列舉 index（不穩定）
     std::string ccd_id;              // 顯示標籤（例 CCD00）；未綁定為空
-    bool        bound      = false;  // 是否在 cam_map.json 中找到綁定（未綁定不得當成已就位）
+    bool        bound      = false;  // 是否已取得 CCD 身分（未綁定不得當成已就位）
+    std::string bind_source;         // "user_id" / "mac" / ""（未綁定）
+    std::string user_id;             // 相機 DeviceUserID（pylon 的 UserDefinedName；存在相機 flash）
     std::string model;               // GetModelName 例 raL8192-12gm
     std::string serial;              // GetSerialNumber
     std::string device_class;        // GetDeviceClass 例 BaslerGigE

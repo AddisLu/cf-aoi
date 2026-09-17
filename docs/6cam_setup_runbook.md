@@ -1,4 +1,4 @@
-# 6 相機架設 Runbook（8/M 平台）
+# 相機架設 / 換相機 Runbook（8/M 平台）
 
 > 依據：2026-07-30/31 HPE 5945 + 2 相機實機驗證的全部經驗（STATUS.md「Switch 到貨日」章節）。
 > 到貨當天照本檢查單逐項執行；每個坑都是實際踩過的，**不要跳步**。
@@ -32,53 +32,71 @@
 - [ ] 確認 damac `grab/cam_config.json`、`grab/cam_map.json` 為唯一副本
       （2026-07-31 起路徑錨定 `grab/`，啟動 log 會印絕對路徑；CWD 殘留副本會被 WARN 點名——看到就刪）。
 
-## 1. 交換機（每接一台新相機）
+## 1. 交換機
 
-```
-system-view
-interface WGE1/0/<port>
-  speed 1000            ← ★ 必下！25G SFP28 埠插 1G 銅纜模組 auto-neg 永不 link up
-  description CCD0x-raL8192
-  stp edged-port
-  quit
-save force
-```
+**2026-09-17 起 5945 全部 48 個 25G 埠（WGE1/0/1–24、33–56）已預設 `speed 1000` + `stp edged-port` 並 `save force`**
+（撐到 SN2201 到貨）→ 相機插任一 WGE 埠即 UP 1G，**不必再逐埠設定**。
+驗證：`display interface brief | include WGE` 該埠應 UP 1G。
+（25G 埠要改回高速時，須對該 port-group 重下 `speed`。console = damac `/dev/ttyUSB0`，9600 8N1。）
 
-已踩過的坑：
-1. **`speed 1000` 有 port-group 連動**（33–36 一組、37–40 一組…）：對組內任一埠下即全組生效
-   （35 因此免設定），且會跳 `[Y/N]` 確認——**腳本化時要處理提示**，否則後續指令被當答案吃掉。
-2. 只插模組不下 speed：`display transceiver` 看得到模組但 link DOWN、`Input 0 packets`——像壞線，其實是 auto-neg。
-3. jumbo 原廠已 `Maximum frame length: 9416`，**不需再設**。
-4. 驗證：`display interface WGE1/0/<port>` 應 UP 1000Mbps/F。
+已踩過的坑（仍適用於 SN2201 以外的新交換機）：
+1. **25G SFP28 埠插 1G 銅纜模組，auto-neg 永不 link up，必須 `speed 1000`**。只插模組不下 speed：
+   `display transceiver` 看得到模組但 link DOWN、`Input 0 packets`——像壞線，其實是 auto-neg。
+2. **`speed 1000` 有 port-group 連動**（1–4、5–8…33–36、37–40…四埠一組）：對組內任一埠下即全組生效，
+   且會跳 `[Y/N]` 確認——**腳本化時要處理提示**，否則後續指令被當答案吃掉。
+   2026-09-17 實例：37–40、41–44 組沒回到 Y → 顯示仍 `auto`，4 台相機全失聯。
+3. OEM `SFP-GE-T` 模組 EEPROM 報成 `1000_BASE_SX_SFP`（實為 RJ45），下 `speed 1000` 後照常 UP，無妨。
+4. jumbo 原廠已 `Maximum frame length: 9416`，**不需再設**。
 
-## 2. 相機網路（每台）
+## 2. 相機身分與網路（每台；換相機也照這節）
 
-- [ ] 新相機出廠 IP 可能在**任意網段**（借用機實測在 192.168.30.50）。
-      **跨網段時完全靜默**：不回 GVCP 探索、不發 ARP、交換機 `Input 0 packets`——像壞線。
-- [ ] 找不到相機時用 GVCP 原始廣播（`DISCOVERY_CMD` flag=0x11），**必須 `SO_BINDTODEVICE`
-      綁 `enp1s0f1np1`**，否則廣播走預設路由的別張網卡。
-- [ ] 統一設 persistent IP 到 **192.168.5.1–.6**（192.168.5.200 是 damac；.1–.37 留給 37 CCD）。
-      寫 `GevPersistentIP` 有設錯失聯風險（需 ForceIP 救援）——一台一台來，設完 ping 通再下一台。
+**規則：CCD 身分存在相機本身。** `DeviceUserID = CCDnn` → cam_id = nn；persistent IP = `192.168.5.(nn+1)/24`。
+pylon Viewer 清單直接顯示 CCD 名稱；grab 依此綁定，不必改任何檔案。
+
+- [ ] damac `enp1s0f1np1` 需有 `192.168.5.200/24`（相機網段）+ `169.254.0.200/16`（出廠 AutoIP 新相機直接可見），
+      皆 nmcli 持久化。
+- [ ] 設定（二擇一）：
+  - **pylon Viewer**：開相機 → Device Control → **Device User ID** = `CCDnn`；
+    IP 用 **pylon IP Configurator** 設 Static IP `192.168.5.(nn+1)` / `255.255.255.0`。
+  - **CLI**：`grab/build/cam_provision list` 找序號 →
+    `grab/build/cam_provision set <serial> CCDnn`（一次寫 UserID + persistent IP 並 ForceIp 立即生效；
+    名稱/IP 撞到別台會拒絕）。
+- [ ] `ping 192.168.5.(nn+1)` 通、`cam_provision list` 看到 `USER_ID=CCDnn` 再做下一台。
+- [ ] **設定時相機不可被開著**：cfaoi_grab 先 `GRAB_STOP`、pylon Viewer 關掉該台。
+- [ ] **換下來的舊相機若要接回（備品），先把它的 UserID 改掉**——兩台同名 grab 會拒開（fail-fast）。
+- [ ] 新相機出廠 IP 可能在**任意網段**（借用機實測在 192.168.30.50）。跨網段時 pylon Viewer 看不到，
+      但 **pylon IP Configurator 看得到**（廣播探索）；也可用 GVCP 原始廣播（`DISCOVERY_CMD` flag=0x11，
+      **須 `SO_BINDTODEVICE` 綁 `enp1s0f1np1` 且 socket 綁 0.0.0.0**——相機回的是 255.255.255.255 廣播，
+      綁特定 IP 的 socket 收不到）。
 - [ ] `packet_size=8192`、`GevSCPD=0`（**不要開** inter-packet delay：每台獨立 1G access port +
       100G 上行，實測 wire rate 跑滿、p99 抖動近零、37 台帳面僅 100G 的 37%）。
 
+2026-09-17 實機配置：
+
+| 交換機埠 | SN | MAC | CCD | IP |
+|---|---|---|---|---|
+| WGE1/0/37 | 25564093 | 00:30:53:54:E6:BD | CCD00 | 192.168.5.1 |
+| WGE1/0/39 | 25563179 | 00:30:53:54:E3:2B | CCD01 | 192.168.5.2 |
+| WGE1/0/41 | 25563177 | 00:30:53:54:E3:29 | CCD02 | 192.168.5.3 |
+| WGE1/0/43 | 25563161 | 00:30:53:54:E3:19 | CCD03 | 192.168.5.4 |
+
 ## 3. damac 端
 
-- [ ] `enp1s0f1np1` 已有 192.168.5.200/24 + MTU 9000（nmcli 持久化，重開機應自動還原；`ip -br addr` 確認）。
+- [ ] `ip -br addr show enp1s0f1np1` 有 192.168.5.200/24、169.254.0.200/16，MTU 9000。
 - [ ] `ping 192.168.5.x` 每台 0% loss 才繼續。
 - [ ] **殺行程用 `pkill -x cfaoi_grab`**——`pkill -f` 會殺掉自己的 ssh（remote command line 也含該字串）。
 
-## 4. MAC 綁定（Gap #21，嚴格模式）
+## 4. 綁定確認（嚴格模式）
 
-1. 起 grab：`grab/build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count 6`
-   （★ **用 6 不用 ALL**，見標頭注意事項 1；啟動 log 確認 `cam_config →`/`cam_map →` 指向 `grab/` 下的檔案）。
-2. `LIST_CAMERAS` 抄下 6 台 MAC。
-3. `SET_CAM_MAP` 寫入完整表（Control 拓樸頁綁定鈕，或 8100 直下）：
-   `{"cmd":"SET_CAM_MAP","params":{"entries":[{"mac":"..","cam_id":0,"ccd_id":"CCD00"},...]}}`
-   - 已 ARM／取像中會拒絕（先 GRAB_STOP）；壞資料（MAC/cam_id 重複、格式錯）5 種全擋、原檔不動（已驗）。
-4. 重啟 grab 確認載回：`cam_map 已載入：6 筆`（嚴格模式：未列於映射的相機拒開）。
-   - ⚠️ **cam_id 決定 `cam_config.json` 曝光/增益歸屬、`FrameHeader.camId`、IP 輸出夾 `CCD{n}`**。
-     列舉順序會隨接入台數改變（實測第二台接入後原 cam0 變 cam1）——一切以 MAC 映射為準。
+1. 起 grab：`grab/build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count N`
+   （★ **用實際台數不用 ALL**，見標頭注意事項 1）。
+2. `LIST_CAMERAS`：每台 `bound=true`、`bind_source="user_id"`、`ccd_id` 正確。
+3. 身分優先序：**DeviceUserID `CCDnn` > `grab/cam_map.json` 的 MAC 綁定（過渡/備援）> 未綁定**。
+   - 任一台有 UserID 或存在 cam_map → 嚴格模式：**沒有身分、UserID 打錯（非 `CCDnn`）、cam_id 重複 → ARM 拒開**並點名序號。
+   - UserID 與 cam_map 衝突 → 以 UserID 為準並印 WARN（請更新/刪除 cam_map 該筆）。
+   - `SET_CAM_MAP`（Control 拓樸頁綁定鈕）仍可用，寫入的是備援 MAC 映射。
+4. ⚠️ **cam_id 決定 `cam_config.json` 曝光/增益歸屬、`FrameHeader.camId`、IP 輸出夾 `CCD{n}`**。
+   列舉順序會隨接入台數改變——一切以相機身分為準。
 
 ## 5. 逐台健檢（idle，不需 RDMA）
 

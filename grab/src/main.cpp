@@ -27,8 +27,9 @@
 //   --ctrl-port   N          等 Control 連入的 port（預設 8100）
 //   --cam-config  PATH       相機參數 JSON（預設 <exe上一層>/cam_config.json = grab/，
 //                            不隨 CWD 漂移；每台一筆 cam_id 條目）
-//   --cam-map     PATH       MAC↔cam_id 穩定映射（預設 <exe上一層>/cam_map.json；Gap #21）
-//                            有此檔 → 嚴格模式（未列於映射的相機拒開）；無 → 列舉順序暫派 + WARN
+//   --cam-map     PATH       MAC↔cam_id 備援映射（預設 <exe上一層>/cam_map.json；Gap #21）
+//                            CCD 身分以相機 DeviceUserID（CCDnn）為準，此檔為過渡/備援；
+//                            任一來源存在 → 嚴格模式（無身分/重複拒開）；皆無 → 列舉順序暫派 + WARN
 // =============================================================================
 
 #include "cam_manager.h"
@@ -425,13 +426,15 @@ int main(int argc, char** argv) {
     // 相機陣列總覽：LIST_CAMERAS（唯讀列舉，不開相機、不改相機）
     ctrl.set_list_cameras_handler([&]() -> std::string {
         auto cams = CamPylon::enumerate_cameras();
-        mgr.annotate(cams);   // 依 cam_map.json 填 cam_id/ccd_id/bound（Gap #21）
+        mgr.annotate(cams);   // 依 DeviceUserID（CCDnn）/ cam_map.json 填 cam_id/ccd_id/bound
         json arr = json::array();
         for (const auto& c : cams) {
             arr.push_back({
                 {"cam_id",       c.cam_id},
                 {"ccd_id",       c.ccd_id},   // 未綁定為空字串
-                {"bound",        c.bound},    // false = 未列於 cam_map（不得當成已就位）
+                {"bound",        c.bound},    // false = 無 CCD 身分（不得當成已就位）
+                {"bind_source",  c.bind_source},  // "user_id" / "mac" / ""
+                {"user_id",      c.user_id},      // 相機 DeviceUserID
                 {"mac",          c.mac},
                 {"model",        c.model},
                 {"serial",       c.serial},

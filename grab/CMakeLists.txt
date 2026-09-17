@@ -174,6 +174,23 @@ message(STATUS "==== probe_cam_nodes（Gap #2 Stage 0，連相機查 GenICam 節
 message(STATUS "  用法: probe_cam_nodes [serial_number]")
 
 # =============================================================================
+# 目標：cam_provision（相機身分配置：DeviceUserID=CCDnn + persistent IP，僅需 pylon）
+# =============================================================================
+add_executable(cam_provision src/cam_provision.cpp)
+
+if(pylon_FOUND)
+  target_link_libraries(cam_provision PRIVATE pylon::pylon)
+elseif(DEFINED PYLON_LINK_FLAGS)
+  target_link_options(cam_provision PRIVATE ${PYLON_LINK_LIST_P})
+else()
+  target_link_libraries(cam_provision PRIVATE
+      pylonbase GCBase_gcc_v3_1_Basler_pylon GenApi_gcc_v3_1_Basler_pylon)
+endif()
+
+message(STATUS "==== cam_provision（CCD 身分配置）====")
+message(STATUS "  用法: cam_provision list | set <serial> CCDnn [ip]")
+
+# =============================================================================
 # 目標：cam_mean_gray_test（Gap #2 Stage 2+3 — 曝光/增益 → mean gray 單調性驗證）
 # =============================================================================
 add_executable(cam_mean_gray_test src/cam_mean_gray_test.cpp src/cam_pylon.cpp)
