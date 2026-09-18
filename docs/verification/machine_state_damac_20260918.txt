@@ -1,0 +1,171 @@
+CF-AOI 截取中心主機狀態快照
+主機：damac   時間：2026-09-18T11:14:31+08:00
+
+===== OS / 核心 =====
+Ubuntu 22.04.5 LTS
+6.8.0-138-generic
+
+===== CPU / 記憶體 =====
+CPU(s): 4
+Model name: Intel(R) Core(TM) i5-6400 CPU @ 2.70GHz
+               total        used        free      shared  buff/cache   available
+Mem:           7.6Gi       3.9Gi       664Mi       670Mi       3.1Gi       2.8Gi
+
+===== 相機 / RDMA 相關套件 =====
+build-essential  12.9ubuntu3
+cmake  3.22.1-1ubuntu1.22.04.2
+cmake-data  3.22.1-1ubuntu1.22.04.2
+codemeter  8.20.6558.501
+ebus-sdk  7.0.1.7536-662bfc939b
+gcc  4:11.2.0-1ubuntu1
+gcc-11  11.4.0-1ubuntu1~22.04.3
+gcc-11-base:amd64  11.4.0-1ubuntu1~22.04.3
+gcc-12  12.3.0-1ubuntu1~22.04.3
+gcc-12-base:amd64  12.3.0-1ubuntu1~22.04.3
+ibverbs-providers:amd64  39.0-1
+ibverbs-utils  39.0-1
+libibverbs-dev:amd64  39.0-1
+libibverbs1:amd64  39.0-1
+librdmacm-dev:amd64  39.0-1
+librdmacm1:amd64  39.0-1
+nlohmann-json3-dev  3.10.5-2
+pylon  26.05.0-deb0
+rdma-core  39.0-1
+
+===== 手動安裝的 apt 套件（apt-mark showmanual，已濾掉桌面/語系） =====
+base-passwd bsdutils build-essential claude-desktop cmake codemeter curl dash debhelper diffutils dkms ebus-sdk efibootmgr findutils gcc git gnupg google-chrome-stable grep grub-common grub-efi-amd64-bin grub-efi-amd64-signed grub-gfxpayload-lists grub-pc grub-pc-bin grub2-common gzip hostname ibverbs-utils ifuse infiniband-diags init login make mokutil ncurses-base ncurses-bin nlohmann-json3-dev openssh-server os-prober pciutils perftest pkg-config pylon python3 python3-pip rdma-core shim-signed tailscale tcl tk usbmuxd 
+
+===== pip（使用者層） =====
+Pillow 9.0.1
+
+===== 網路介面 =====
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+enp0s31f6        DOWN           b0:6e:bf:be:27:0e <NO-CARRIER,BROADCAST,MULTICAST,UP> 
+enp1s0f0np0      UP             98:03:9b:06:cc:18 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+enx2a6695988574  UNKNOWN        2a:66:95:98:85:74 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+enp1s0f1np1      UP             98:03:9b:06:cc:19 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+wlx3c333200f716  UP             3c:33:32:00:f7:16 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+tailscale0       UNKNOWN        <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> 
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp0s31f6        DOWN           
+enp1s0f0np0      UP             192.168.3.2/24 fe80::17d2:3287:fc55:767/64 
+enx2a6695988574  UNKNOWN        192.168.0.106/24 fe80::9112:24ce:514c:17a5/64 
+enp1s0f1np1      UP             169.254.0.200/16 192.168.4.2/24 192.168.5.200/24 192.168.30.200/24 fe80::3472:9c8:2d70:cafd/64 
+wlx3c333200f716  UP             192.168.0.132/24 fe80::6f4:ef06:d50f:82f1/64 
+tailscale0       UNKNOWN        100.92.102.95/32 fd7a:115c:a1e0::133a:6660/128 fe80::6a4e:7a3a:64e:a670/64 
+
+===== NetworkManager 連線（相機網段 / RDMA 直連） =====
+有線連線 1:enx2a6695988574:802-3-ethernet
+98-03-9B-06-CC-19:enp1s0f1np1:802-3-ethernet
+tailscale0:tailscale0:tun
+98-03-9B-06-CC-18:enp1s0f0np0:802-3-ethernet
+TP-Link_E88B:wlx3c333200f716:802-11-wireless
+Alex_13T::802-11-wireless
+AMC_2699_Plus::802-11-wireless
+B0-6E-BF-BE-27-0E::802-3-ethernet
+YouRu::802-11-wireless
+--- 98-03-9B-06-CC-19
+
+manual
+192.168.4.2/24, 192.168.5.200/24, 192.168.30.200/24, 169.254.0.200/16
+
+9000
+yes
+--- 98-03-9B-06-CC-18
+
+manual
+192.168.3.2/24
+
+9000
+yes
+--- B0-6E-BF-BE-27-0E
+
+manual
+192.168.5.2/24
+
+9000
+yes
+
+===== 網卡連線狀態 / 速率 =====
+enp0s31f6        	Speed: Unknown! 	Link detected: no 
+enp1s0f0np0      	Speed: 100000Mb/s 	Link detected: yes 
+enp1s0f1np1      	Speed: 100000Mb/s 	Link detected: yes 
+enx2a6695988574  	Speed: Unknown! 	Link detected: yes 
+wlx3c333200f716  	Link detected: yes 
+
+===== RDMA 裝置 =====
+hca_id:	rocep1s0f0
+	fw_ver:				16.35.3006
+			state:			PORT_ACTIVE (4)
+			link_layer:		Ethernet
+hca_id:	rocep1s0f1
+	fw_ver:				16.35.3006
+			state:			PORT_ACTIVE (4)
+			link_layer:		Ethernet
+
+===== sysctl 自訂（/etc/sysctl.conf） =====
+net.ipv4.conf.enp0s31f6.rp_filter=0
+net.ipv4.conf.all.rp_filter = 0
+net.core.rmem_max=33554432
+net.ipv4.conf.default.rp_filter = 0
+--- 生效值
+net.core.rmem_max = 33554432
+net.ipv4.conf.all.rp_filter = 0
+
+===== udev 規則（相機/授權相關） =====
+69-basler-cameras.rules
+80-drivers-eBUSSDK-1ed2.rules
+80-drivers-eBUSSDK-28b7.rules
+z95_keylok.rules
+
+===== 使用者群組 =====
+damac adm cdrom sudo dip plugdev lpadmin lxd sambashare
+
+===== repo =====
+/home/damac/Addis/cf-aoi/  git@github.com:AddisLu/cf-aoi.git  f28a18c
+
+===== 機器本地設定檔（不版控，換機要帶） =====
+--- /home/damac/Addis/cf-aoi/grab/cam_config.json
+{
+  "cameras": [
+    {
+      "cam_id": 0,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    },
+    {
+      "cam_id": 1,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    },
+    {
+      "cam_id": 2,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    },
+    {
+      "cam_id": 3,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    }
+  ]
+}
+--- /home/damac/Addis/cf-aoi/grab/cam_map.json （不存在）
+
+===== 桌面捷徑 =====
+--- /home/damac/桌面/cam-align.desktop
+Name=光學調機（線掃相機）
+Exec=python3 /home/damac/Addis/cf-aoi/tools/cam_align/cam_align.py
+--- /home/damac/桌面/pylon-viewer.desktop
+Name=pylon Viewer
+Exec=env QT_QPA_PLATFORM=xcb /opt/pylon/bin/pylonviewer
+
+===== SSH 設定（只列主機，不含金鑰） =====
+Host spark spark-c16f spark-c16f.tailffdb68.ts.net 100.83.141.68
+  HostName spark-c16f.tailffdb68.ts.net
+  User auo001
+/home/damac/.ssh/id_ed25519.pub
+
+===== 安裝檔位置（換機要複製） =====
+/home/damac/下載/pylon/codemeter_8.20.6558.501_amd64.deb
+/home/damac/下載/pylon/pylon_26.05.0-deb0_amd64.deb
