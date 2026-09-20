@@ -14,7 +14,7 @@
 | 相機軟體 | pylon 26.05 + codemeter | `~/下載/pylon/*.deb` 複製過去 |
 | L803K 路徑 | Pleora eBUS SDK 7.0.1 + CodeMeter（軟體授權，無 USB dongle） | `~/下載/eBUS_SDK_Ubuntu-22.04-*.deb`（⚠️ 見 §5） |
 | 建置相依 | build-essential / cmake / nlohmann-json3-dev / rdma-core / libibverbs-dev / librdmacm-dev | bootstrap 自動裝 |
-| 網路 | 相機 `192.168.5.200/24` + `169.254.0.200/16`、RDMA `192.168.3.2/24`、**MTU 9000**、nmcli 持久化 | bootstrap 自動設 |
+| 網路 | 相機 `192.168.5.200/24` + `169.254.0.200/16` + `192.168.4.2/24`（L803K 經 iPORT）、RDMA `192.168.3.2/24`、**MTU 9000**、nmcli 持久化 | bootstrap 自動設 |
 | 系統參數 | `net.core.rmem_max=33554432`、`rp_filter=0` | bootstrap 自動設 |
 | 程式碼 | `git@github.com:AddisLu/cf-aoi.git` | `git clone`（SSH key 要帶） |
 | 機器本地檔 | `grab/cam_config.json`（曝光/增益，**不版控**） | 手動複製；不帶則用預設值重調 |
@@ -75,6 +75,7 @@ scp damac:'~/Addis/cf-aoi/grab/cam_config.json' ~/Addis/cf-aoi/grab/
 | 項目 | 期望 | 失敗時看哪裡 |
 |---|---|---|
 | 相機/RDMA 網段、MTU 9000 | 兩張卡都在、100000Mb/s | 線接反或卡沒認到 → `lspci`、`nmcli con show` |
+| `192.168.4.2/24` | 有 | 少了這條，`tools/cam_align` 的 iPORT 工具（`--srcip` 預設值）連不到 192.168.4.53/.54 |
 | `169.254.0.200/16` | 有 | 少了這條，出廠 AutoIP 的新相機在 pylon 裡看不到 |
 | `rmem_max` / `rp_filter` | 33554432 / 0 | `/etc/sysctl.d/90-cfaoi.conf` |
 | pylon 列舉相機 | 台數正確、每台有 `USER_ID` | 0 台 → 先查交換機埠 `speed 1000`、相機供電（[6cam runbook](6cam_setup_runbook.md) §1） |

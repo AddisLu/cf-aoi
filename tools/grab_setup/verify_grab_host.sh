@@ -21,6 +21,9 @@ RDMA_IF=$(ip -o -4 addr show | awk '/192\.168\.3\./{print $2; exit}')
 ip -o -4 addr show | grep -q '169\.254\.0\.200' \
   && ok '169.254 自動 IP 網段（看得到出廠新相機）' \
   || bad '169.254 自動 IP 網段' '未設定 → 出廠 AutoIP 的新相機在 pylon 裡看不到'
+ip -o -4 addr show | grep -q '192\.168\.4\.2' \
+  && ok '192.168.4.2（L803K 經 iPORT 網段）' \
+  || bad '192.168.4.2（L803K 經 iPORT）' '未設定 → tools/cam_align 的 --srcip 預設值連不到 iPORT'
 for i in $CAM_IF $RDMA_IF; do
   m=$(cat "/sys/class/net/$i/mtu")
   [ "$m" = 9000 ] && ok "MTU 9000（$i）" || bad "MTU（$i）" "目前 $m，應為 9000"
