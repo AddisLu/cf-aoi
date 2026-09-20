@@ -240,6 +240,8 @@ grab/
 
 8. **cam_id 必須來自相機身分，不可用列舉順序（Gap #21 2026-07-30；2026-09-17 改以 DeviceUserID 為準）**：
    優先序 = 相機 **DeviceUserID `CCDnn`**（存在相機 flash、pylon Viewer 可見可改；換相機只需設名稱）
+   **編號 1 開頭（CCD01–CCD37），persistent IP 尾碼 = 編號**（CCD01→192.168.5.1；2026-09-18 定案）
+
    > `cam_map.json` 的 MAC 綁定（備援，`{mac, cam_id, ccd_id}`）> 未綁定。邏輯集中在 `CamManager::resolve()`。
    - 任一台有 UserID 或有映射 → **嚴格模式**：沒有身分、UserID 非 `CCDnn`、cam_id 重複 → **ARM 報錯拒開**，
      不默默佔用槽位（docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）

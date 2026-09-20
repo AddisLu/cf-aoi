@@ -2,12 +2,14 @@
 //
 // 身分規則（2026-09-17 決策，取代以 MAC 為主的綁定）：
 //   相機 DeviceUserID = "CCDnn" → cam_id = nn（存在相機 flash，pylon Viewer 直接顯示此名稱）
-//   persistent IP      = 192.168.5.(nn+1)/24（.1–.37 留給 37 CCD，.200 = damac）
+//   persistent IP      = 192.168.5.nn/24（CCD01→.1 … CCD37→.37；.200 = 截取中心主機）
+//   ⚠️ 2026-09-18 起編號 **1 開頭**（CCD01–CCD37）且 IP 尾碼 = CCD 編號，兩者一眼對得上。
 // 換相機 SOP：pylon Viewer 設 Device User ID + IP Configurator 設 IP 即可；本工具是 CLI 等效做法。
 //
 // 用法：
 //   cam_provision list                       列出所有相機（SN/MAC/IP/UserID，不開相機）
 //   cam_provision set <serial> CCDnn [ip]    寫 DeviceUserID + persistent IP，並 ForceIp 立即生效
+//                                            （ip 省略 = 192.168.5.nn；換 IP 時可顯式指定暫時位址避開衝突）
 //
 // ⚠️ set 時相機不可被其他程式開著（cfaoi_grab 先 GRAB_STOP / pylon Viewer 先關）。
 
@@ -44,7 +46,11 @@ static int do_set(DeviceInfoList_t& devs, const std::string& serial,
         return 2;
     }
     const int n = std::stoi(m[1].str());
-    if (ip.empty()) ip = "192.168.5." + std::to_string(n + 1);
+    if (n == 0) {   // 編號 1 開頭；CCD00 會算出 192.168.5.0（網段位址，不可用）
+        fprintf(stderr, "CCD 編號自 CCD01 起（IP 尾碼 = 編號；CCD00 對到無效的 192.168.5.0）\n");
+        return 2;
+    }
+    if (ip.empty()) ip = "192.168.5." + std::to_string(n);   // CCDnn → .nn（1 開頭）
 
     const CDeviceInfo* target = nullptr;
     for (size_t i = 0; i < devs.size(); ++i) {

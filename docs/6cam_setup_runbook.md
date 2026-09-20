@@ -26,7 +26,7 @@
 
 ## 0. 到貨前可先做（不需相機）
 
-- [ ] 決定 6 台相機的**槽位對應**：`ccd_id`（CCD00–CCD05）↔ 交換機埠位 ↔ 預計 IP（建議 192.168.5.1–.6）。
+- [ ] 決定 6 台相機的**槽位對應**：`ccd_id`（**CCD01–CCD06**）↔ 交換機埠位 ↔ IP（**尾碼 = CCD 編號**：CCD01→192.168.5.1）。
 - [ ] 決定交換機埠位（建議 `WGE1/0/33-38`：33/35 已驗通；**注意 port-group**，見下）。
 - [ ] 準備 `grab/cam_map.json` 草稿（MAC 到貨才知道，先留槽位）；格式見 `grab/cam_map.example.json`。
 - [ ] 確認 damac `grab/cam_config.json`、`grab/cam_map.json` 為唯一副本
@@ -50,18 +50,20 @@
 
 ## 2. 相機身分與網路（每台；換相機也照這節）
 
-**規則：CCD 身分存在相機本身。** `DeviceUserID = CCDnn` → cam_id = nn；persistent IP = `192.168.5.(nn+1)/24`。
+**規則：CCD 身分存在相機本身。** `DeviceUserID = CCDnn` → cam_id = nn；persistent IP = `192.168.5.nn/24`
+（**編號 1 開頭**：CCD01→.1 … CCD37→.37；.200 = 截取中心主機。2026-09-18 起的規則，IP 尾碼與 CCD 編號一致）。
 pylon Viewer 清單直接顯示 CCD 名稱；grab 依此綁定，不必改任何檔案。
 
 - [ ] damac `enp1s0f1np1` 需有 `192.168.5.200/24`（相機網段）+ `169.254.0.200/16`（出廠 AutoIP 新相機直接可見），
       皆 nmcli 持久化。
 - [ ] 設定（二擇一）：
   - **pylon Viewer**：開相機 → Device Control → **Device User ID** = `CCDnn`；
-    IP 用 **pylon IP Configurator** 設 Static IP `192.168.5.(nn+1)` / `255.255.255.0`。
+    IP 用 **pylon IP Configurator** 設 Static IP `192.168.5.nn` / `255.255.255.0`。
   - **CLI**：`grab/build/cam_provision list` 找序號 →
     `grab/build/cam_provision set <serial> CCDnn`（一次寫 UserID + persistent IP 並 ForceIp 立即生效；
     名稱/IP 撞到別台會拒絕）。
-- [ ] `ping 192.168.5.(nn+1)` 通、`cam_provision list` 看到 `USER_ID=CCDnn` 再做下一台。
+- [ ] `ping 192.168.5.nn` 通、`cam_provision list` 看到 `USER_ID=CCDnn` 再做下一台。
+- [ ] **改既有相機的編號/IP 時會撞號**（工具會擋）→ 先把其中一台設到暫時位址（如 `cam_provision set <SN> CCDnn 192.168.5.101`）再交換。
 - [ ] **設定時相機不可被開著**：cfaoi_grab 先 `GRAB_STOP`、pylon Viewer 關掉該台。
 - [ ] **換下來的舊相機若要接回（備品），先把它的 UserID 改掉**——兩台同名 grab 會拒開（fail-fast）。
 - [ ] 新相機出廠 IP 可能在**任意網段**（借用機實測在 192.168.30.50）。跨網段時 pylon Viewer 看不到，
@@ -78,12 +80,20 @@ pylon Viewer 清單直接顯示 CCD 名稱；grab 依此綁定，不必改任何
 
 2026-09-17 實機配置：
 
-| 交換機埠 | SN | MAC | CCD | IP |
-|---|---|---|---|---|
-| WGE1/0/37 | 25564093 | 00:30:53:54:E6:BD | CCD00 | 192.168.5.1 |
-| WGE1/0/39 | 25563179 | 00:30:53:54:E3:2B | CCD01 | 192.168.5.2 |
-| WGE1/0/41 | 25563177 | 00:30:53:54:E3:29 | CCD02 | 192.168.5.3 |
-| WGE1/0/43 | 25563161 | 00:30:53:54:E3:19 | CCD03 | 192.168.5.4 |
+| 交換機埠 | SN | MAC | CCD | 目前 IP | 規則應為 |
+|---|---|---|---|---|---|
+| WGE1/0/37 | 25564093 | 00:30:53:54:E6:BD | CCD04 | **192.168.5.1** | 192.168.5.4 |
+| WGE1/0/39 | 25563179 | 00:30:53:54:E3:2B | CCD03 | **192.168.5.2** | 192.168.5.3 |
+| WGE1/0/41 | 25563177 | 00:30:53:54:E3:29 | CCD02 | **192.168.5.3** | 192.168.5.2 |
+| WGE1/0/43 | 25563161 | 00:30:53:54:E3:19 | CCD01 | **192.168.5.4** | 192.168.5.1 |
+
+（2026-09-18 定案：編號 1 開頭、IP 尾碼 = 編號。埠序與編號相反是實體配置使然，以相機內的名稱為準。）
+
+- [ ] **⚠️ 這 4 台的 persistent IP 尚未跟著改名一起更新**（2026-09-21 `cam_provision list` 實測）：
+      名稱已是 CCD01–CCD04，IP 仍停在改名前的位置（.1↔.4、.2↔.3 反向）。**不影響取像**
+      （grab 綁 DeviceUserID，不看 IP），但與上面的規則不一致。要對齊時四台會互撞號，
+      得走暫時位址：`cam_provision set 25563161 CCD01 192.168.5.101` → 其餘三台歸位 → 再把它設回 `.1`。
+      執行時 cfaoi_grab 須先 `GRAB_STOP`、pylon Viewer 關掉。
 
 ## 3. damac 端
 

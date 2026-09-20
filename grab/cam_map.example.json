@@ -10,7 +10,7 @@
   ],
   "_note_recipe_partition": "ccd_id 與配方分區（RecipeInfo.xml 的 IpName，如 IP0）是兩件事，見 docs/CLAUDE.md 約束①；本檔不涉及配方路徑。",
   "cameras": [
-    { "mac": "00:30:53:53:19:41", "cam_id": 0, "ccd_id": "CCD00" },
-    { "mac": "00:30:53:15:B0:C1", "cam_id": 1, "ccd_id": "CCD01" }
+    { "mac": "00:30:53:53:19:41", "cam_id": 1, "ccd_id": "CCD01" },
+    { "mac": "00:30:53:15:B0:C1", "cam_id": 2, "ccd_id": "CCD02" }
   ]
 }
