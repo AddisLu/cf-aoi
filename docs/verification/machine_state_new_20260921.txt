@@ -1,0 +1,135 @@
+CF-AOI 截取中心主機狀態快照
+主機：user-IMB-M47   時間：2026-09-21T07:17:50+08:00
+
+===== OS / 核心 =====
+Ubuntu 24.04.4 LTS
+7.0.0-31-generic
+
+===== CPU / 記憶體 =====
+CPU(s): 32
+Model name: Intel(R) Core(TM) i9-14900K
+CPU(s) scaling MHz: 27%
+               total        used        free      shared  buff/cache   available
+Mem:           125Gi       4.0Gi       114Gi       689Mi       8.6Gi       121Gi
+
+===== 相機 / RDMA 相關套件 =====
+build-essential  12.10ubuntu1
+cmake  3.28.3-1build7
+cmake-data  3.28.3-1build7
+codemeter  8.20.6558.501
+ebus-sdk  7.0.1.7536-662bfc939b
+gcc  4:13.2.0-7ubuntu1
+gcc-13  13.3.0-6ubuntu2~24.04.1
+gcc-13-base:amd64  13.3.0-6ubuntu2~24.04.1
+gcc-13-x86-64-linux-gnu  13.3.0-6ubuntu2~24.04.1
+gcc-14-base:amd64  14.2.0-4ubuntu2~24.04.1
+gcc-x86-64-linux-gnu  4:13.2.0-7ubuntu1
+ibverbs-providers:amd64  50.0-2ubuntu0.2
+ibverbs-utils  50.0-2ubuntu0.2
+libibverbs-dev:amd64  50.0-2ubuntu0.2
+libibverbs1:amd64  50.0-2ubuntu0.2
+librdmacm-dev:amd64  50.0-2ubuntu0.2
+librdmacm1t64:amd64  50.0-2ubuntu0.2
+nlohmann-json3-dev  3.11.3-1
+pylon  26.05.0-deb0
+rdma-core  50.0-2ubuntu0.2
+
+===== 手動安裝的 apt 套件（apt-mark showmanual，已濾掉桌面/語系） =====
+bsdutils build-essential claude-desktop cmake codemeter curl dash diffutils ebus-sdk efibootmgr ethtool fcitx5 fcitx5-chewing fcitx5-chinese-addons fcitx5-frontend-gtk2 fcitx5-frontend-gtk3 fcitx5-frontend-gtk4 fcitx5-frontend-qt5 fcitx5-frontend-qt6 findutils gdb git google-chrome-stable grep grub-efi-amd64 grub-efi-amd64-signed gzip hostname ibverbs-utils infiniband-diags init inxi login m17n-db ncurses-base ncurses-bin nlohmann-json3-dev openssh-server perftest pkg-config pylon python3 python3-netifaces python3-pil python3-pip rdma-core shim-signed tailscale tailscale-archive-keyring tcpdump wine 
+
+===== pip（使用者層） =====
+Pillow 10.2.0
+
+===== 網路介面 =====
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+enp2s0           DOWN           9c:6b:00:de:29:a0 <NO-CARRIER,BROADCAST,MULTICAST,UP> 
+enp3s0           DOWN           9c:6b:00:de:2e:bc <NO-CARRIER,BROADCAST,MULTICAST,UP> 
+enp4s0           DOWN           9c:6b:00:de:33:e4 <NO-CARRIER,BROADCAST,MULTICAST,UP> 
+enxc6524f2f7cc6  UP             c6:52:4f:2f:7c:c6 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+tailscale0       UNKNOWN        <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> 
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp2s0           DOWN           
+enp3s0           DOWN           
+enp4s0           DOWN           
+enxc6524f2f7cc6  UP             172.20.10.3/28 2001:b400:e49a:48c5:70cb:e8fd:1b83:9be/64 2001:b400:e49a:48c5:d452:305a:bcf8:f6ef/64 fe80::118:ada5:b3a4:defb/64 
+tailscale0       UNKNOWN        100.127.60.103/32 fd7a:115c:a1e0::9e2c:3c68/128 fe80::9cfc:10f8:b49b:ffab/64 
+
+===== NetworkManager 連線（相機網段 / RDMA 直連） =====
+有線連線 3:enxc6524f2f7cc6:802-3-ethernet
+tailscale0:tailscale0:tun
+lo:lo:loopback
+netplan-enp3s0::802-3-ethernet
+有線連線 1::802-3-ethernet
+有線連線 2::802-3-ethernet
+
+===== 網卡連線狀態 / 速率 =====
+enp2s0           	Speed: Unknown! 	Link detected: no 
+enp3s0           	Speed: Unknown! 	Link detected: no 
+enp4s0           	Speed: Unknown! 	Link detected: no 
+enxc6524f2f7cc6  	Link detected: yes 
+
+===== RDMA 裝置 =====
+（無 RDMA 裝置或未裝 ibverbs-utils）
+
+===== sysctl 自訂（/etc/sysctl.conf） =====
+net.ipv4.conf.default.rp_filter = 0
+net.ipv4.conf.all.rp_filter = 0
+--- 生效值
+net.core.rmem_max = 33554432
+net.ipv4.conf.all.rp_filter = 0
+
+===== udev 規則（相機/授權相關） =====
+69-basler-cameras.rules
+80-drivers-eBUSSDK-1ed2.rules
+80-drivers-eBUSSDK-28b7.rules
+z95_keylok.rules
+
+===== 使用者群組 =====
+user adm dialout cdrom sudo dip plugdev users lpadmin
+
+===== repo =====
+/home/user/Addis/cf-aoi/  git@github.com:AddisLu/cf-aoi.git  8e8c808
+
+===== 機器本地設定檔（不版控，換機要帶） =====
+--- /home/user/Addis/cf-aoi/grab/cam_config.json
+{
+  "cameras": [
+    {
+      "cam_id": 0,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    },
+    {
+      "cam_id": 1,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    },
+    {
+      "cam_id": 2,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    },
+    {
+      "cam_id": 3,
+      "exposure_us": 70.0,
+      "gain_raw": 256
+    }
+  ]
+}
+--- /home/user/Addis/cf-aoi/grab/cam_map.json （不存在）
+
+===== 桌面捷徑 =====
+--- /home/user/桌面/cam-align.desktop
+Name=光學調機（線掃相機）
+Exec=python3 /home/user/Addis/cf-aoi/tools/cam_align/cam_align.py
+--- /home/user/桌面/pylon-viewer.desktop
+Name=pylon Viewer
+Exec=env QT_QPA_PLATFORM=xcb /opt/pylon/bin/pylonviewer
+
+===== SSH 設定（只列主機，不含金鑰） =====
+（無 ~/.ssh/config）
+/home/user/.ssh/id_ed25519.pub
+
+===== 安裝檔位置（換機要複製） =====
+/home/user/下載/pylon/pylon_26.05.0-deb0_amd64.deb
+/home/user/下載/pylon/codemeter_8.20.6558.501_amd64.deb

@@ -4,6 +4,9 @@
 > 原則：**damac 不動**——新機沒驗完之前保留舊機，隨時可切回去。
 > 依據：damac 現況快照 [machine_state_damac_20260918.txt](verification/machine_state_damac_20260918.txt)
 > （用 `tools/grab_setup/collect_machine_state.sh` 產生，新機裝完可再跑一份對照）。
+> 新機（`user-IMB-M47`，i9-14900K / 125GB / Ubuntu 24.04.4）軟體裝完的對照快照：
+> [machine_state_new_20260921.txt](verification/machine_state_new_20260921.txt)
+> ——此時 ConnectX-5 尚未移機，`verify_grab_host.sh` 為 **10 通過 / 8 失敗**，失敗 8 項全數為需要網卡的檢查。
 
 ## 0. damac 現況（要複製什麼過去）
 
@@ -90,12 +93,20 @@ damac 上的參考結果（2026-09-18）：**23 項全過**。新機應該一樣
 
 | 項目 | damac(22.04) | 新機(24.04) | 影響 |
 |---|---|---|---|
-| **eBUS SDK** | 7.0.1（22.04 版 deb） | **官方無 24.04 版 deb** | L803K 路徑可能裝不起來 → 需向 Pleora/友思特索取 24.04 版。**不影響 raL8192 與調機工具**（調機工具自製 GVCP/GVSP，不依賴 eBUS） |
+| **eBUS SDK** | 7.0.1（22.04 版 deb） | 官方無 24.04 版 deb，但**22.04 版實測裝得起來也載得動** | 見下方 ⚠️ 註 |
 | gcc | 11 | 13 | grab 以 C++17 寫、無 GNU 擴充，預期可編；bootstrap 會實際編一次 |
 | nlohmann-json | 3.10.5 | 3.11.x | API 相容 |
 | rdma-core | 39 | 50 | RoCE v2 行為不變；`ibv_devinfo` 欄位略有增減 |
 | pylon 26.05 | 支援 | 支援 | deb 直接裝 |
 | Python | 3.10 / Pillow 9 | 3.12 / Pillow 10 | 調機工具只用標準庫 + Pillow，**離線測試 34 項是把關點** |
+
+> ⚠️ **eBUS 在 24.04 的實測（2026-09-21，新機 user-IMB-M47）**：22.04 版 deb 在 24.04 上
+> `apt-get install` 成功——該 deb **完全沒宣告相依**，所以 dpkg 不會擋；`ldd` 對 `libPvBase.so`
+> 與 `eBUSPlayer` 都沒有 missing；先 `source /opt/pleora/ebus/Ubuntu-22.04-x86_64/bin/set_puregev_env.sh`
+> 後，`libPvBase` / `libPvGenICam` / `libPvDevice` / `libPvStream` / `libPvBuffer` 五個核心 .so
+> 依序 dlopen 全部成功。**但這只驗到連結層面**——真正能不能抓 L803K，要等 iPORT 接上才算數。
+> 那支 env 腳本沒有掛進 `/etc/profile.d`，用 eBUS 的程式要自己 source。
+> 不影響 raL8192 與調機工具（調機工具自製 GVCP/GVSP，不依賴 eBUS）。
 
 ## 6. 切換與回退
 

@@ -51,9 +51,13 @@ if [ -x "$REPO/grab/build/cam_provision" ]; then
   n=$(echo "$out" | grep -c 'raL\|L803\|Basler' || true)
   [ "$n" -gt 0 ] && ok '列舉到相機' "$n 台" || bad '列舉到相機' '0 台（檢查交換機埠 speed 1000 與供電）'
   echo "$out" | sed 's/^/        /'
-  nouid=$(echo "$out" | awk 'NR>1 && $6=="" {c++} END{print c+0}')
-  [ "$nouid" = 0 ] && ok '每台都有 CCD 身分（DeviceUserID）' \
-    || bad 'CCD 身分' "$nouid 台未命名 → ARM 會被拒（用 cam_provision set <SN> CCDnn）"
+  if [ "$n" -gt 0 ]; then   # 0 台時「未命名數=0」會假性通過，故先擋
+    nouid=$(echo "$out" | awk 'NR>1 && $6=="" {c++} END{print c+0}')
+    [ "$nouid" = 0 ] && ok '每台都有 CCD 身分（DeviceUserID）' \
+      || bad 'CCD 身分' "$nouid 台未命名 → ARM 會被拒（用 cam_provision set <SN> CCDnn）"
+  else
+    info 'CCD 身分' '無相機可檢查'
+  fi
   for ip in $(echo "$out" | awk 'NR>1{print $4}' | grep '^192\.168\.5\.'); do
     ping -c1 -W1 "$ip" >/dev/null 2>&1 && ok "ping $ip" || bad "ping $ip" '不通'
   done
