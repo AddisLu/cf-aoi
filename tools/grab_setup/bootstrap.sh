@@ -187,6 +187,16 @@ Terminal=false
 Categories=Science;
 EOF
     chmod +x "$DESK"/*.desktop
+    # GNOME 規定桌面啟動器除了可執行，還要標記 trusted，否則圖示打紅叉、
+    # 顯示成檔名而非 Name=、雙擊也不會啟動（等同右鍵「允許啟動」）。
+    # 經 SSH 跑時沒有 session bus，要自己指到使用者的 bus。
+    if command -v gio >/dev/null; then
+      export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
+      ok=1
+      for f in "$DESK"/*.desktop; do gio set "$f" metadata::trusted true || ok=0; done
+      [ "$ok" = 1 ] && note '桌面啟動器已標記 trusted（桌面按 F5 重整生效）' \
+        || warn '桌面啟動器標記 trusted 失敗 → 圖示會打紅叉、雙擊不啟動；在桌面右鍵該圖示選「允許啟動」即可'
+    fi
   fi
   note "桌面捷徑已寫入 $DESK"
 fi
