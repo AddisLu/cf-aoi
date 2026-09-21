@@ -1,0 +1,455 @@
+raL8192-12gm 行速率節點探測 — 四台原始輸出
+主機：damac   時間：2026-09-21T13:57:01+08:00   工具：grab/build/probe_cam_nodes（唯讀）
+背景與結論見 docs/STATUS.md「raL8192-12gm 行速率上限釘死」節
+
+################ SN=25563161 ################
+=== probe_cam_nodes（Gap #2 Stage 0）===
+
+相機型號：raL8192-12gm  SN：25563161
+
+=== 曝光（Exposure）===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Int  ] ExposureTimeRaw                 val=         700  min=          20  max=      100000  inc=     1  access=RW
+
+=== 增益（Gain）===
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Float] GainAuto                        NOT FOUND
+
+=== 行率（Line Rate）===
+  [Float] ResultingLineRateAbs            val=  11001.1001  min=      0.0023  max=10000000.0000  access=RO
+  [Float] ResultingLinePeriodAbs          val=     90.9000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionLineRateAbs          val=  11001.1001  min=    100.0000  max=  80645.1613  access=RW
+  [Float] ReadoutTimeAbs                  val=     12.4000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ExposureOverlapTimeMaxAbs       NOT FOUND
+
+=== 幀率（Frame Rate；鎖住幀率的第二條繩子）===
+  [Float] ResultingFrameRateAbs           val=      4.4004  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ResultingFramePeriodAbs         val= 227250.0000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionFrameRateAbs         NOT FOUND
+  [Bool ] AcquisitionFrameRateEnable      NOT FOUND
+
+=== PixelFormat（須為 Mono8）===
+  [Enum ] PixelFormat                     val=Mono8             access=RW  options={Mono8,Mono12,Mono12Packed,YUV422Packed,YUV422_YUYV_Packed}
+
+=== Auto（須 Off，否則手動曝光/增益被蓋）===
+  [Enum ] ExposureAuto                    val=Off               access=RW  options={Off,Once,Continuous}
+  [Enum ] GainAuto                        val=Off               access=RW  options={Off,Once,Continuous}
+
+=== Trigger（線掃：free-run vs encoder 行觸發）===
+  [Enum ] AcquisitionMode                 val=Continuous        access=RW  options={SingleFrame,Continuous}
+  [Enum ] TriggerSelector                 val=FrameStart        access=RW  options={AcquisitionStart,FrameStart,LineStart}
+  [Enum ] TriggerMode                     val=Off               access=RW  options={Off,On}
+  [Enum ] TriggerSource                   val=Software          access=RW  options={Software,Line1,Line2,Line3,ShaftEncoderModuleOut,FrequencyConverter,Action1}
+  [Enum ] TriggerActivation               val=RisingEdge        access=RW  options={RisingEdge,FallingEdge,LevelHigh,LevelLow}
+  ⚠ 上面三項只是 TriggerSelector 當下選中那一個的值。要看 LineStart /
+    FrameStart / AcquisitionStart 各自的 TriggerMode，必須逐一寫入
+    TriggerSelector 才讀得到 —— 本工具刻意不寫相機，故不做。
+    （cam_pylon.cpp:88 的 TriggerMode=Off 同樣只關掉當下那一個。）
+  [Enum ] AcquisitionStatusSelector       val=FrameTriggerWait  access=RW  options={AcquisitionTriggerWait,FrameTriggerWait,LineTriggerWait}
+  [Bool ] AcquisitionStatus               val=false         access=RO
+
+=== ROI ===
+  [Int  ] Width                           val=        8192  min=           1  max=        8192  inc=     1  access=RW
+  [Int  ] Height                          val=        2500  min=           1  max=        3573  inc=     1  access=RW
+  [Int  ] OffsetX                         val=           0  min=           0  max=           0  inc=     1  access=RW
+  [Int  ] OffsetY                         val=           0  min=           0  max=           0  inc=     1  access=RW
+
+=== GigE 傳輸（封包/頻寬）===
+  [Int  ] GevSCPSPacketSize               val=        9000  min=         220  max=       16404  inc=     4  access=RW
+  [Int  ] GevSCPD                         val=           0  min=           0  max=        9750  inc=     1  access=RW
+  [Bool ] GevSCPSDoNotFragment            val=true          access=RW
+  [Int  ] GevSCFTD                        val=           0  min=           0  max=    50000000  inc=     1  access=RW
+  [Int  ] GevLinkSpeed                    val=        1000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCBWR                        val=           9  min=           0  max=          17  inc=     1  access=RW
+  [Int  ] GevSCBWRA                       val=           9  min=           1  max=          18  inc=     1  access=RW
+  [Int  ] GevSCBWA                        val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDCT                        val=    90918240  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDMT                        val=    90918240  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevTimestampTickFrequency       val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevHeartbeatTimeout             val=        3000  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== UserSet（相機 flash 裡的開機預設；只讀）===
+  [Enum ] UserSetSelector                 val=UserSet1          access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  [Enum ] UserSetDefaultSelector          val=UserSet1          access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  ⚠ 本工具不執行 UserSetSave/UserSetLoad —— UserSetSave 會把當下設定
+    烤進 flash 變成新的開機預設。
+
+=== GigE 網路 / 綁定（persistent IP）===
+  [IP   ] GevCurrentIPAddress             192.168.5.1  access=RO
+  [IP   ] GevPersistentIPAddress          192.168.5.1  access=RW
+  [IP   ] GevPersistentSubnetMask         255.255.255.0  access=RW
+  [IP   ] GevPersistentDefaultGateway     0.0.0.0  access=RW
+  [Int  ] GevCurrentIPConfiguration       val=           5  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== TLParamsLocked（Acquisition 中是否鎖定）===
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+--- Grab 1 幀（確認 acquisition 中的 access mode）---
+  成功抓 1 幀：8192x2500  ImageSize=20480000
+
+=== Stream grabber（主機端收流參數與統計）===
+  [Int  ] SocketBufferSize                val=        4096  min=           1  max=       32768  inc=     1  access=RW
+  [Int  ] MaxNumBuffer                    val=           1  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] MaxBufferSize                   val=    20480000  min=           1  max=9223372036854775807  inc=     1  access=RW
+  [Int  ] ReceiveWindowSize               NOT FOUND
+  [Bool ] EnableResend                    val=true          access=RW
+  [Int  ] PacketTimeout                   val=          40  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] FrameRetention                  val=         300  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] ResendRequestThreshold          val=         100  min=           0  max=         100  inc=     1  access=RW
+  [Int  ] Statistic_Total_Packet_Count    val=        2325  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Request_Count  val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Buffer_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Buffer_Underrun_Count  val=           1  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Missed_Frame_Count    NOT FOUND
+
+=== Acquisition 中的 access mode ===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+=== 請把上面完整輸出貼給開發者（Gap #2 Stage 0 結果）===
+
+################ SN=25563177 ################
+=== probe_cam_nodes（Gap #2 Stage 0）===
+
+相機型號：raL8192-12gm  SN：25563177
+
+=== 曝光（Exposure）===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Int  ] ExposureTimeRaw                 val=         700  min=          20  max=      100000  inc=     1  access=RW
+
+=== 增益（Gain）===
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Float] GainAuto                        NOT FOUND
+
+=== 行率（Line Rate）===
+  [Float] ResultingLineRateAbs            val=  11001.1001  min=      0.0023  max=10000000.0000  access=RO
+  [Float] ResultingLinePeriodAbs          val=     90.9000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionLineRateAbs          val=  11001.1001  min=    100.0000  max=  80645.1613  access=RW
+  [Float] ReadoutTimeAbs                  val=     12.4000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ExposureOverlapTimeMaxAbs       NOT FOUND
+
+=== 幀率（Frame Rate；鎖住幀率的第二條繩子）===
+  [Float] ResultingFrameRateAbs           val=      4.4004  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ResultingFramePeriodAbs         val= 227250.0000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionFrameRateAbs         NOT FOUND
+  [Bool ] AcquisitionFrameRateEnable      NOT FOUND
+
+=== PixelFormat（須為 Mono8）===
+  [Enum ] PixelFormat                     val=Mono8             access=RW  options={Mono8,Mono12,Mono12Packed,YUV422Packed,YUV422_YUYV_Packed}
+
+=== Auto（須 Off，否則手動曝光/增益被蓋）===
+  [Enum ] ExposureAuto                    val=Off               access=RW  options={Off,Once,Continuous}
+  [Enum ] GainAuto                        val=Off               access=RW  options={Off,Once,Continuous}
+
+=== Trigger（線掃：free-run vs encoder 行觸發）===
+  [Enum ] AcquisitionMode                 val=Continuous        access=RW  options={SingleFrame,Continuous}
+  [Enum ] TriggerSelector                 val=FrameStart        access=RW  options={AcquisitionStart,FrameStart,LineStart}
+  [Enum ] TriggerMode                     val=Off               access=RW  options={Off,On}
+  [Enum ] TriggerSource                   val=Software          access=RW  options={Software,Line1,Line2,Line3,ShaftEncoderModuleOut,FrequencyConverter,Action1}
+  [Enum ] TriggerActivation               val=RisingEdge        access=RW  options={RisingEdge,FallingEdge,LevelHigh,LevelLow}
+  ⚠ 上面三項只是 TriggerSelector 當下選中那一個的值。要看 LineStart /
+    FrameStart / AcquisitionStart 各自的 TriggerMode，必須逐一寫入
+    TriggerSelector 才讀得到 —— 本工具刻意不寫相機，故不做。
+    （cam_pylon.cpp:88 的 TriggerMode=Off 同樣只關掉當下那一個。）
+  [Enum ] AcquisitionStatusSelector       val=FrameTriggerWait  access=RW  options={AcquisitionTriggerWait,FrameTriggerWait,LineTriggerWait}
+  [Bool ] AcquisitionStatus               val=false         access=RO
+
+=== ROI ===
+  [Int  ] Width                           val=        8192  min=           1  max=        8192  inc=     1  access=RW
+  [Int  ] Height                          val=        2500  min=           1  max=        3573  inc=     1  access=RW
+  [Int  ] OffsetX                         val=           0  min=           0  max=           0  inc=     1  access=RW
+  [Int  ] OffsetY                         val=           0  min=           0  max=           0  inc=     1  access=RW
+
+=== GigE 傳輸（封包/頻寬）===
+  [Int  ] GevSCPSPacketSize               val=        9000  min=         220  max=       16404  inc=     4  access=RW
+  [Int  ] GevSCPD                         val=           0  min=           0  max=        9750  inc=     1  access=RW
+  [Bool ] GevSCPSDoNotFragment            val=true          access=RW
+  [Int  ] GevSCFTD                        val=           0  min=           0  max=    50000000  inc=     1  access=RW
+  [Int  ] GevLinkSpeed                    val=        1000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCBWR                        val=           9  min=           0  max=          17  inc=     1  access=RW
+  [Int  ] GevSCBWRA                       val=           9  min=           1  max=          18  inc=     1  access=RW
+  [Int  ] GevSCBWA                        val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDCT                        val=    90918240  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDMT                        val=    90918240  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevTimestampTickFrequency       val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevHeartbeatTimeout             val=        3000  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== UserSet（相機 flash 裡的開機預設；只讀）===
+  [Enum ] UserSetSelector                 val=UserSet1          access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  [Enum ] UserSetDefaultSelector          val=UserSet1          access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  ⚠ 本工具不執行 UserSetSave/UserSetLoad —— UserSetSave 會把當下設定
+    烤進 flash 變成新的開機預設。
+
+=== GigE 網路 / 綁定（persistent IP）===
+  [IP   ] GevCurrentIPAddress             192.168.5.2  access=RO
+  [IP   ] GevPersistentIPAddress          192.168.5.2  access=RW
+  [IP   ] GevPersistentSubnetMask         255.255.255.0  access=RW
+  [IP   ] GevPersistentDefaultGateway     0.0.0.0  access=RW
+  [Int  ] GevCurrentIPConfiguration       val=           5  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== TLParamsLocked（Acquisition 中是否鎖定）===
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+--- Grab 1 幀（確認 acquisition 中的 access mode）---
+  成功抓 1 幀：8192x2500  ImageSize=20480000
+
+=== Stream grabber（主機端收流參數與統計）===
+  [Int  ] SocketBufferSize                val=        4096  min=           1  max=       32768  inc=     1  access=RW
+  [Int  ] MaxNumBuffer                    val=           1  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] MaxBufferSize                   val=    20480000  min=           1  max=9223372036854775807  inc=     1  access=RW
+  [Int  ] ReceiveWindowSize               NOT FOUND
+  [Bool ] EnableResend                    val=true          access=RW
+  [Int  ] PacketTimeout                   val=          40  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] FrameRetention                  val=         300  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] ResendRequestThreshold          val=         100  min=           0  max=         100  inc=     1  access=RW
+  [Int  ] Statistic_Total_Packet_Count    val=        2323  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Request_Count  val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Buffer_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Buffer_Underrun_Count  val=           1  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Missed_Frame_Count    NOT FOUND
+
+=== Acquisition 中的 access mode ===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+=== 請把上面完整輸出貼給開發者（Gap #2 Stage 0 結果）===
+
+################ SN=25563179 ################
+=== probe_cam_nodes（Gap #2 Stage 0）===
+
+相機型號：raL8192-12gm  SN：25563179
+
+=== 曝光（Exposure）===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Int  ] ExposureTimeRaw                 val=         700  min=          20  max=      100000  inc=     1  access=RW
+
+=== 增益（Gain）===
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Float] GainAuto                        NOT FOUND
+
+=== 行率（Line Rate）===
+  [Float] ResultingLineRateAbs            val=  12195.1220  min=      0.0023  max=10000000.0000  access=RO
+  [Float] ResultingLinePeriodAbs          val=     82.0000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionLineRateAbs          val=  80645.1613  min=    100.0000  max=  80645.1613  access=RW
+  [Float] ReadoutTimeAbs                  val=     12.4000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ExposureOverlapTimeMaxAbs       NOT FOUND
+
+=== 幀率（Frame Rate；鎖住幀率的第二條繩子）===
+  [Float] ResultingFrameRateAbs           val=      4.8780  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ResultingFramePeriodAbs         val= 205000.0000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionFrameRateAbs         NOT FOUND
+  [Bool ] AcquisitionFrameRateEnable      NOT FOUND
+
+=== PixelFormat（須為 Mono8）===
+  [Enum ] PixelFormat                     val=Mono8             access=RW  options={Mono8,Mono12,Mono12Packed,YUV422Packed,YUV422_YUYV_Packed}
+
+=== Auto（須 Off，否則手動曝光/增益被蓋）===
+  [Enum ] ExposureAuto                    val=Off               access=RW  options={Off,Once,Continuous}
+  [Enum ] GainAuto                        val=Off               access=RW  options={Off,Once,Continuous}
+
+=== Trigger（線掃：free-run vs encoder 行觸發）===
+  [Enum ] AcquisitionMode                 val=Continuous        access=RW  options={SingleFrame,Continuous}
+  [Enum ] TriggerSelector                 val=FrameStart        access=RW  options={AcquisitionStart,FrameStart,LineStart}
+  [Enum ] TriggerMode                     val=Off               access=RW  options={Off,On}
+  [Enum ] TriggerSource                   val=Line3             access=RW  options={Software,Line1,Line2,Line3,ShaftEncoderModuleOut,FrequencyConverter,Action1}
+  [Enum ] TriggerActivation               val=RisingEdge        access=RW  options={RisingEdge,FallingEdge,LevelHigh,LevelLow}
+  ⚠ 上面三項只是 TriggerSelector 當下選中那一個的值。要看 LineStart /
+    FrameStart / AcquisitionStart 各自的 TriggerMode，必須逐一寫入
+    TriggerSelector 才讀得到 —— 本工具刻意不寫相機，故不做。
+    （cam_pylon.cpp:88 的 TriggerMode=Off 同樣只關掉當下那一個。）
+  [Enum ] AcquisitionStatusSelector       val=FrameTriggerWait  access=RW  options={AcquisitionTriggerWait,FrameTriggerWait,LineTriggerWait}
+  [Bool ] AcquisitionStatus               val=false         access=RO
+
+=== ROI ===
+  [Int  ] Width                           val=        8192  min=           1  max=        8192  inc=     1  access=RW
+  [Int  ] Height                          val=        2500  min=           1  max=        3573  inc=     1  access=RW
+  [Int  ] OffsetX                         val=           0  min=           0  max=           0  inc=     1  access=RW
+  [Int  ] OffsetY                         val=           0  min=           0  max=           0  inc=     1  access=RW
+
+=== GigE 傳輸（封包/頻寬）===
+  [Int  ] GevSCPSPacketSize               val=        9000  min=         220  max=       16404  inc=     4  access=RW
+  [Int  ] GevSCPD                         val=           0  min=           0  max=        6014  inc=     1  access=RW
+  [Bool ] GevSCPSDoNotFragment            val=true          access=RW
+  [Int  ] GevSCFTD                        val=           0  min=           0  max=    50000000  inc=     1  access=RW
+  [Int  ] GevLinkSpeed                    val=        1000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCBWR                        val=          10  min=           0  max=          15  inc=     1  access=RW
+  [Int  ] GevSCBWRA                       val=          10  min=           1  max=          16  inc=     1  access=RW
+  [Int  ] GevSCBWA                        val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDCT                        val=   100882748  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDMT                        val=   109608329  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevTimestampTickFrequency       val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevHeartbeatTimeout             val=        3000  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== UserSet（相機 flash 裡的開機預設；只讀）===
+  [Enum ] UserSetSelector                 val=Default           access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  [Enum ] UserSetDefaultSelector          val=Default           access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  ⚠ 本工具不執行 UserSetSave/UserSetLoad —— UserSetSave 會把當下設定
+    烤進 flash 變成新的開機預設。
+
+=== GigE 網路 / 綁定（persistent IP）===
+  [IP   ] GevCurrentIPAddress             192.168.5.3  access=RO
+  [IP   ] GevPersistentIPAddress          192.168.5.3  access=RW
+  [IP   ] GevPersistentSubnetMask         255.255.255.0  access=RW
+  [IP   ] GevPersistentDefaultGateway     0.0.0.0  access=RW
+  [Int  ] GevCurrentIPConfiguration       val=           5  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== TLParamsLocked（Acquisition 中是否鎖定）===
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+--- Grab 1 幀（確認 acquisition 中的 access mode）---
+  成功抓 1 幀：8192x2500  ImageSize=20480000
+
+=== Stream grabber（主機端收流參數與統計）===
+  [Int  ] SocketBufferSize                val=        4096  min=           1  max=       32768  inc=     1  access=RW
+  [Int  ] MaxNumBuffer                    val=           1  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] MaxBufferSize                   val=    20480000  min=           1  max=9223372036854775807  inc=     1  access=RW
+  [Int  ] ReceiveWindowSize               NOT FOUND
+  [Bool ] EnableResend                    val=true          access=RW
+  [Int  ] PacketTimeout                   val=          40  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] FrameRetention                  val=         300  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] ResendRequestThreshold          val=         100  min=           0  max=         100  inc=     1  access=RW
+  [Int  ] Statistic_Total_Packet_Count    val=        2325  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Request_Count  val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Buffer_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Buffer_Underrun_Count  val=           1  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Missed_Frame_Count    NOT FOUND
+
+=== Acquisition 中的 access mode ===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+=== 請把上面完整輸出貼給開發者（Gap #2 Stage 0 結果）===
+
+################ SN=25564093 ################
+=== probe_cam_nodes（Gap #2 Stage 0）===
+
+相機型號：raL8192-12gm  SN：25564093
+
+=== 曝光（Exposure）===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Int  ] ExposureTimeRaw                 val=         700  min=          20  max=      100000  inc=     1  access=RW
+
+=== 增益（Gain）===
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Float] GainAuto                        NOT FOUND
+
+=== 行率（Line Rate）===
+  [Float] ResultingLineRateAbs            val=  12195.1220  min=      0.0023  max=10000000.0000  access=RO
+  [Float] ResultingLinePeriodAbs          val=     82.0000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionLineRateAbs          val=  80645.1613  min=    100.0000  max=  80645.1613  access=RW
+  [Float] ReadoutTimeAbs                  val=     12.4000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ExposureOverlapTimeMaxAbs       NOT FOUND
+
+=== 幀率（Frame Rate；鎖住幀率的第二條繩子）===
+  [Float] ResultingFrameRateAbs           val=      4.8780  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] ResultingFramePeriodAbs         val= 205000.0000  min=-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  max=179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0000  access=RO
+  [Float] AcquisitionFrameRateAbs         NOT FOUND
+  [Bool ] AcquisitionFrameRateEnable      NOT FOUND
+
+=== PixelFormat（須為 Mono8）===
+  [Enum ] PixelFormat                     val=Mono8             access=RW  options={Mono8,Mono12,Mono12Packed,YUV422Packed,YUV422_YUYV_Packed}
+
+=== Auto（須 Off，否則手動曝光/增益被蓋）===
+  [Enum ] ExposureAuto                    val=Off               access=RW  options={Off,Once,Continuous}
+  [Enum ] GainAuto                        val=Off               access=RW  options={Off,Once,Continuous}
+
+=== Trigger（線掃：free-run vs encoder 行觸發）===
+  [Enum ] AcquisitionMode                 val=Continuous        access=RW  options={SingleFrame,Continuous}
+  [Enum ] TriggerSelector                 val=FrameStart        access=RW  options={AcquisitionStart,FrameStart,LineStart}
+  [Enum ] TriggerMode                     val=Off               access=RW  options={Off,On}
+  [Enum ] TriggerSource                   val=Line3             access=RW  options={Software,Line1,Line2,Line3,ShaftEncoderModuleOut,FrequencyConverter,Action1}
+  [Enum ] TriggerActivation               val=RisingEdge        access=RW  options={RisingEdge,FallingEdge,LevelHigh,LevelLow}
+  ⚠ 上面三項只是 TriggerSelector 當下選中那一個的值。要看 LineStart /
+    FrameStart / AcquisitionStart 各自的 TriggerMode，必須逐一寫入
+    TriggerSelector 才讀得到 —— 本工具刻意不寫相機，故不做。
+    （cam_pylon.cpp:88 的 TriggerMode=Off 同樣只關掉當下那一個。）
+  [Enum ] AcquisitionStatusSelector       val=FrameTriggerWait  access=RW  options={AcquisitionTriggerWait,FrameTriggerWait,LineTriggerWait}
+  [Bool ] AcquisitionStatus               val=false         access=RO
+
+=== ROI ===
+  [Int  ] Width                           val=        8192  min=           1  max=        8192  inc=     1  access=RW
+  [Int  ] Height                          val=        2500  min=           1  max=        3573  inc=     1  access=RW
+  [Int  ] OffsetX                         val=           0  min=           0  max=           0  inc=     1  access=RW
+  [Int  ] OffsetY                         val=           0  min=           0  max=           0  inc=     1  access=RW
+
+=== GigE 傳輸（封包/頻寬）===
+  [Int  ] GevSCPSPacketSize               val=        9000  min=         220  max=       16404  inc=     4  access=RW
+  [Int  ] GevSCPD                         val=           0  min=           0  max=       66208  inc=     1  access=RW
+  [Bool ] GevSCPSDoNotFragment            val=true          access=RW
+  [Int  ] GevSCFTD                        val=           0  min=           0  max=    50000000  inc=     1  access=RW
+  [Int  ] GevLinkSpeed                    val=        1000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCBWR                        val=          10  min=           0  max=          48  inc=     1  access=RW
+  [Int  ] GevSCBWRA                       val=           2  min=           1  max=          16  inc=     1  access=RW
+  [Int  ] GevSCBWA                        val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDCT                        val=   100882748  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevSCDMT                        val=   109608329  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevTimestampTickFrequency       val=   125000000  min=           0  max=  4294967295  inc=     1  access=RO
+  [Int  ] GevHeartbeatTimeout             val=        3000  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== UserSet（相機 flash 裡的開機預設；只讀）===
+  [Enum ] UserSetSelector                 val=Default           access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  [Enum ] UserSetDefaultSelector          val=Default           access=RW  options={Default,UserSet1,UserSet2,UserSet3}
+  ⚠ 本工具不執行 UserSetSave/UserSetLoad —— UserSetSave 會把當下設定
+    烤進 flash 變成新的開機預設。
+
+=== GigE 網路 / 綁定（persistent IP）===
+  [IP   ] GevCurrentIPAddress             192.168.5.4  access=RO
+  [IP   ] GevPersistentIPAddress          192.168.5.4  access=RW
+  [IP   ] GevPersistentSubnetMask         255.255.255.0  access=RW
+  [IP   ] GevPersistentDefaultGateway     0.0.0.0  access=RW
+  [Int  ] GevCurrentIPConfiguration       val=           5  min=           0  max=  4294967295  inc=     1  access=RW
+
+=== TLParamsLocked（Acquisition 中是否鎖定）===
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+--- Grab 1 幀（確認 acquisition 中的 access mode）---
+  成功抓 1 幀：8192x2500  ImageSize=20480000
+
+=== Stream grabber（主機端收流參數與統計）===
+  [Int  ] SocketBufferSize                val=        4096  min=           1  max=       32768  inc=     1  access=RW
+  [Int  ] MaxNumBuffer                    val=           1  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] MaxBufferSize                   val=    20480000  min=           1  max=9223372036854775807  inc=     1  access=RW
+  [Int  ] ReceiveWindowSize               NOT FOUND
+  [Bool ] EnableResend                    val=true          access=RW
+  [Int  ] PacketTimeout                   val=          40  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] FrameRetention                  val=         300  min=           1  max=  2147483647  inc=     1  access=RW
+  [Int  ] ResendRequestThreshold          val=         100  min=           0  max=         100  inc=     1  access=RW
+  [Int  ] Statistic_Total_Packet_Count    val=        2325  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Request_Count  val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Resend_Packet_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Failed_Buffer_Count   val=           0  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Buffer_Underrun_Count  val=           1  min=-9223372036854775808  max=9223372036854775807  inc=     1  access=RO
+  [Int  ] Statistic_Missed_Frame_Count    NOT FOUND
+
+=== Acquisition 中的 access mode ===
+  [Float] ExposureTimeAbs                 val=     70.0000  min=      2.0000  max=  10000.0000  access=RW
+  [Float] ExposureTime                    NOT FOUND
+  [Float] Gain                            NOT FOUND
+  [Int  ] GainRaw                         val=         256  min=         256  max=        2047  inc=     1  access=RW
+  [Int  ] TLParamsLocked                  val=           0  min=           0  max=           1  inc=     1  access=RW
+
+=== 請把上面完整輸出貼給開發者（Gap #2 Stage 0 結果）===

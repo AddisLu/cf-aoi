@@ -104,7 +104,7 @@
 | ⤷ Gap #2：Control UI（相機 tab + SystemSettings TabControl 改版）| **L1（待 Mac 目視）** | TabControl（連線設定/相機）；相機 tab：Grab Ellipse 指示器、ExposureUs NumericUpDown 2~10000µs + actual 回顯行、GainRaw 256~2047 + actual 回顯行、Apply（IsEnabled=IsGrabConnected）/讀取 btn + CamStatus。MVVM `[ObservableProperty]/[RelayCommand]` 對齊現有面板；0 警告 0 錯誤。**連線設定 tab = 原有內容搬入 TabItem，待 Mac 重新目視確認版面無誤**；相機 tab 互動亦待 Addis Mac 目視。**（2026-06-18 此相機 tab 已演進為「相機陣列總覽」，見下兩列。）**|
 | ⤷ Gap #2+：LIST_CAMERAS 唯讀列舉（cam_pylon enumerate + control_server）| **L3（idle）** | **2026-06-18 damac raL8192-12gm 實機（idle，未 GRAB_START）**：`{"cmd":"LIST_CAMERAS"}` → 回 1 台:`mac=00:30:53:53:19:41 model=raL8192-12gm serial=25445953 ip=192.168.5.1 persistent=true device_class=BaslerGigE`（`CTlFactory::EnumerateDevices`+`CDeviceInfo`,不開相機）。⚠️ **GRABBING 中並存呼叫未驗**：本次 Spark RDMA 收端 `rdma_bind_addr: Cannot assign 192.168.3.1`（RDMA 鏈路未就緒）→ 無法讓相機真的串流 → 「列舉 vs 取像並存不掉幀」**待 RDMA 鏈路就緒後補測**；在驗證前建議 LIST_CAMERAS 僅於 idle 呼叫（程式未加守門，誠實列為 follow-up）。`ip_config` 目前回原始碼值（如 "5"），persistent bool 為權威狀態。**2026-06-22 公司現場補測（部分）**：RDMA 鏈路 IP 層帶起（`sudo ip addr add 192.168.3.1/24 dev enp1s0f0np0`，ping damac 192.168.3.2 0% loss、RoCEv2 GID 存在、port ACTIVE）；idle LIST_CAMERAS 回 1 台 ✓；GRAB_START 開相機 ✓（raL8192 SN25445953, payload 24.48MB）。**但 RDMA-CM connect 被 REJECT（`rdma_common.h:139` expected 9 got 8）— 合成 `rdma_nslot_test` 與 `cfaoi_grab` 皆然 → 非程式問題，是重開機後鏈路 RoCE 設定未完整還原（jumbo MTU：Spark 可 sudo 設 9000，**damac sudo 需密碼無法設** → 兩端 MTU 不一致）。** ∴「列舉 vs 取像並存不掉幀」仍 **未驗（deferred）**：待 damac sudo 還原雙端 jumbo MTU/RoCE 鏈路後，跑 `scripts/verify_list_during_grab.py`（已備好：GRAB_START→串流中 LIST_CAMERAS×6→GRAB_STOP，搭配 Spark rdma-validate err=0 佐證不掉幀）。|
 | ⤷ Gap #2+：Control 相機陣列總覽 view（KPI/實體陣列/分群/明細）| **L2（邏輯）/ L1（版面待 Mac 目視）** | SystemSettings 相機 tab 演進為總覽（資訊架構照 `camera_overview_mockup.html`）：KPI（配置/上線/已綁定/待綁定/離線）+ 實體陣列色碼（綠/琥珀/灰）+ 分群清單 + 明細面板（重用 Gap #2 曝光/增益,改 `SelectedCamera.CamId`）。**2026-06-18 `dotnet build` 0 警告 0 錯誤 + `--selftest camera`（假 server 多台 bound+unbound）全 PASS**：列舉 2 台 / KPI 配置2上線2綁1待綁1離0 / 分群 bound[CCD00]+unbound[CCD01]+offline 空 / 預選第一台 / 欄位解析。**離線群維持 0（無 config↔CCD 映射,不假造）**。版面待 Addis Mac 目視 → L1。**defer（= Gap #21）**：綁定動作（指派 IP/位置映射,按鈕停用標 #21）/ 配置 vs 偵測映射（現配置數=偵測數）/ cam_id↔MAC 穩定映射（現以列舉 index 暫派,重啟可能對到別台,cam_config per-cam 存檔亦繼承此不穩,多台改 MAC keying）。多相機（37 台）/離線格待 SN2201 Switch + 相機陣列。|
-| ⤷ Gap #2+：GigE 機器層參數補齊（PixelFormat/Auto/Trigger）| **L3** | **2026-06-18 damac 實機**：加強版 probe_cam_nodes 查 raL8192:`PixelFormat` RW(Mono8/Mono12/YUV)、`ExposureAuto/GainAuto` RW、`TriggerMode=Off`/`TriggerSelector` 有 LineStart/`TriggerSource` 有 ShaftEncoderModuleOut、`Width 8160 Height 3000(max3587)`、`GevSCPSPacketSize 9000`/`GevSCPD 0`、persistent IP 節點 RW。考古確認 legacy 只 runtime 設曝光(µs)+增益(dB)、其餘烤在 .dcf;GigE 無 .dcf → `open()` 顯式補 `PixelFormat=Mono8`+`ExposureAuto/GainAuto=Off`+`TriggerMode=Off`,開機 log 實機確認生效。**注:此相機無 `AcquisitionLineRate`,線掃時序靠 Trigger(可接 encoder)**;`Gain` 只有 GainRaw(256~2047) 無 dB。**2026-06-18 加 `GET_CAM_NODES` + Control 明細「讀取機器層參數」鈕 → 看得到(實機回 PixelFormat=Mono8/ExposureAuto=Off/GainAuto=Off/TriggerMode=Off(FrameStart/Line3)/ROI 8160×3000/PacketSize 8192/SCPD 0)。**|
+| ⤷ Gap #2+：GigE 機器層參數補齊（PixelFormat/Auto/Trigger）| **L3** | **2026-06-18 damac 實機**：加強版 probe_cam_nodes 查 raL8192:`PixelFormat` RW(Mono8/Mono12/YUV)、`ExposureAuto/GainAuto` RW、`TriggerMode=Off`/`TriggerSelector` 有 LineStart/`TriggerSource` 有 ShaftEncoderModuleOut、`Width 8160 Height 3000(max3587)`、`GevSCPSPacketSize 9000`/`GevSCPD 0`、persistent IP 節點 RW。考古確認 legacy 只 runtime 設曝光(µs)+增益(dB)、其餘烤在 .dcf;GigE 無 .dcf → `open()` 顯式補 `PixelFormat=Mono8`+`ExposureAuto/GainAuto=Off`+`TriggerMode=Off`,開機 log 實機確認生效。**⚠️ 勘誤（2026-09-21）：原記「此相機無 `AcquisitionLineRate`」是錯的** —— 當時 `probe_cam_nodes` 探的三個名字（`AcquisitionLineRate`/`LineRate`/`ResultingLineRatePeriodAbs`）全部不存在於 raL8192 的 XML，印出 NOT FOUND 被誤判成「相機沒有」。正確名稱是 **`AcquisitionLineRateAbs`（RW）/ `ResultingLineRateAbs`（RO）**，都存在且可讀可設，詳見下方「raL8192 行速率上限釘死」節;`Gain` 只有 GainRaw(256~2047) 無 dB。**2026-06-18 加 `GET_CAM_NODES` + Control 明細「讀取機器層參數」鈕 → 看得到(實機回 PixelFormat=Mono8/ExposureAuto=Off/GainAuto=Off/TriggerMode=Off(FrameStart/Line3)/ROI 8160×3000/PacketSize 8192/SCPD 0)。**|
 | ⤷ Gap #2+：調參效果確認 mean gray（TUNE_MEAN）| **L3** | **2026-06-18 damac 實機**:`TUNE_MEAN{exp,gain}` → 開相機(免 RDMA)+set+抓 1 幀算 uint8 平均 → 回 `mean_gray`(`cam_pylon::grab_one_mean`,timeout 隨曝光×Height 自適應 3~15s,exp=2000µs 不再逾時)。機制驗通:exp 70/500/2000、gain 256/1024 皆正常回真實 mean。Control 明細加「套用並驗證(抓幀看 mean)」鈕顯示 X→Y Δ。**⚠️ 現為暗場 → mean 都 ~2.5(noise floor),變化不明顯;打光後可見(同 Gap #2 Stage2:加光源 exp70→3.30/exp500→7.63 ratio 2.31)。機制完成,「看到變化」需打光,非程式問題。** |
 | ⤷ Gap #2+：encoder 行觸發 / GevSCPD / ROI Height / persistent IP 綁定 | **ROI Height + persistent IP = L3（2026-09-17/18）；encoder / GevSCPD 仍 L0** | **2026-09-17/18 已落地**：ROI 由 grab open 設定（`--width/--height`，5000 行以相機 2×2500 拼接，設不進即 ARM 失敗）；persistent IP + DeviceUserID 由 `grab/build/cam_provision` 寫入（4 台 = CCD00–03 @192.168.5.1–.4，ForceIp 立即生效，斷電複驗待做）——見「4 相機到貨日」節。以下為原始記錄：現況 1 台、已綁定(persistent 192.168.5.1)、free-run 正常 → 依使用者裁示 **3/4 階段待陣列**:encoder 行觸發(TriggerSelector=LineStart+Source=Encoder)待接產線 encoder;GevSCPD/ROI Height 待多相機;persistent IP 綁定動作(寫 GevPersistentIP,節點已確認 RW)= Gap #21,待 Switch+陣列(風險:設錯失聯,需 ForceIP 救援,故帶安全網)。 |
 | ⤷ 底層能力：相機擷取 + RDMA→GPU + 端到端（Phase-1 測試套件） | **L4** | 見下表（Phase-1 測試套件實機 PASS）|
@@ -516,6 +516,8 @@ recv ok=24 err=0、24 個輸出夾全不同名、dropped=0**（`rdma-process` �
 ### 37 台 @12kHz 吞吐量容量評估與收口（2026-07-30，Spark GB10 + damac 實測）
 
 **需求基準**：8160px × 12kHz = 97.9 MB/s/台（1GbE 實測上限 123.6 MB/s，塞得下）。
+> ⚠️ 此處的「12kHz」當時只來自型號後綴 `-12gm`，無實測佐證。**2026-09-21 已釘死：
+> 相機自報 `ResultingLineRateAbs` = 12,195 行/s（8192 寬、Mono8、free-run），略優於標稱**，見下節。
 生產幀 5000 行 → 每台 2.4 幀/s → **37 台 = 88.8 幀/s、3623 MB/s（29 Gbps）**，
 每幀在收端單執行緒的預算 = **11.3 ms**。
 
@@ -538,6 +540,60 @@ GPU 端 `gpu_ms` median **7.30ms**（P99 8.34，`--mode bench` 8160×5000）→ 
 `getauxval(AT_HWCAP)` 執行期偵測 + `__attribute__((target("+crc")))`，不需改編譯旗標、
 無硬體時自動退回表格版。x86 的 SSE4.2 `_mm_crc32_*` 是 **Castagnoli 多項式（不同！）不可用**；
 送端 CRC 已按相機 thread 平行化，不是瓶頸，x86 維持表格版。
+
+### raL8192-12gm 行速率上限釘死 + 四台設定不一致（2026-09-21，damac 實測）
+
+**做法**：修正 `probe_cam_nodes` 的節點名（見上方勘誤）後，四台各讀一次。**全程唯讀，零寫入。**
+
+| SN | CCD | `AcquisitionLineRateAbs` | `ResultingLineRateAbs` | `ResultingFramePeriodAbs`(2500行) | 開機 UserSet |
+|---|---|---|---|---|---|
+| 25563161 | CCD01 | **11,001.1（被設死）** | 11,001.1 | 227.25 ms | **UserSet1** |
+| 25563177 | CCD02 | **11,001.1（被設死）** | 11,001.1 | 227.25 ms | **UserSet1** |
+| 25563179 | CCD03 | 80,645.2（節點上限 = 不設限）| **12,195.1** | 205.0 ms | Default |
+| 25564093 | CCD04 | 80,645.2（不設限）| **12,195.1** | 205.0 ms | Default |
+
+**① 相機實際上限 = 12,195 行/s**（8192 寬 / Mono8 / free-run），**優於標稱 12kHz**。
+不是頻寬受限（`GevSCDMT`=109.6 MB/s > 需要的 99.9 MB/s、`GevSCBWA`=125 MB/s 全額分配、
+`GevSCPD`=0、`GevSCFTD`=0），也不是觸發（四台皆 `TriggerMode=Off`/`AcquisitionMode=Continuous`），
+也沒有掉包重送（`Statistic_Failed_Packet_Count`=0、`Resend_Request_Count`=0）。
+感測器讀出地板 `ReadoutTimeAbs`=12.4µs（→節點上限 80,645 Hz），但全寬下由感測器行頻收斂到 12,195。
+
+**② 四台不是同一組設定**：CCD01/CCD02 的 `AcquisitionLineRateAbs` 被設死在 11,001.1 Hz
+且**開機載入 UserSet1**（非出廠 Default）；CCD03/CCD04 是出廠狀態、不設限。
+grab **從不設定行速率節點**（`cam_pylon.cpp:80-114` 只設 PixelFormat/Auto/Trigger/ROI/封包），
+所以相機 flash 裡是什麼就跑什麼。
+
+**③ 這解釋了歷史上「互相矛盾」的實測**，一筆都不用推翻：
+
+| 日期 | 幾何 / 台數 | 實測 | 相機自報預測 | 對得上嗎 |
+|---|---|---|---|---|
+| 09-17 | 8192×5000，單台 **SN25564093** | ~410 ms/張 | 205.0×2 = **410.0 ms** | ✅ 完全吻合 |
+| 09-21 | 8192×5000，4 台 | cam1/2 = 2.1 fps<br>cam3/4 = 2.3 fps | 454.5ms→2.20 fps<br>410.0ms→2.44 fps | ✅ 皆 94–95% |
+
+所謂「9/17 vs 9/21 差 16%」不存在 —— 是拿**沒被鎖的那一台**去比**含兩台被鎖的四台平均**。
+剩下的 5–6% 才是主機端成本（拼接 memcpy + CRC + RDMA send，每張輸出幀約 21–25 ms）。
+
+**④ 對 37 台容量的影響**（把上節的需求基準換成實測值）：
+
+| | 上節假設 | 實測 | 37 台外推 |
+|---|---|---|---|
+| 單台行速率 | 12,000 | **12,195** | — |
+| 單台幀率（5000 行）| 2.4 fps | **2.44 fps** | 90.3 fps |
+| 單台頻寬 | 97.9 MB/s | **99.9 MB/s** | 3.70 GB/s（29.6 Gbps，100G 的 30%）|
+| 收端上限 | 98.6 fps | 同（未重驗）| 餘裕 **9%**（原估 11%）|
+
+**⑤ 待辦（皆需寫相機／改 grab，不在本次唯讀範圍）**
+- [ ] **解開 CCD01/CCD02 的 11,001 Hz 限制**（寫 `AcquisitionLineRateAbs`，或把
+      `UserSetDefaultSelector` 改回 `Default`）→ 四台齊一到 12,195
+- [ ] **grab 應顯式設定 `AcquisitionLineRateAbs`**，與 Width/Height 同等對待。現況是「不設 =
+      繼承 flash」，換一台相機就可能換一個行速率而無人察覺 —— 與 8160/8192 幀幾何同一類問題
+- [ ] **`--pkt-size` 預設 8192 → 9000**：相機 flash 存的本來就是 9000，grab 每次 open 反而把它
+      降到 8192（`GevSCPSPacketSize` 上限 16404，交換機 jumbo 9416、主機 MTU 9000）
+- [ ] `TriggerSelector=LineStart` 的 `TriggerMode` 仍未讀（要讀必須寫 selector，本次刻意不做）。
+      因 `ResultingLineRateAbs` 已完全解釋實測值，此項優先度降低
+- [ ] ⚠️ **與行速率獨立**：光量差 25–30 倍的問題未解（見上文），12,195 行/s 這個工作點
+      目前拍不出可用影像
+
 
 ⚠️ **wire 相容性是這項的主要風險**（damac x86 表格版送 → Spark ARM 硬體版收，
 不一致就會變成「每幀 CRC 失敗」的假故障，而且單機自測一定過、看不出來）。
