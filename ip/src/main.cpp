@@ -33,6 +33,9 @@
 #include <string>
 #include <vector>
 #include <sys/sysinfo.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <limits.h>
 
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
@@ -59,6 +62,29 @@ using json = nlohmann::json;
 
 namespace {
 
+// ---- INI 路徑錨定（勿依賴 CWD）----
+// 預設 "config/default_zone.ini" 是相對 CWD，但檔案實際在 ip/config/。從 repo 根目錄啟動
+// （spark 的慣例）→ 開不到 → **靜默退回內建預設值**，整個 [Image]/[Pattern]/[Threshold]/
+// [EdgeCheck] 全部沒載入而只印一行 Warning。2026-09-21 實測踩到：rdma-process 不帶 --ini
+// 啟動時 width 用內建值而非 ini 的值。改為錨定「執行檔所在目錄的上一層」
+// （二進位固定產出於 ip/build/ → 上一層 = ip/，與檔案實際位置一致），與 grab 端
+// cam_config.json/cam_map.json 的處理一致（見 grab/src/main.cpp「設定檔路徑錨定」）。
+// 顯式傳 --ini 時維持一般 CLI 語意（相對 CWD）。
+static std::string exe_dir() {
+    char buf[PATH_MAX];
+    ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return ".";                     // 取不到（極罕見）→ 退回 CWD
+    buf[n] = '\0';
+    std::string p(buf);
+    auto slash = p.rfind('/');
+    return (slash == std::string::npos) ? "." : p.substr(0, slash);
+}
+
+static bool file_exists(const std::string& p) {
+    struct stat st{};
+    return ::stat(p.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
 struct Args {
     std::string mode = "offline-file";
     int control_port = 8200;
@@ -66,6 +92,7 @@ struct Args {
     std::string output = "output";
     std::string recipe;            // RecipeInfo.xml 路徑（可選）
     std::string ini = "config/default_zone.ini";
+    bool ini_explicit = false;     // 使用者有沒有顯式給 --ini（沒給 → 錨定執行檔位置）
     std::string ai_model_dir = "models/gpu_model";
     std::string ip_name = "IP01";  // 缺陷檔名 Defect_{IpName}_... 用
     bool use_ai = false;           // AI 分類過濾（預設停用：訓練資料不足）
@@ -109,7 +136,8 @@ void usage(const char* prog) {
     "  --input <path>        offline-file：影像檔或目錄\n"
     "  --output <dir>        結果輸出目錄（預設 output）\n"
     "  --recipe <xml>        legacy RecipeInfo.xml（多 ROI；只接受 DIV 模式）\n"
-    "  --ini <path>          預設參數 INI（預設 config/default_zone.ini）\n"
+    "  --ini <path>          預設參數 INI（不給則錨定執行檔上一層 = ip/config/default_zone.ini，\n"
+"                        不隨 CWD 漂移；顯式給時為一般相對 CWD 語意）\n"
     "  --control-port <n>    offline-tcp 監聽 port（預設 8200）\n"
     "  --ai-model-dir <dir>  AI 模型目錄（預設 models/gpu_model；找不到則停用 AI）\n"
     "  --ip-name <name>      本機 IP 名稱（缺陷檔名 Defect_{IpName}_...，預設 IP01）\n"
@@ -151,7 +179,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--input") a.input = next("--input");
         else if (k == "--output") a.output = next("--output");
         else if (k == "--recipe") a.recipe = next("--recipe");
-        else if (k == "--ini") a.ini = next("--ini");
+        else if (k == "--ini") { a.ini = next("--ini"); a.ini_explicit = true; }
         else if (k == "--control-port") a.control_port = std::stoi(next("--control-port"));
         else if (k == "--ai-model-dir") a.ai_model_dir = next("--ai-model-dir");
         else if (k == "--ip-name") a.ip_name = next("--ip-name");
@@ -507,6 +535,14 @@ int main(int argc, char** argv) {
     if (!parse_args(argc, argv, args)) return 1;
 
     std::cout << "==== CF-AOI IP (mode=" << args.mode << ") ====\n";
+
+    // 沒給 --ini 且 CWD 相對路徑不存在 → 錨定到執行檔上一層（ip/config/…），不靜默用內建值
+    if (!args.ini_explicit && !file_exists(args.ini)) {
+        const std::string anchored = exe_dir() + "/../config/default_zone.ini";
+        if (file_exists(anchored)) args.ini = anchored;
+    }
+    std::cout << "[INI] " << args.ini << (file_exists(args.ini) ? "" : "  ⚠ 不存在 → 使用內建預設值")
+              << "\n";
 
     // ---- INI 預設參數 ----
     ZoneConfig base = ZoneConfigAdapter::from_ini(args.ini);
