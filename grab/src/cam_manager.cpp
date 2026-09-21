@@ -252,7 +252,7 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
         e.cam = std::make_unique<CamPylon>();
         e.cam_id = 0;
         e.serial = cli_serial;
-        if (!e.cam->open(cli_serial, pkt_size, roi_)) {
+        if (!e.cam->open(cli_serial, pkt_size, roi_, line_rate_hz_)) {
             err = "pylon open failed (serial=" + cli_serial + ")";
             return false;
         }
@@ -300,7 +300,7 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
         e.mac    = picks[i].mac;
         e.ccd_id = picks[i].ccd_id;
         e.bind_source = picks[i].source;
-        if (!e.cam->open(e.serial, pkt_size, roi_)) {
+        if (!e.cam->open(e.serial, pkt_size, roi_, line_rate_hz_)) {
             err = "cam" + std::to_string(e.cam_id) + " (SN=" + e.serial + ") open 失敗";
             stop_all();                     // fail-fast：不留半開陣列
             return false;
@@ -345,7 +345,7 @@ CamPylon* CamManager::get_or_open_primary(const std::string& cli_serial, int64_t
     e.cam = std::make_unique<CamPylon>();
     e.cam_id = 0;
     e.serial = cli_serial;
-    if (!e.cam->open(cli_serial, pkt_size, roi_)) return nullptr;
+    if (!e.cam->open(cli_serial, pkt_size, roi_, line_rate_hz_)) return nullptr;
     cams_.push_back(std::move(e));
     // 標記「這組是 idle 調參路徑開的、不是完整陣列」→ 下次 open_all 必須重開，
     // 否則 GRAB_ARM(ALL) 會把這一台當成整個陣列（靜默少台，見 open_all 註解）。

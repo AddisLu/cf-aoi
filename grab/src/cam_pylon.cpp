@@ -58,7 +58,8 @@ std::vector<CamInfo> CamPylon::enumerate_cameras() {
     return out;
 }
 
-bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
+bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi,
+                    double line_rate_hz) {
     if (opened_) return true;
 
     PylonInitialize();
@@ -115,6 +116,26 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
         if (!roi_err.empty())
             throw std::runtime_error("ROI 設定未生效（" + roi_err + "）");
 
+        // 5) 行速率：**不設就會繼承相機 flash**。2026-09-21 四台實測不一致——CCD01/02 被
+        //    UserSet1 鎖在 11,001 Hz、CCD03/04 出廠不設限跑 12,195 Hz，而 grab 當時完全
+        //    沒設此節點 → 同一批相機吞吐差 11%，且無人察覺。與 Width/Height 同等顯式化。
+        //    必須在 ROI 之後設：AcquisitionLineRateAbs 的上限隨 Width/Height 變。
+        //    相機會自行收斂到感測器/頻寬能力（設 max 讀回 max，實際看 ResultingLineRateAbs）。
+        if (line_rate_hz != 0) {
+            try {
+                CFloatParameter lr(nm, "AcquisitionLineRateAbs");
+                lr.SetValue(line_rate_hz > 0 ? line_rate_hz : lr.GetMax());
+                line_rate_set_ = lr.GetValue();
+            } catch (...) {
+                // 非 raL8192 或無此節點 → 略過（不是致命：舊行為就是不設）
+                line_rate_set_ = 0;
+            }
+        }
+        // ResultingLineRateAbs = 相機依 ROI + 曝光 + 頻寬算出的實際上限（唯讀）。
+        // ⚠️ 曝光會壓它：實測 行週期 = max(82.0µs, 曝光 + 5.4µs)，即曝光 >76.6µs 後 1:1 變慢。
+        try { line_rate_res_ = CFloatParameter(nm, "ResultingLineRateAbs").GetValue(); }
+        catch (...) { line_rate_res_ = 0; }
+
         chunk_bytes_ = CIntegerParameter(nm, "PayloadSize").GetValue();
         payload_     = chunk_bytes_ * stitch_;
         if (stitch_ > 1) stitch_buf_.assign((size_t)payload_, 0);
@@ -136,6 +157,11 @@ bool CamPylon::open(const std::string& serial, int64_t pkt_size, Roi roi) {
                c->GetDeviceInfo().GetSerialNumber().c_str(),
                (long long)CIntegerParameter(nm, "Width").GetValue(),
                cam_h * stitch_, (long long)payload_, stitch_, cam_h);
+        if (line_rate_res_ > 0)
+            printf("[cam_pylon] 行速率: 設定 %.1f Hz → 實際上限 %.1f Hz（行週期 %.2fµs，"
+                   "每 %lld 行 %.1fms）\n",
+                   line_rate_set_, line_rate_res_, 1e6 / line_rate_res_,
+                   cam_h * stitch_, cam_h * stitch_ / line_rate_res_ * 1000.0);
         return true;
 
     } catch (const GenericException& e) {
@@ -336,6 +362,16 @@ bool CamPylon::set_params(float exposure_us, int gain_raw,
         gain_actual = (int)  CIntegerParameter(nm, "GainRaw").GetValue();
         printf("[cam_pylon] set_params: exp %.1f→%.1fµs  gain %d→%d raw\n",
                exposure_us, exp_actual, gain_raw, gain_actual);
+        // 曝光會壓行速率（實測 行週期 = max(82.0µs, 曝光+5.4µs)）→ 曝光 >76.6µs 起 1:1 變慢。
+        // 這條很容易被誤判成「傳輸變慢」，所以在設曝光的當下就說出來。
+        double now = 0;
+        try { now = CFloatParameter(nm, "ResultingLineRateAbs").GetValue(); } catch (...) {}
+        if (now > 0 && line_rate_res_ > 0 && now < line_rate_res_ * 0.99) {
+            fprintf(stderr, "[cam_pylon] ⚠ 曝光 %.1fµs 壓低行速率：%.1f → %.1f Hz"
+                    "（-%.0f%%）——吞吐同比下降，非傳輸問題\n",
+                    exp_actual, line_rate_res_, now, (1.0 - now / line_rate_res_) * 100.0);
+        }
+        line_rate_res_ = now > 0 ? now : line_rate_res_;
         return true;
     } catch (const GenericException& e) {
         fprintf(stderr, "[cam_pylon] set_params 失敗：%s\n", e.GetDescription());
@@ -379,6 +415,11 @@ bool CamPylon::read_machine_params(MachineParams& mp, std::string& err) {
         mp.height      = it("Height");
         mp.packet_size = it("GevSCPSPacketSize");
         mp.scpd        = it("GevSCPD");
+        auto fl = [&](const char* n) -> double {
+            try { return CFloatParameter(nm, n).GetValue(); } catch (...) { return 0; }
+        };
+        mp.line_rate_set       = fl("AcquisitionLineRateAbs");
+        mp.line_rate_resulting = fl("ResultingLineRateAbs");
         return true;
     } catch (const GenericException& e) {
         err = e.GetDescription();

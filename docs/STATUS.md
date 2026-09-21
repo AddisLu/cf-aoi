@@ -582,13 +582,32 @@ grab **從不設定行速率節點**（`cam_pylon.cpp:80-114` 只設 PixelFormat
 | 單台頻寬 | 97.9 MB/s | **99.9 MB/s** | 3.70 GB/s（29.6 Gbps，100G 的 30%）|
 | 收端上限 | 98.6 fps | 同（未重驗）| 餘裕 **9%**（原估 11%）|
 
-**⑤ 待辦（皆需寫相機／改 grab，不在本次唯讀範圍）**
-- [ ] **解開 CCD01/CCD02 的 11,001 Hz 限制**（寫 `AcquisitionLineRateAbs`，或把
-      `UserSetDefaultSelector` 改回 `Default`）→ 四台齊一到 12,195
-- [ ] **grab 應顯式設定 `AcquisitionLineRateAbs`**，與 Width/Height 同等對待。現況是「不設 =
-      繼承 flash」，換一台相機就可能換一個行速率而無人察覺 —— 與 8160/8192 幀幾何同一類問題
-- [ ] **`--pkt-size` 預設 8192 → 9000**：相機 flash 存的本來就是 9000，grab 每次 open 反而把它
-      降到 8192（`GevSCPSPacketSize` 上限 16404，交換機 jumbo 9416、主機 MTU 9000）
+**⑤ 修正（2026-09-21 同日落地，見 grab/CLAUDE.md 不變式 11）**
+- [x] **grab 顯式設定 `AcquisitionLineRateAbs`**（`--line-rate max|keep|N`，預設 max），
+      在 ROI 之後設、印出「設定 X → 實際上限 Y（行週期 Z）」，`GET_CAM_NODES` 亦回報
+- [x] **CCD01/CCD02 的 11,001 限制在執行期被解開**（不動相機 flash，改由 grab 每次 open 設定
+      —— 比改 UserSet 更穩：換任何一台相機都會被拉齊，不依賴那台的出廠狀態）
+- [x] **`--pkt-size` 預設 8192 → 9000**（相機 flash 本來就是 9000，grab 反而把它降級）
+- [x] **曝光→行速率曲線實測**：`行週期 = max(82.0µs, 曝光+5.4µs)`，曝光 ≤76.6µs 免費、
+      超過 1:1 變慢；上限 10,000µs → 99.9 行/s。**亮度不能靠拉曝光換**（線掃跑速由產線固定），
+      只能光圈/gain/光源 —— 這把「光量差 25–30 倍」換算成 2000µs ÷ 76.6µs = **26×** 的硬數字
+
+**⑥ 修正後實機（2026-09-21，damac 4 台 × 20 張）**
+
+| | 修正前 | 修正後 |
+|---|---|---|
+| 各台 fps | 2.1 / 2.1 / 2.3 / 2.3 | **2.3 / 2.3 / 2.3 / 2.3** |
+| 合計 | 8.0 fps、328 MB/s | **8.87 fps、347 MB/s（2.77 Gbps）** |
+| 掉幀 / CRC | 0 / 0 | **0 / 0**（IP 端 recv ok=80 err=0）|
+| GPU/幀 | p50 8ms、avg 7.84ms | p50 8ms、avg 7.97ms（缺陷數不同，同級）|
+
+離線迴歸：b1_fault_containment 20 項 / stitch 22 項 / ccd_identity 29 項 / 調機工具 34 項全過。
+
+**⑦ 仍未解**
+- [ ] `TriggerSelector=LineStart` 的 `TriggerMode` 未讀（要讀必須寫 selector）。因
+      `ResultingLineRateAbs` 已完全解釋實測值，優先度低
+- [ ] ⚠️ **光量**：全速曝光預算 76.6µs，而 mean≈90 需 2000µs → 差 26 倍，**未解**。
+      接 encoder 行觸發後行速率改由產線決定，本節的「不設限」設定需重新檢討
 - [ ] `TriggerSelector=LineStart` 的 `TriggerMode` 仍未讀（要讀必須寫 selector，本次刻意不做）。
       因 `ResultingLineRateAbs` 已完全解釋實測值，此項優先度降低
 - [ ] ⚠️ **與行速率獨立**：光量差 25–30 倍的問題未解（見上文），12,195 行/s 這個工作點

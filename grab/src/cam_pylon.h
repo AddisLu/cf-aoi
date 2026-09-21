@@ -42,6 +42,8 @@ struct MachineParams {
     std::string pixel_format, exposure_auto, gain_auto;
     std::string trigger_mode, trigger_selector, trigger_source;
     long long width = 0, height = 0, packet_size = 0, scpd = 0;
+    // 行速率（2026-09-21 起 open() 顯式設定；resulting 是相機依 ROI/曝光/頻寬算出的實際上限）
+    double line_rate_set = 0, line_rate_resulting = 0;
 };
 
 // 影像 ROI（open 時設定）。0 = 不動相機現值。
@@ -66,7 +68,11 @@ public:
     // 成功後可呼叫 payload_size() 取得幀大小，再去連 RDMA。
     // roi 非 0 → 設 Width/Height 並讀回確認；設不進（超出相機範圍等）→ open 失敗（fail-fast，
     // 不可默默用相機現值：新相機出廠 Height=256，不設 = 每幀 256 行且無任何錯誤）。
-    bool open(const std::string& serial = "auto", int64_t pkt_size = 8192, Roi roi = {});
+    // line_rate_hz：>0 = 設為該值；0 = 不動相機現值（舊行為）；<0 = 設為節點上限（不設限）。
+    // 不設會繼承相機 flash —— 2026-09-21 實測四台不一致（兩台被 UserSet1 鎖在 11,001 Hz、
+    // 兩台出廠不設限 12,195 Hz），故與 Width/Height 同等顯式化。見 grab/CLAUDE.md 不變式 11。
+    bool open(const std::string& serial = "auto", int64_t pkt_size = 9000, Roi roi = {},
+              double line_rate_hz = -1);
 
     int64_t  payload_size() const { return payload_; }   // 送出幀大小（已含拼接）
     uint32_t stitch_count() const { return stitch_; }    // 每張送出幀 = 幾張相機幀（1 = 不拼接）
@@ -123,6 +129,9 @@ private:
     void*    camera_ptr_  = nullptr;  // CInstantCamera*
     bool     opened_      = false;
     int64_t  payload_     = 0;
+    // 行速率（open 時設定/讀回；set_params 改曝光後會重讀並在被壓低時警告）
+    double   line_rate_set_ = 0;   // 寫進 AcquisitionLineRateAbs 的值
+    double   line_rate_res_ = 0;   // 相機算出的 ResultingLineRateAbs（實際上限）
     uint16_t cam_id_      = 0;
     FrameCb  cb_;
 

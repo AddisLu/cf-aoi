@@ -33,6 +33,9 @@ public:
     bool   TrySetValue(double) { return true; }
     void   SetValue(double)    {}
     double GetValue() const    { return 0.0; }
+    // cam_pylon open() 以 GetMax() 取「不設限」的行速率上限（--line-rate max）
+    double GetMax() const      { return 1e9; }
+    double GetMin() const      { return 0.0; }
 };
 
 class CEnumParameter {

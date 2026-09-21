@@ -83,6 +83,8 @@ public:
 
     // 之後每次開相機（open_all / get_or_open_primary）都套用的 ROI。0 = 不動相機現值。
     void set_roi(Roi roi) { roi_ = roi; }
+    // 行速率（Hz）：>0 設為該值；0 不動相機現值；<0 設為節點上限（不設限）。見 CamPylon::open。
+    void set_line_rate(double hz) { line_rate_hz_ = hz; }
     void stop_all();   // 停 thread + 關相機 + 清列表
 
     size_t    size()  const { return cams_.size(); }
@@ -118,4 +120,5 @@ private:
     // open_all 看到此旗標一律重開，避免把單台當成整個陣列（靜默少台）。
     bool primary_only_ = false;
     Roi  roi_;
+    double line_rate_hz_ = -1;   // 預設不設限（與出廠相機一致）
 };

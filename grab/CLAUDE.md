@@ -193,7 +193,8 @@ grab/
 | `--frames-per-panel N` | 0 | 每片每台張數（0=連續；GRAB_START params 可覆蓋）|
 | `--cam-id N` | 0 | 單台模式的 FrameHeader.camId（legacy）|
 | `--serial STR` | auto | pylon 序號；auto = 第一台（單台模式）|
-| `--pkt-size N` | 8192 | GevSCPSPacketSize |
+| `--pkt-size N` | **9000** | GevSCPSPacketSize。相機出廠值就是 9000；2026-09-21 前預設 8192，等於每次 open 把相機降級、白白多 10% 封包數。需主機 NIC MTU 9000、交換機 jumbo（已 9416）|
+| `--line-rate max\|keep\|N` | **max** | 相機行速率 Hz。max = 設為節點上限（不設限，相機自行收斂到感測器/頻寬能力）；keep = 不動相機現值（舊行為）；N = 指定值。見不變式 11 |
 | `--width N` | 8192 | 相機 ROI 寬；0 = 不動相機現值。設不進 → 開相機失敗 |
 | `--height N` | 5000 | **送出**的每幀行數。超過相機單幀上限（raL8192@寬 8192 = 3573）→ 相機 Height 設 N/k、每 k 張拼成一張（5000 = 2×2500）；0 = 不動、不拼接 |
 | `--ctrl-port N` | 8100 | 等 Control 連入的 TCP port |
@@ -276,3 +277,20 @@ grab/
    - 相機幀大小 ≠ 預期 → 視為故障（B1 路徑），不送錯位影像。
    - `grabbed` / `frames_per_panel` 以**送出幀**計；`GET_CAM_NODES` 的 Height 是**相機**值（2500）。
    - 迴歸測試：`grab/test/stitch/`（stub 腳本幀）；實機：2026-09-17 SN25564093 3 張 8192×5000 dropped=0、~410ms/張。
+
+11. **行速率必須由 grab 顯式設定，不可繼承相機 flash（2026-09-21）**：
+   raL8192 有 `AcquisitionLineRateAbs`（RW）與 `ResultingLineRateAbs`（RO，相機依 ROI+曝光+頻寬
+   算出的實際上限）。**grab 原本完全不設此節點**，結果四台到貨相機設定不一致：
+   CCD01/CCD02 被 `UserSet1` 鎖在 **11,001 Hz**、CCD03/CCD04 出廠不設限跑 **12,195 Hz**
+   → 同一批相機吞吐差 11%，而且任何 log 都看不出來（只會表現成「有兩台比較慢」）。
+   - `CamPylon::open()` 在**設完 ROI 之後**設定（上限隨 Width/Height 變），並印出
+     `設定 X Hz → 實際上限 Y Hz（行週期 Zµs）`；`GET_CAM_NODES` 亦回 `line_rate_set`/`line_rate_resulting`。
+   - **與 8160/8192 幀幾何是同一類問題**：關鍵參數沒人設、靜默繼承自別處，換一台相機就換一個行為。
+   - ⚠️ **曝光會壓行速率**：實測 `行週期 = max(82.0µs, 曝光 + 5.4µs)`（8192 寬）→ 曝光 **≤76.6µs 免費**
+     （與讀出重疊），超過即 **1:1 線性變慢**。`set_params()` 偵測到被壓低會印警告，因為這極易被
+     誤判成「傳輸變慢」。曝光上限 10,000µs → 99.9 行/s（一張 5000 行要 50 秒）。
+   - **線掃跑速由產線決定、曝光無可用空間** → 亮度只能靠光圈 / gain / 光源，不能靠拉曝光。
+   - ⚠️ 現為 free-run（`TriggerMode=Off`）故取「不設限」；**未來接 encoder 行觸發後，行速率由
+     encoder 決定，此設定需重新檢討**。
+   - 實機（2026-09-21，damac 4 台）：四台齊一 12,195.1 Hz，80 幀 dropped=0、IP 端 recv ok=80 err=0，
+     合計 8.87 fps / 347 MB/s（修正前 8.0 fps / 328 MB/s，**+11%**）。

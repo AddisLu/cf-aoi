@@ -23,7 +23,14 @@
 //   --frames-per-panel N     每片每台張數（預設 0 = 連續；GRAB_START params 可覆蓋）
 //   --cam-id      N          單台模式 cam_id（預設 0；多台依列舉順序 0..N-1）
 //   --serial      STRING     pylon 序號；auto = 第一台（僅單台模式，預設 auto）
-//   --pkt-size    N          GevSCPSPacketSize（預設 8192）
+//   --pkt-size    N          GevSCPSPacketSize（預設 9000 = 相機出廠值；主機 NIC MTU 需 9000、
+//                            交換機 jumbo 9416。2026-09-21 前預設 8192，等於每次 open 把相機
+//                            從 9000 降級，白白多 10% 封包數）
+//   --line-rate   max|keep|N 相機行速率（Hz）。預設 max = 設為節點上限（不設限，相機自行收斂到
+//                            感測器/頻寬能力）；keep = 不動相機現值（舊行為）；N = 指定值。
+//                            ⚠️ 不設會繼承相機 flash：2026-09-21 實測四台不一致（兩台被 UserSet1
+//                            鎖在 11,001 Hz、兩台出廠 12,195 Hz），吞吐差 11% 而無人察覺。
+//                            ⚠️ 曝光會壓它：行週期 = max(82.0µs, 曝光+5.4µs)，曝光 >76.6µs 起 1:1 變慢。
 //   --width       N          相機 ROI 寬（預設 8192；0 = 不動相機現值）
 //   --height      N          送出的每幀行數（預設 5000）。超過相機單幀上限（raL8192@8192 寬 = 3573）時
 //                            自動設相機 Height=N/k 並每 k 張拼成一張；0 = 不動相機現值、不拼接
@@ -166,7 +173,8 @@ int main(int argc, char** argv) {
     int         cli_frames  = 0;       // 每片每台張數預設（0 = 連續；GRAB_START 可覆蓋）
     uint16_t    cam_id      = 0;       // 單台模式使用；多台依列舉順序派 0..N-1
     std::string serial      = "auto";
-    int64_t     pkt_size    = 8192;
+    int64_t     pkt_size    = 9000;    // 相機出廠值；8192 等於每次 open 把它降級
+    double      line_rate   = -1;      // <0 = 設為節點上限（不設限）；0 = 不動；>0 = 指定 Hz
     Roi         roi{8192, 5000};           // 設不進相機 → 開相機失敗（fail-fast）；5000 行 = 相機 2×2500 拼接
     int         ctrl_port   = 8100;
     std::string cam_cfg_path;                  // 空 = 預設 exe 上一層/cam_config.json
@@ -184,6 +192,10 @@ int main(int argc, char** argv) {
         else if (a == "--cam-id")      cam_id       = (uint16_t)atoi(next());
         else if (a == "--serial")      serial       = next();
         else if (a == "--pkt-size")    pkt_size     = atoll(next());
+        else if (a == "--line-rate") {
+            const std::string v = next();
+            line_rate = (v == "max") ? -1 : (v == "keep") ? 0 : atof(v.c_str());
+        }
         else if (a == "--width")       roi.width    = atoll(next());
         else if (a == "--height")      roi.height   = atoll(next());
         else if (a == "--ctrl-port")   ctrl_port    = atoi(next());
@@ -227,6 +239,7 @@ int main(int argc, char** argv) {
     // ---- 元件 ----
     CamManager    mgr;
     mgr.set_roi(roi);
+    mgr.set_line_rate(line_rate);
     RdmaSender    sender;
     ControlServer ctrl(ctrl_port);
 
@@ -480,7 +493,9 @@ int main(int argc, char** argv) {
             {"width",            mp.width},
             {"height",           mp.height},
             {"packet_size",      mp.packet_size},
-            {"scpd",             mp.scpd}
+            {"scpd",             mp.scpd},
+            {"line_rate_set",       mp.line_rate_set},
+            {"line_rate_resulting", mp.line_rate_resulting}
         };
         js = j.dump();
         return true;
@@ -582,6 +597,9 @@ int main(int argc, char** argv) {
                ctrl_port, rdma_host.c_str(), rdma_port.c_str(),
                cam_count == 0 ? "ALL" : std::to_string(cam_count).c_str(), cli_frames,
                (long long)roi.width, (long long)roi.height);
+        printf("[main] pkt_size=%lld  line_rate=%s\n", (long long)pkt_size,
+               line_rate < 0 ? "max（不設限）" : line_rate == 0 ? "keep（不動相機現值）"
+                                               : std::to_string(line_rate).c_str());
         printf("[main] cam_config=%s  cam0: exp=%.1fµs  gain=%d raw\n",
                cam_cfg_path.c_str(), cfg.exposure_us, cfg.gain_raw);
     }
