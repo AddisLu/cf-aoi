@@ -194,7 +194,7 @@ grab/
 | `--cam-id N` | 0 | 單台模式的 FrameHeader.camId（legacy）|
 | `--serial STR` | auto | pylon 序號；auto = 第一台（單台模式）|
 | `--pkt-size N` | **9000** | GevSCPSPacketSize。相機出廠值就是 9000；2026-09-21 前預設 8192，等於每次 open 把相機降級、白白多 10% 封包數。需主機 NIC MTU 9000、交換機 jumbo（已 9416）|
-| `--line-rate max\|keep\|N` | **max** | 相機行速率 Hz。max = 設為節點上限（不設限，相機自行收斂到感測器/頻寬能力）；keep = 不動相機現值（舊行為）；N = 指定值。見不變式 11 |
+| `--line-rate max\|keep\|N` | **12000** | 相機行速率 Hz。**預設 12000 = 產線 96mm/s ÷ 8µm/line** —— free-run 下這個值決定影像比例尺而非快慢，故取產線值而非相機上限 12195（餘裕僅 1.6%）。max = 節點上限（bench 用）；keep = 不動相機現值。見不變式 11 |
 | `--width N` | 8192 | 相機 ROI 寬；0 = 不動相機現值。設不進 → 開相機失敗 |
 | `--height N` | 5000 | **送出**的每幀行數。超過相機單幀上限（raL8192@寬 8192 = 3573）→ 相機 Height 設 N/k、每 k 張拼成一張（5000 = 2×2500）；0 = 不動、不拼接 |
 | `--ctrl-port N` | 8100 | 等 Control 連入的 TCP port |

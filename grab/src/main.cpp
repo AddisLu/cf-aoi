@@ -26,8 +26,9 @@
 //   --pkt-size    N          GevSCPSPacketSize（預設 9000 = 相機出廠值；主機 NIC MTU 需 9000、
 //                            交換機 jumbo 9416。2026-09-21 前預設 8192，等於每次 open 把相機
 //                            從 9000 降級，白白多 10% 封包數）
-//   --line-rate   max|keep|N 相機行速率（Hz）。預設 max = 設為節點上限（不設限，相機自行收斂到
-//                            感測器/頻寬能力）；keep = 不動相機現值（舊行為）；N = 指定值。
+//   --line-rate   max|keep|N 相機行速率（Hz）。**預設 12000 = 產線 96mm/s ÷ 8µm/line**（2026-09-21
+//                            Addis 確認）——free-run 下這個值決定影像比例尺，不是快慢，故取產線值
+//                            而非相機上限 12195。max = 節點上限（bench 用）；keep = 不動相機現值。
 //                            ⚠️ 不設會繼承相機 flash：2026-09-21 實測四台不一致（兩台被 UserSet1
 //                            鎖在 11,001 Hz、兩台出廠 12,195 Hz），吞吐差 11% 而無人察覺。
 //                            ⚠️ 曝光會壓它：行週期 = max(82.0µs, 曝光+5.4µs)，曝光 >76.6µs 起 1:1 變慢。
@@ -178,7 +179,9 @@ int main(int argc, char** argv) {
     uint16_t    cam_id      = 0;       // 單台模式使用；多台依列舉順序派 0..N-1
     std::string serial      = "auto";
     int64_t     pkt_size    = 9000;    // 相機出廠值；8192 等於每次 open 把它降級
-    double      line_rate   = -1;      // <0 = 設為節點上限（不設限）；0 = 不動；>0 = 指定 Hz
+    // 12000 Hz = 產線 96mm/s ÷ 8µm/line（free-run 無 encoder → 行速率 = 影像比例尺）。
+    // 相機上限 12195，故餘裕僅 1.6%；<0 = 節點上限（bench）；0 = 不動相機現值。
+    double      line_rate   = 12000;
     Roi         roi{8192, 5000};           // 設不進相機 → 開相機失敗（fail-fast）；5000 行 = 相機 2×2500 拼接
     int         ctrl_port   = 8100;
     std::string cam_cfg_path;                  // 空 = 預設 exe 上一層/cam_config.json
@@ -602,8 +605,11 @@ int main(int argc, char** argv) {
                cam_count == 0 ? "ALL" : std::to_string(cam_count).c_str(), cli_frames,
                (long long)roi.width, (long long)roi.height);
         printf("[main] pkt_size=%lld  line_rate=%s\n", (long long)pkt_size,
-               line_rate < 0 ? "max（不設限）" : line_rate == 0 ? "keep（不動相機現值）"
-                                               : std::to_string(line_rate).c_str());
+               line_rate < 0 ? "max（不設限，bench 用）"
+               : line_rate == 0 ? "keep（不動相機現值）"
+               : (std::to_string((long long)line_rate) + " Hz → 每張 " +
+                  std::to_string((long long)roi.height) + " 行 = " +
+                  std::to_string(roi.height / line_rate * 1000.0).substr(0, 5) + " ms").c_str());
         printf("[main] cam_config=%s  cam0: exp=%.1fµs  gain=%d raw\n",
                cam_cfg_path.c_str(), cfg.exposure_us, cfg.gain_raw);
     }

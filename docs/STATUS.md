@@ -603,7 +603,30 @@ grab **從不設定行速率節點**（`cam_pylon.cpp:80-114` 只設 PixelFormat
 
 離線迴歸：b1_fault_containment 20 項 / stitch 22 項 / ccd_identity 29 項 / 調機工具 34 項全過。
 
-**⑦ 仍未解**
+**⑦ 生產行速率定案（2026-09-21，Addis 確認產線參數）**
+
+產線做法 = **軟體觸發 free-run，非 encoder**：Sheet Panel 進片碰 sensor → 上位機 `CF_GRAB_START`
+→ Control → Grab `GRAB_START` → 所有相機開始取像 → 收滿 `frames_per_panel` 張自動停
+（此鏈 2026-07-21 已 L3：`GRAB_START` 往返 0.3ms、收滿自動停 dropped=0）。
+
+∴ 行速率決定**影像比例尺**：`Y 解析度 = 產線速度 ÷ 行速率`。產線 **96mm/s + 8µm/line**
+→ `--line-rate` 生產預設定為 **12000**（非相機上限 12195）。
+
+| | 行速率 | Y 解析度 | 每張 5000 行 |
+|---|---|---|---|
+| 目標 | 12,000.0 Hz | 8.0000 µm | 40.000 mm |
+| **實際（相機量化到 83.30µs）** | **12,004.8 Hz** | **7.9968 µm** | **39.984 mm** |
+| （相機上限，僅 bench 用）| 12,195.1 Hz | 7.8720 µm | 39.360 mm |
+
+偏差 **−0.04%**（每張 −0.016mm、30 張累積 −0.48mm）。行週期 granularity 0.1µs，83.3µs 是離
+理論 83.333µs 最近的檔位（83.4µs 為 −0.08%，更差）→ **12,004.8 已是最佳可達值**。
+⚠️ IP 的 `expected_panel_lines`（= 玻璃長 ÷ 行解析度）要用 **7.9968µm** 而非 8.000µm 算，
+否則每片會有 +0.04% 的系統性假性 drift（未達 `drift_warn_pct=0.2%` 門檻故不會誤報，但數字要對）。
+
+實機（damac 4 台 × 20 張）：四台齊一 12,004.8 Hz、各 2.3 fps、dropped=0、
+IP 端 recv ok=80 err=0、佇列峰值 2/8、背壓 0。
+
+**⑧ 仍未解**
 - [ ] `TriggerSelector=LineStart` 的 `TriggerMode` 未讀（要讀必須寫 selector）。因
       `ResultingLineRateAbs` 已完全解釋實測值，優先度低
 - [ ] ⚠️ **光量**：全速曝光預算 76.6µs，而 mean≈90 需 2000µs → 差 26 倍，**未解**。
