@@ -26,12 +26,33 @@
   這組測試在修正前應會編譯失敗（`CamNodesModel` 無 `LineRateSet`/`LineRateResulting`/
   `IsLineRateOk`，`GrabClient` 無 `CheckLineRateAsync`），修正後應全數通過。
 
-## TODO（第二輪：已裝 .NET SDK，但我自己仍不能直接跑 `dotnet`）
+## 進度時間線
 
-**第一輪**發現本機（引擎主機，DGX Spark/GB10 aarch64）沒裝 .NET SDK，導致引擎的「建置」驗證步驟
-失敗（`LOOP_RESUME_CONTEXT.md` 回報 `bash: line 1: dotnet: command not found`）。
+- **第一輪**：本機（引擎主機，DGX Spark/GB10 aarch64）沒裝 .NET SDK，引擎「建置」驗證步驟失敗
+  （`bash: line 1: dotnet: command not found`）。
+- **第二輪**：裝好 .NET 8 SDK + `~/.local/bin/dotnet` symlink（見下）。引擎重跑後**找到 dotnet 了**
+  （login shell 確實吃 `~/.profile`，推測成立）——證據：這次 `LOOP_RESUME_CONTEXT.md` 回報的不再是
+  `command not found`，而是真的跑了 dotnet 印出首次執行的歡迎訊息（SDK Version 8.0.425、telemetry
+  提示、ASP.NET Core HTTPS 開發憑證安裝），接著才是新的錯誤：
+  ```
+  MSBUILD : error MSB1003: Specify a project or solution file. The curr[ent working directory
+  does not contain a project or solution file.]
+  ```
+  原因：repo/worktree **根目錄**沒有 `.sln`（也沒有 `.csproj`），而專案慣例一向是
+  `cd control/src && dotnet build`（見 `control/CLAUDE.md`/`docs/html/cf-aoi-training.html`）。
+  引擎顯然是在 worktree 根目錄直接跑裸的 `dotnet build`/`dotnet test`（沒有先 `cd control/src`），
+  MSBuild 找不到當下目錄裡唯一的 project/solution 就報 MSB1003。
+- **第三輪（本次）**：在 repo 根目錄新增 `cf-aoi.sln`，納入 `control/src/CfAoiControl.csproj` +
+  `control/tests/CfAoiControl.Tests.csproj` 兩個專案（手寫 .sln，GUID 用 `node crypto.randomUUID()`
+  生成；專案類型 GUID 為標準 C# `{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}`）。這樣裸的
+  `dotnet build`/`dotnet test`（在 repo 根目錄執行）應該能自動撈到這個 `.sln` 建置兩個專案、
+  測試其中的 xUnit 專案。**此檔我自己同樣無法用 `dotnet` 實際驗證**（見下一節的權限限制仍然存在），
+  已盡力手動核對 `.sln` 文字格式（含必要的檔頭空行——這是 Visual Studio 產生的 .sln 的正常格式，
+  不是我筆誤）。
 
-**第二輪（本次）已裝好 SDK**：Bash 權限只開放 `git/npm/node/ls/cat`（`dotnet`/`docker`/`bash -c`
+## TODO（我自己仍不能直接跑 `dotnet`，只能交給下一次引擎驗證）
+
+Bash 權限只開放 `git/npm/node/ls/cat`（`dotnet`/`docker`/`bash -c`
 一律「requires approval」被擋，`.claude/settings.local.json` 本身也不能編輯、`~/.profile`/
 `~/.bashrc` 屬 sensitive file 同樣擋編輯——這些都不是我能自行核可的),改用僅靠 **node 內建模組**
 （`https`/`fs`/`zlib`，非 shell-escape）完成：
@@ -70,13 +91,12 @@ shell）去繞過這個擋——那些雖然技術上能跑，但本質是拿已
 我這層 Bash 權限檢查——第一輪它直接跑到了 `command not found`，而不是「requires approval」）。
 
 **下一步（人工或引擎）**：
-- 直接重跑一次 LOOP_TASK 的驗證步驟（建置/測試）；若引擎用 login shell 執行，`~/.local/bin/dotnet`
-  現在應該能被找到。
-- 若仍是 `command not found`：代表引擎的 shell 不是 login shell、也不吃 `~/.profile`，需要有人
-  （有 sudo 或能編輯 `.claude/settings.local.json`／引擎啟動環境的人）額外把 `~/.local/bin` 或
-  `~/.dotnet` 顯式放進引擎呼叫時的 PATH，或直接核可 `"Bash(dotnet:*)"` 讓我能自己重試收尾。
-- 若找到 dotnet 但 build/test 本身報錯：大概率是我沒能實跑而漏看的小筆誤（型別/using/JSON 跳脫），
+- 直接重跑一次 LOOP_TASK 的驗證步驟（建置/測試）。目前狀態：dotnet 已找到（第二輪證實），
+  `cf-aoi.sln`（本輪新增）應該解掉 MSB1003。
+- 若又是新的錯誤訊息：大概率是我沒能實跑而漏看的小筆誤（型別/using/JSON 跳脫／.sln GUID 格式），
   直接修正即可，不需要整體重新設計——核心邏輯（行速率門檻判定 + 依 cam_id 路由）已經過三方交叉確認。
+- 若需要我自己能實跑確認：核可 `"Bash(dotnet:*)"` 到 `.claude/settings.local.json`，我就能自己
+  重試收尾，不必再這樣一輪一輪猜引擎的執行環境。
 
 ```bash
 cd control/src  && dotnet build
@@ -100,11 +120,12 @@ cd ../src       && dotnet run -- --selftest speed   # 人工驗收：操作一�
 ## How to resume
 
 1. `.NET 8 SDK 8.0.425` 已裝在 `~/.dotnet`（本機 user-local，非 sudo），`~/.local/bin/dotnet`
-   已 symlink 過去。**先確認引擎這次驗證是否已經找得到 `dotnet`**（login shell 應該可以，見上方
-   TODO）。
-2. 若 build/test 找到 dotnet 但有編譯或斷言錯誤：直接修（核心邏輯已交叉確認過，應該只是小筆誤）→
-   跑綠 → `git add control/ HANDOFF.md` → commit。
-3. 若仍是 `command not found`：這不是程式碼問題，是引擎呼叫 shell 的方式不吃 `~/.profile`——
-   需要人工（或更高權限流程）把 `~/.local/bin` 加進引擎的 PATH，或直接核可
-   `"Bash(dotnet:*)"` 讓下一輪 agent 能自己重試收尾。程式碼本身（`control/src` 三個 Controllers/
-   Models 改動 + `control/tests/`）已經完成且已 commit，不需要重做。
+   已 symlink 過去，引擎已證實能找到（第二輪不再是 `command not found`）。
+2. repo 根目錄已加 `cf-aoi.sln`（納入 `control/src/CfAoiControl.csproj` +
+   `control/tests/CfAoiControl.Tests.csproj`），解掉引擎在根目錄裸跑 `dotnet build`/`dotnet test`
+   時的 `MSB1003: Specify a project or solution file`。
+3. 重跑驗證。若還有編譯或斷言錯誤：直接修（核心邏輯已交叉確認過，應該只是小筆誤）→ 跑綠 →
+   `git add -A` → commit。
+4. 若又卡在「找不到 dotnet」或其他環境層問題：核可 `"Bash(dotnet:*)"` 讓下一輪 agent 能自己
+   直接重試收尾，不必再這樣隔輪才看到一次錯誤訊息、隔輪才修一個。程式碼本身（`control/src` 三個
+   Controllers/Models 改動 + `control/tests/` + `cf-aoi.sln`）已經完成且已 commit，不需要重做。

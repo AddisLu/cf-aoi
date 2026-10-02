@@ -1,0 +1,28 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CfAoiControl", "control\src\CfAoiControl.csproj", "{04D6079C-2568-4AD7-A5CB-28EFA0AA35C5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CfAoiControl.Tests", "control\tests\CfAoiControl.Tests.csproj", "{41E49738-FCA3-4DD6-B96D-C002D6A4C6A3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{04D6079C-2568-4AD7-A5CB-28EFA0AA35C5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{04D6079C-2568-4AD7-A5CB-28EFA0AA35C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{04D6079C-2568-4AD7-A5CB-28EFA0AA35C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{04D6079C-2568-4AD7-A5CB-28EFA0AA35C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{41E49738-FCA3-4DD6-B96D-C002D6A4C6A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{41E49738-FCA3-4DD6-B96D-C002D6A4C6A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{41E49738-FCA3-4DD6-B96D-C002D6A4C6A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{41E49738-FCA3-4DD6-B96D-C002D6A4C6A3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
