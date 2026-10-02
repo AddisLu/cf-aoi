@@ -361,12 +361,13 @@ public partial class SystemSettingsViewModel : ViewModelBase
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
-            var n = await _svc.Connection.Grab.GetCamNodesAsync(cts.Token);
+            var n = await _svc.Connection.Grab.GetCamNodesAsync(0, cts.Token);
             if (n is null) { CamStatus = "ERR：讀取失敗（取像中?）"; return; }
             MachineParamsText =
                 $"PixelFormat={n.PixelFormat}　ExposureAuto={n.ExposureAuto}　GainAuto={n.GainAuto}\n" +
                 $"TriggerMode={n.TriggerMode}（Selector={n.TriggerSelector} / Source={n.TriggerSource}）\n" +
-                $"ROI={n.Width}×{n.Height}　PacketSize={n.PacketSize}　GevSCPD={n.Scpd}";
+                $"ROI={n.Width}×{n.Height}　PacketSize={n.PacketSize}　GevSCPD={n.Scpd}\n" +
+                $"行速率（8-way）：設定值={n.LineRateSet:F1}Hz　相機上限={n.LineRateResulting:F1}Hz";
             CamStatus = "已讀取機器層參數";
         }
         catch (Exception ex) { CamStatus = $"ERR：{ex.Message}"; }

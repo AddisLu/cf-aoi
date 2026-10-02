@@ -125,10 +125,11 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
         };
     }
 
-    // GET_CAM_NODES：讀回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包），供 UI 顯示。
-    public async Task<CamNodesModel?> GetCamNodesAsync(CancellationToken ct = default)
+    // GET_CAM_NODES：讀回 GigE 機器層參數（PixelFormat/Auto/Trigger/ROI/封包/行速率），供 UI 顯示。
+    // camId 必帶：grab 端依 cam_id 路由（未帶=預設 0），多相機時才能逐台查行速率確認 8-way 速度。
+    public async Task<CamNodesModel?> GetCamNodesAsync(int camId = 0, CancellationToken ct = default)
     {
-        var resp = await SendCommandAsync("GET_CAM_NODES", null, ct);
+        var resp = await SendCommandAsync("GET_CAM_NODES", new JsonObject { ["cam_id"] = camId }, ct);
         if (resp?["status"]?.GetValue<string>() != "OK") return null;
         var n = resp["nodes"];
         if (n is null) return null;
@@ -144,7 +145,18 @@ public sealed class GrabClient : IDisposable, IHeartbeatClient
             Height          = n["height"]?.GetValue<long>()     ?? 0,
             PacketSize      = n["packet_size"]?.GetValue<long>() ?? 0,
             Scpd            = n["scpd"]?.GetValue<long>()        ?? 0,
+            LineRateSet       = n["line_rate_set"]?.GetValue<double>()       ?? 0,
+            LineRateResulting = n["line_rate_resulting"]?.GetValue<double>() ?? 0,
         };
+    }
+
+    /// <summary>8-way 速度確認：讀回指定相機的行速率並對照產線預期值（見 CamNodesModel.IsLineRateOk）。
+    /// 回傳 null = 相機查詢失敗（未連線/cam_id 不存在），而非「速度異常」——呼叫端須分開處理。</summary>
+    public async Task<bool?> CheckLineRateAsync(
+        int camId, double expectedHz, double toleranceRatio = 0.02, CancellationToken ct = default)
+    {
+        var nodes = await GetCamNodesAsync(camId, ct);
+        return nodes?.IsLineRateOk(expectedHz, toleranceRatio);
     }
 
     // 相機陣列總覽：LIST_CAMERAS（唯讀列舉）。回傳每台 {cam_id,mac,model,ip,online,persistent,...}。

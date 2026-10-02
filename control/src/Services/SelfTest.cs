@@ -51,6 +51,7 @@ public static class SelfTest
                 case "recipemgmt": return RecipeMgmtTest();
                 case "recipesaving": return await RecipeSavingTest(rest);
                 case "workbench": return await WorkbenchTest();
+                case "speed":     return await SpeedTest();
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -195,6 +196,65 @@ public static class SelfTest
         Console.WriteLine(ok ? "✓ 相機總覽：LIST_CAMERAS 解析(含 ccd_id/bound) + 分群 + KPI + 綁定語意不回退"
                              : "✗ 不符");
         return ok ? 0 : 1;
+    }
+
+    // ---- 8-way 速度確認：GET_CAM_NODES 帶 cam_id 路由 + line_rate_set/resulting 解析 + 門檻判定 ----
+    // 假 grab server 回兩台「真實發生過」的分歧：cam0=12,000Hz（符合 96mm/s÷8µm/line 產線預期）、
+    // cam1=11,001.1Hz（UserSet 鎖死的歷史值）。驗：① 依 cam_id 查到各自的值（非靜默回第一台）；
+    // ② IsLineRateOk 能分辨兩者（cam0 OK、cam1 超出 2% 容許誤差 → 非 OK）。
+    private static async Task<int> SpeedTest()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var cli = await listener.AcceptTcpClientAsync();
+            using var ns = cli.GetStream();
+            var rd = new System.IO.StreamReader(ns, System.Text.Encoding.UTF8);
+            while (await rd.ReadLineAsync() is { } line && line.Length > 0)
+            {
+                var req = System.Text.Json.Nodes.JsonNode.Parse(line)!;
+                var seq = (int?)req["seq"] ?? 0;
+                string resp;
+                if (req["cmd"]!.GetValue<string>() == "GET_CAM_NODES")
+                {
+                    int camId = req["params"]?["cam_id"]?.GetValue<int>() ?? 0;
+                    double lineRate = camId == 1 ? 11001.1 : 12000.0;
+                    resp = $"{{\"seq\":{seq},\"status\":\"OK\",\"cam_id\":{camId},\"nodes\":{{" +
+                           "\"pixel_format\":\"Mono8\",\"exposure_auto\":\"Off\",\"gain_auto\":\"Off\"," +
+                           "\"trigger_mode\":\"Off\",\"trigger_selector\":\"LineStart\",\"trigger_source\":\"Line3\"," +
+                           "\"width\":8192,\"height\":2500,\"packet_size\":9000,\"scpd\":0," +
+                           $"\"line_rate_set\":{lineRate},\"line_rate_resulting\":12195.122}}}}";
+                }
+                else resp = $"{{\"seq\":{seq},\"status\":\"OK\"}}";
+                await ns.WriteAsync(System.Text.Encoding.UTF8.GetBytes(resp + "\n"));
+                await ns.FlushAsync();
+            }
+        });
+
+        var svc = AppServices.Build();
+        await svc.Connection.Grab.ConnectAsync("127.0.0.1", port);
+
+        var n0 = await svc.Connection.Grab.GetCamNodesAsync(0);
+        var n1 = await svc.Connection.Grab.GetCamNodesAsync(1);
+        bool routed = n0 is { LineRateSet: 12000.0 } && n1 is { LineRateSet: 11001.1 }
+                      && n0.LineRateResulting == 12195.122 && n1.LineRateResulting == 12195.122;
+
+        bool ok0 = await svc.Connection.Grab.CheckLineRateAsync(0, expectedHz: 12000) == true;
+        bool ok1 = await svc.Connection.Grab.CheckLineRateAsync(1, expectedHz: 12000) == false;
+
+        Console.WriteLine($"  依 cam_id 查到各自行速率（非靜默回第一台）: {(routed ? "PASS" : "FAIL")} " +
+            $"(cam0={n0?.LineRateSet} cam1={n1?.LineRateSet})");
+        Console.WriteLine($"  cam0=12,000Hz 符合產線預期 → OK: {(ok0 ? "PASS" : "FAIL")}");
+        Console.WriteLine($"  cam1=11,001.1Hz 偏離 11% → 非 OK（抓到歷史分歧）: {(ok1 ? "PASS" : "FAIL")}");
+
+        svc.Connection.Grab.Disconnect();
+        listener.Stop();
+        bool okAll = routed && ok0 && ok1;
+        Console.WriteLine(okAll ? "✓ 8-way 速度確認：逐台查行速率 + 門檻判定"
+                                 : "✗ 不符");
+        return okAll ? 0 : 1;
     }
 
     // ---- 塊1：多 CCD 陣列「宣告」拓樸 + 與「偵測相機」分開（約束②不假 merge）----
