@@ -83,15 +83,15 @@ def subset_dir(paths, keep, out):
     return out
 
 
-DM_RE = re.compile(r'\[DeathMargin\] zone \d+ ROI=\((\d+),(\d+)\)\+(\d+)x(\d+) death_margin=\(x:(\d+), y:(\d+)\)')
+DM_RE = re.compile(r'\[DeathMargin\] zone \d+ ROI=\((\d+),(\d+)\)\+(\d+)x(\d+) death_margin=\(l:(\d+), r:(\d+), t:(\d+), b:(\d+)\)')
 
 
 def inspected_area(log):
     """IP log 的 DeathMargin → (zone 面積總和, 扣掉四邊死區後實際檢到的面積)。"""
     roi = eff = 0
-    for x, y, w, h, mx, my in (tuple(map(int, m)) for m in DM_RE.findall(log)):
+    for x, y, w, h, ml, mr, mt, mb in (tuple(map(int, m)) for m in DM_RE.findall(log)):
         roi += w * h
-        eff += max(0, w - 2 * mx) * max(0, h - 2 * my)
+        eff += max(0, w - ml - mr) * max(0, h - mt - mb)
     return roi, eff
 
 

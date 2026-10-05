@@ -277,22 +277,44 @@ std::vector<IoiRect> ioi_for_slice(const std::vector<IoiRect>& in, const std::ve
 // 補邊（ZoneConfig::edge_fill）：四周各補 (pad_x, pad_y)，值 = 往內平移 (shift_x, shift_y) 的像素（pattern 週期的整數倍）。
 // 先補左右（中段列），再補上下（含已補的左右欄 → 四角也有值）。zone 太小（< 平移 + 補邊）回空 → 呼叫端不補。
 
-cv::Mat periodic_pad(const cv::Mat& sub, int pad_x, int pad_y, int shift_x, int shift_y) {
-    const int W = sub.cols, H = sub.rows;
-    if (W < shift_x + pad_x || H < shift_y + pad_y || shift_x < pad_x || shift_y < pad_y) return cv::Mat();
-    cv::Mat out(H + 2 * pad_y, W + 2 * pad_x, CV_8UC1);
-    sub.copyTo(out(cv::Rect(pad_x, pad_y, W, H)));
-    for (int r = pad_y; r < pad_y + H; ++r) {
-        uint8_t* row = out.ptr<uint8_t>(r);
-        for (int j = 0; j < pad_x; ++j) {
-            row[j] = row[j + shift_x];                                  // 左：往右（往內）平移 shift_x
-            row[pad_x + W + j] = row[pad_x + W + j - shift_x];          // 右：往左（往內）
+// 平移量自動對齊：整數 pitch × 3 與真實週期可能差 1 px 以上（T550 Y：3×18 = 54，真實 3×18.41 ≈ 55.2）
+// → 在 nominal ±3 內找與原圖最吻合（平均絕對差最小）的平移。axis 0 = 沿列（Y）、1 = 沿欄（X）。
+int best_shift(const cv::Mat& sub, int axis, int nominal, int L) {
+    int best = nominal; double bd = 1e18;
+    for (int s = std::max(1, nominal - 3); s <= nominal + 3; ++s) {
+        cv::Mat a, b;
+        if (axis == 0) {
+            if (sub.rows < s + L) continue;
+            a = sub.rowRange(0, L); b = sub.rowRange(s, s + L);
+        } else {
+            if (sub.cols < s + L) continue;
+            a = sub.colRange(0, L); b = sub.colRange(s, s + L);
         }
+        const double d = cv::norm(a, b, cv::NORM_L1) / (double)a.total();
+        if (d < bd) { bd = d; best = s; }
     }
-    for (int i = 0; i < pad_y; ++i) {
-        out.row(i + shift_y).copyTo(out.row(i));                        // 上：往下（往內）
-        out.row(pad_y + H + i - shift_y).copyTo(out.row(pad_y + H + i)); // 下：往上（往內）
+    return best;
+}
+
+// 補邊（ZoneConfig::edge_fill）：只補「zone 碰到影像邊」的那幾邊（slice 接縫、CCD 左右——那裡外面其實還是 pattern，
+// 只是這一張沒拍到）；zone 在影像內部的邊 = 晶片真正的邊（外面是外圍），不補，維持死區、交 IOI 給 AI。
+// 實測 T550：晶片邊補了 → 1,845 顆假亮點（邊緣格子與內部 pattern 不同）；CCD 左右補了 → 0。
+// 補的值 = 往內平移 shift 的像素（≈ 3 pitch，自動對齊）；先補左右（中段列），再補上下（含左右 → 四角也有值）。
+struct Pad { int l = 0, r = 0, t = 0, b = 0; };
+
+cv::Mat periodic_pad(const cv::Mat& sub, const Pad& p, int shift_x, int shift_y) {
+    const int W = sub.cols, H = sub.rows;
+    if (W < shift_x + std::max(p.l, p.r) || H < shift_y + std::max(p.t, p.b) ||
+        shift_x < std::max(p.l, p.r) || shift_y < std::max(p.t, p.b)) return cv::Mat();
+    cv::Mat out(H + p.t + p.b, W + p.l + p.r, CV_8UC1);
+    sub.copyTo(out(cv::Rect(p.l, p.t, W, H)));
+    for (int r = p.t; r < p.t + H; ++r) {
+        uint8_t* row = out.ptr<uint8_t>(r);
+        for (int j = 0; j < p.l; ++j) row[j] = row[j + shift_x];                          // 左：往內（右）平移
+        for (int j = 0; j < p.r; ++j) row[p.l + W + j] = row[p.l + W + j - shift_x];      // 右：往內（左）
     }
+    for (int i = p.t - 1; i >= 0; --i) out.row(i + shift_y).copyTo(out.row(i));            // 上：往內（下）
+    for (int i = 0; i < p.b; ++i) out.row(p.t + H + i - shift_y).copyTo(out.row(p.t + H + i)); // 下：往內（上）
     return out;
 }
 
@@ -518,17 +540,21 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
 
         // 補邊：死區寬 = kernel margin（2×pitch + search），平移 3 pitch（見 periodic_pad）
         const int ef = g_edge_fill_override >= 0 ? g_edge_fill_override : z.edge_fill;
-        int pad_x = 0, pad_y = 0;
+        Pad pad;
+        const int zw = sub_cont.cols, zh = sub_cont.rows;
         if (ef) {
-            cv::Mat padded = periodic_pad(sub_cont, 2 * z.pitch_x + z.fast_search_range,
-                                          2 * z.pitch_y + z.fast_search_range, 3 * z.pitch_x, 3 * z.pitch_y);
-            if (!padded.empty()) {
-                pad_x = 2 * z.pitch_x + z.fast_search_range;
-                pad_y = 2 * z.pitch_y + z.fast_search_range;
-                sub_cont = padded;
-            }
+            const int mx = 2 * z.pitch_x + z.fast_search_range, my = 2 * z.pitch_y + z.fast_search_range;
+            Pad want;
+            want.l = r.x == 0 ? mx : 0;                       // 只補碰到影像邊的那幾邊
+            want.r = r.x + r.width == gray.cols ? mx : 0;
+            want.t = r.y == 0 ? my : 0;
+            want.b = r.y + r.height == gray.rows ? my : 0;
+            const int sx = best_shift(sub_cont, 1, 3 * z.pitch_x, std::max(mx, 8));
+            const int sy = best_shift(sub_cont, 0, 3 * z.pitch_y, std::max(my, 8));
+            cv::Mat padded = periodic_pad(sub_cont, want, sx, sy);
+            if (!padded.empty()) { pad = want; sub_cont = padded; }
         }
-        const int zw = sub_cont.cols - 2 * pad_x, zh = sub_cont.rows - 2 * pad_y;
+        const int pad_x = pad.l, pad_y = pad.t;
 
         ZoneConfig zc = z;  // 帶入實際影像尺寸
         zc.width = sub_cont.cols;
@@ -536,11 +562,12 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zc.panel_id = panel_id;
 
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
-        if (pad_x || pad_y) unpad_result(dr, pad_x, pad_y, zw, zh);
+        const bool padded = pad.l || pad.r || pad.t || pad.b;
+        if (padded) unpad_result(dr, pad_x, pad_y, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
-            if (pad_x || pad_y) unpad_result(dr2, pad_x, pad_y, zw, zh);
+            if (padded) unpad_result(dr2, pad_x, pad_y, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {
                 verify_failed = true;
@@ -575,7 +602,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zr.roi_offset_x = r.x;
         zr.roi_offset_y = r.y;
         zr.zone = z;
-        zr.zone.edge_fill = (pad_x || pad_y) ? 1 : 0;   // 實際有補邊（給 DeathMargin 顯示）
+        zr.zone.edge_fill = 0;   // DeathMargin 顯示：補過的邊 = 0、沒補的邊（晶片邊）照常
+        zr.pad_l = pad.l; zr.pad_r = pad.r; zr.pad_t = pad.t; zr.pad_b = pad.b;
         zr.result = std::move(dr);
         agg.total_time_ms += zr.result.process_time_ms;
         agg.zones.push_back(std::move(zr));
