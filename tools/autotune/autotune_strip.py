@@ -59,7 +59,9 @@ def periodic_energy(img, px, py):
     """每點「有週期」的紋理能量：|hp| 減掉 X 或 Y 方向對 ±pitch 鄰居的殘差（取較大者）。
     週期 pattern → 兩方向都對得上 → 高；平坦玻璃、單條線（只在一個方向週期）、pad → 低。"""
     f = img.astype(np.float32)
-    h = f - cv2.GaussianBlur(f, (0, 0), max(px, py))
+    bl = cv2.GaussianBlur(f, (0, 0), max(px, py))
+    # 除以局部亮度 → 相對能量：鏡頭暗角（實測 T550 CCD 中央是邊緣的 2.5 倍）不會讓邊緣的晶片掉到門檻下
+    h = (f - bl) / (bl + 8.0) * 100.0
     def res(p, axis):
         r = None
         for d in sorted({int(np.floor(p)), int(np.ceil(p))}):
@@ -88,7 +90,7 @@ def components(bm, px, py, min_blocks=6):
     """區塊圖 → (晶片外框, dummy 外框)（區塊座標）。
     兩層門檻（實測 T550：晶片 ≈ 12–16、dummy 帶 ≈ 2–4.6、平坦玻璃 ≈ 0.4–0.9）：
       高 = max(p90 × 0.3, 1.0) → 晶片；低 = 背景中位數 × 4 → 晶片以外的弱週期區 = dummy 帶。"""
-    thr = max(float(np.percentile(bm, 90)) * 0.3, 1.0)
+    thr = max(float(np.percentile(bm, 90)) * 0.3, 0.5)
     k = max(1, int(round(2 * max(px, py) / B)))           # ~2 pitch：補 pattern 內的小洞、去雜點
     ker = np.ones((k, k), np.uint8)
     def clean(m):

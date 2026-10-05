@@ -187,7 +187,8 @@ def energy_profile(img, px, py, axis, sel=None):
     """沿某方向的紋理能量剖面（axis=0：每列一值；axis=1：每欄一值），只平均 sel 選到的另一方向範圍，
     再以一個 pitch 寬做方框平滑——週期起伏被抹平、邊界仍是對稱的斜坡，半高點 = 真邊界。"""
     f = img.astype(np.float32)
-    h = f - cv2.GaussianBlur(f, (0, 0), max(px, py))
+    bl = cv2.GaussianBlur(f, (0, 0), max(px, py))
+    h = (f - bl) / (bl + 8.0) * 100.0          # 相對能量（不受暗角影響）
     # 只算「有週期」的能量：|hp| 減掉與 ±1 pitch 鄰居（沿剖面方向）的最小差。單條線、pad 邊、
     # 亮帶交界在 ±pitch 處對不上 → 歸零，不會把邊界拉走（實測 dummy 區下緣：65 px → 見 spec）。
     p = py if axis == 0 else px
