@@ -123,6 +123,8 @@ struct Args {
     int  max_src_ring_size = -1;   // --max-src-ring-size N：覆寫 SourceRing 上限（OOM 測試用）
     // MaxDefectCountPass CLI 覆寫（offline-file 驗決定性用；offline-tcp 由 LOAD_RECIPE 覆蓋）
     int  max_defect_count_pass = -1;  // --max-defect-count-pass N
+    // rdma-process 連續爆點停算：同一台本片連續 N 張缺陷數 ≥ 爆點門檻 → 本片剩餘幀不送 GPU（判 NG）
+    int  flood_skip_after = 3;        // --flood-skip-after N（0 = 關閉）
     // 壓力測試用：消費端人工延遲（模擬慢 GPU/慢磁碟，讓 queue 積累到滿觸發背壓 ERR）
     int  test_consumer_delay_ms = 0;  // --test-consumer-delay-ms N
     // 壓力測試用：SourceWriter 寫檔後人工延遲（模擬慢 HDD/NAS，讓 ring 積累到滿觸發 drop WARN）
@@ -166,6 +168,8 @@ void usage(const char* prog) {
     "  --max-queue-size <n>   覆寫 FrameQueue 上限（取代 buffer 計算器；驗證背壓用）\n"
     "  --max-src-ring-size <n> 覆寫 SourceRing 上限（取代計算器；驗證 OOM 防護用）\n"
     "  --max-defect-count-pass <n> offline-file 模式設 MaxDefectCountPass 截斷（驗決定性用）\n"
+    "  --flood-skip-after <n> rdma-process：同一台本片連續 n 張爆點（缺陷數 ≥ 配方 MaxDefectCountPass，\n"
+    "                        未設則 10000）→ 本片剩餘幀停算、判 NG（DefectCnt=-1）。預設 3，0 = 關閉\n"
     "  --test-consumer-delay-ms <n> offline-tcp：每幀處理後人工延遲 N ms（模擬慢消費，觸發背壓 ERR 測試）\n"
     "  --test-source-writer-delay-ms <n> SourceWriter：每幀寫完後延遲 N ms（模擬慢 HDD，觸發 ring drop WARN 測試）\n"
     "\n[rdma-validate 模式（需 CFAOI_HAS_RDMA）]\n"
@@ -212,6 +216,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--max-queue-size") a.max_queue_size = std::stoi(next("--max-queue-size"));
         else if (k == "--max-src-ring-size") a.max_src_ring_size = std::stoi(next("--max-src-ring-size"));
         else if (k == "--max-defect-count-pass") a.max_defect_count_pass = std::stoi(next("--max-defect-count-pass"));
+        else if (k == "--flood-skip-after") a.flood_skip_after = std::stoi(next("--flood-skip-after"));
         else if (k == "--test-consumer-delay-ms") a.test_consumer_delay_ms = std::stoi(next("--test-consumer-delay-ms"));
         else if (k == "--test-source-writer-delay-ms") a.test_source_writer_delay_ms = std::stoi(next("--test-source-writer-delay-ms"));
         else if (k == "--rdma-bind")  a.rdma_bind  = next("--rdma-bind");
@@ -1089,6 +1094,15 @@ int main(int argc, char** argv) {
         } else if (rdma_save_opt.save_overlay) {
             std::cout << "[rdma-process] ⚠ --overlay-threads 0：overlay 同步寫（會卡檢測主迴圈 ~1s/張）\n";
         }
+        // 連續爆點停算計數（status provider 引用 → 宣告在它之前）
+        std::atomic<uint64_t> flood_trips{0}, flood_skipped{0};
+        std::cout << "[rdma-process] 連續爆點停算："
+                  << (args.flood_skip_after > 0
+                          ? "同一台本片連續 " + std::to_string(args.flood_skip_after) +
+                                " 張 ≥ MaxDefectCountPass（未設 = " + std::to_string(kDefectCap) +
+                                "）→ 本片剩餘幀停算判 NG"
+                          : std::string("關閉（--flood-skip-after 0）"))
+                  << "\n";
 
         // 8200 於 rdma 模式亦開（Step 4/5 前置）：串流期間 Control 心跳/LOAD_RECIPE 預熱/
         // CHECK·SET_ALIGN/CF_GET_RESULT（LIST_DEFECT_FOLDERS 鏈）都要通。
@@ -1147,6 +1161,8 @@ int main(int argc, char** argv) {
                 s["overlay_dropped"]  = ov.dropped;
                 s["overlay_inflight"] = ov.inflight;
             }
+            s["flood_trips"]   = flood_trips.load();
+            s["flood_skipped"] = flood_skipped.load();
             std::lock_guard<std::mutex> lk(zones_mtx);
             s["zones"] = zones.size();
             return s.dump();
@@ -1171,6 +1187,10 @@ int main(int argc, char** argv) {
         // 但其中一段影像根本沒進檢測 = 靜默漏檢。
         // per-cam 累計本片遺失；slice0 抵達 = 新的一片開始 → 歸零。
         std::map<uint16_t, FrameLossInfo> loss_by_cam;
+        // 連續爆點停算：per-cam 本片狀態。新的一片 = panelId 變了（每次 CF_LOAD_RECIPE 換片）
+        // 或 slice0 抵達（frames_per_panel>0 時）。連續模式（totalSlice=1）只靠 panelId 換片歸零。
+        struct FloodState { uint32_t panel = 0; int consecutive = 0; bool tripped = false; };
+        std::map<uint16_t, FloodState> flood_by_cam;
         uint64_t last_seq_seen = 0;      // 0 = 尚未收過任何幀
         uint64_t total_lost = 0;
         auto t_start = std::chrono::steady_clock::now();
@@ -1244,10 +1264,44 @@ int main(int argc, char** argv) {
             diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
             scene.queue_depth = (int64_t)depth;   // 水位快照（原漏填 → incident 時查不到塞車徵兆）
             diag::FlightRecorder::instance().set_scene(scene);
+            // 爆點門檻 = 配方 MaxDefectCountPass（≥0 才算有設），否則 GPU 上限（打滿 = 確定爆量）
+            const int flood_thr = frame_saving_cfg.max_defect_count_pass >= 0
+                                      ? frame_saving_cfg.max_defect_count_pass : kDefectCap;
+            FloodState& fst = flood_by_cam[hdr.camId];
+            if (fst.panel != hdr.panelId || (hdr.totalSlice > 1 && hdr.sliceIndex == 0))
+                fst = FloodState{hdr.panelId};
             auto t0 = std::chrono::steady_clock::now();
-            InspectionResult res = process_image(pipe, z_snapshot, gray, name,
-                                                 /*verify*/false, verify_failed,
-                                                 frame_saving_cfg, machine_optical);
+            InspectionResult res;
+            if (fst.tripped) {
+                // 停算：不送 GPU、不存小圖/overlay；仍寫 ResultInfo（DefectCnt=-1、pass=false）
+                // 讓上位機每張都有結果可對帳，且不會把未檢測的幀當成乾淨。
+                res.panel_id     = name;
+                res.image_width  = (int)hdr.width;
+                res.image_height = (int)hdr.height;
+                if (!z_snapshot.empty()) res.recipe_name = z_snapshot.front().recipe_name;
+                res.flood_skip   = FloodSkipInfo{true, flood_thr, fst.consecutive};
+                ++flood_skipped;
+            } else {
+                res = process_image(pipe, z_snapshot, gray, name,
+                                    /*verify*/false, verify_failed,
+                                    frame_saving_cfg, machine_optical);
+                if (args.flood_skip_after > 0) {
+                    if (res.total_defects() >= flood_thr) {
+                        if (++fst.consecutive >= args.flood_skip_after) {
+                            fst.tripped = true;
+                            ++flood_trips;
+                            const std::string msg = "cam" + std::to_string(hdr.camId) + " 連續 " +
+                                std::to_string(fst.consecutive) + " 張缺陷數 ≥ " + std::to_string(flood_thr) +
+                                "（本張 " + std::to_string(res.total_defects()) + "，" + name +
+                                "）→ 本片剩餘幀停算、判 NG";
+                            fprintf(stderr, "[爆點] %s\n", msg.c_str());
+                            FR_RECORD_INCIDENT("defect_flood_skip", msg);
+                        }
+                    } else {
+                        fst.consecutive = 0;
+                    }
+                }
+            }
             res.ioi_list = recipe_loaded.load() ? ctrl_srv.ioi_list() : file_ioi;
             double proc_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
@@ -1306,6 +1360,9 @@ int main(int argc, char** argv) {
 
         rdma_src.stop();
         overlay_writer.stop();   // 寫完排隊中的 overlay（buffer 交還 queue 池）再收尾
+        if (flood_trips.load() > 0)
+            printf("[rdma-process] 連續爆點停算：觸發 %llu 次（台×片），停算 %llu 幀（DefectCnt=-1 判 NG）\n",
+                   (unsigned long long)flood_trips.load(), (unsigned long long)flood_skipped.load());
         if (overlay_async) {
             const auto ov = overlay_writer.stats();
             printf("[rdma-process] overlay 背景：寫出 %llu／略過 %llu／失敗 %llu  峰值 %u/%d 幀  "

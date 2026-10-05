@@ -179,7 +179,7 @@ std::string to_json(const InspectionResult& r) {
     json j;
     j["panel_id"]     = r.panel_id;
     j["recipe_name"]  = r.recipe_name;
-    j["DefectCnt"]    = r.total_defects();
+    j["DefectCnt"]    = r.reported_defect_cnt();
     j["AiOkCnt"]      = 0;
     j["RuleOkCnt"]    = 0;
     j["pass"]         = r.pass();
@@ -246,6 +246,14 @@ std::string to_json(const InspectionResult& r) {
             {"lost_frames",      r.frame_loss.lost_frames},
             {"lost_slices",      r.frame_loss.lost_slices},
             {"unattributed",     r.frame_loss.unattributed},
+        };
+    }
+    // 連續爆點停算：本幀未送 GPU 檢測（DefectCnt=-1、pass=false），整個欄位只在停算時出現。
+    if (r.flood_skip.skipped) {
+        j["flood_skip"] = {
+            {"skipped",     true},
+            {"threshold",   r.flood_skip.threshold},
+            {"consecutive", r.flood_skip.consecutive},
         };
     }
     return j.dump(2);
@@ -351,7 +359,7 @@ int save(const InspectionResult& r,
         std::ofstream os(dst + "/" + basename + "_ResultInfo.xml");
         os << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
         os << "<JudgeResult>\n";
-        os << "  <DefectCnt>" << r.total_defects() << "</DefectCnt>\n";
+        os << "  <DefectCnt>" << r.reported_defect_cnt() << "</DefectCnt>\n";
         os << "  <AiOkCnt>0</AiOkCnt>\n";
         os << "  <RuleOkCnt>0</RuleOkCnt>\n";
         os << "  <SaveDefectWidth>" << save_width << "</SaveDefectWidth>\n";

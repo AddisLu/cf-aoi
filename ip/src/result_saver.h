@@ -46,6 +46,16 @@ struct FrameLossInfo {
     bool incomplete() const { return lost_frames > 0; }
 };
 
+// 連續爆點停算（rdma-process）：同一台本片連續 N 張缺陷數 ≥ 門檻 → 本片剩餘幀不送 GPU 檢測。
+// skipped=false → JSON 不輸出、行為與舊版完全相同。
+// ⚠️ 停算幀的 DefectCnt 寫 **-1**（= 未檢測、爆點停算），pass=false。**不可**寫 0：
+//    上位機（CF_GET_RESULT）只看 DefectCnt，寫 0 會被當成乾淨 PASS = 靜默漏檢。
+struct FloodSkipInfo {
+    bool skipped     = false;
+    int  threshold   = 0;   // 爆點門檻：單張缺陷數 ≥ 此值算一次爆點
+    int  consecutive = 0;   // 觸發停算時已連續爆點的張數
+};
+
 struct InspectionResult {
     std::string panel_id;
     std::string recipe_name = "DEFAULT";
@@ -62,13 +72,16 @@ struct InspectionResult {
     EdgeCheckResult edge;            // 玻璃前緣/尾緣健檢（checked=false → JSON 不輸出）
     double edge_drift_warn_pct = 0.2;  // transport_ok 判定閾值（來自 EdgeCheckConfig，進 JSON 供 Control 判讀）
     FrameLossInfo frame_loss;        // 收圖遺失（lost_frames==0 → JSON 不輸出，舊收端無感知）
+    FloodSkipInfo flood_skip;        // 連續爆點停算（skipped=false → JSON 不輸出）
 
     int total_defects() const {
         int n = 0;
         for (const auto& z : zones) n += z.result.num_defects;
         return n;
     }
-    bool pass() const { return total_defects() == 0; }
+    // 寫進 ResultInfo 的 DefectCnt：停算幀 = -1（未檢測），其餘 = 實際缺陷數
+    int reported_defect_cnt() const { return flood_skip.skipped ? -1 : total_defects(); }
+    bool pass() const { return !flood_skip.skipped && total_defects() == 0; }
 };
 
 // 存圖選項（調參階段可關圖/限張數加速；overlay 用 PNG、patch 多緒平行寫）。
