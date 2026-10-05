@@ -64,6 +64,7 @@ struct ZoneConfig {
     // 「往內平移 3 pitch 複製的 pattern」（平移 2 pitch 會讓左 2 鄰居落回中心自己），死區落在補的那圈，
     // 原本的邊緣改為單邊比對；補邊區的缺陷丟掉、座標扣回。kernel 本體不動。
     int edge_fill = 0;
+    int edge_fill_guard = 2;     // 補過的邊最外 N 列/欄不報（實測 T550 換張處前 1–2 列相位跳動）
 
     // === 演算法模式 ===
     // 0 = DIV（比例式 center/mean₈ vs BTH/DTH，gpu_algo kernel）

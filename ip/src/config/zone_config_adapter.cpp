@@ -65,6 +65,7 @@ ZoneConfig from_ini(const std::string& path) {
     z.fast_search_range = c.fast_search_range;
     z.enable_multiscale = c.enable_multiscale;
     z.edge_fill = c.edge_fill;
+    z.edge_fill_guard = c.edge_fill_guard;
     z.BTH = c.BTH;
     z.DTH = c.DTH;
     z.enable_lsc = c.enable_lsc;

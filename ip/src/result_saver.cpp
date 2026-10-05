@@ -336,7 +336,8 @@ int save(const InspectionResult& r,
         const int mx = z.zone.pitch_x * 2 + z.zone.fast_search_range;
         const int my = z.zone.pitch_y * 2 + z.zone.fast_search_range;
         // 補邊（edge_fill）補過的邊沒有死區
-        const int ml = z.pad_l ? 0 : mx, mr = z.pad_r ? 0 : mx, mt = z.pad_t ? 0 : my, mb = z.pad_b ? 0 : my;
+        const int g = z.pad_guard;
+        const int ml = z.pad_l ? g : mx, mr = z.pad_r ? g : mx, mt = z.pad_t ? g : my, mb = z.pad_b ? g : my;
         const int ox = z.roi_offset_x, oy = z.roi_offset_y;
         if (roiW <= ml + mr || roiH <= mt + mb) {
             std::cout << "[DeathMargin] zone " << z.zone_index << " ⚠ ROI " << roiW << "x" << roiH

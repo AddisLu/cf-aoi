@@ -274,9 +274,6 @@ std::vector<IoiRect> ioi_for_slice(const std::vector<IoiRect>& in, const std::ve
     return out;
 }
 
-// 補邊（ZoneConfig::edge_fill）：四周各補 (pad_x, pad_y)，值 = 往內平移 (shift_x, shift_y) 的像素（pattern 週期的整數倍）。
-// 先補左右（中段列），再補上下（含已補的左右欄 → 四角也有值）。zone 太小（< 平移 + 補邊）回空 → 呼叫端不補。
-
 // 平移量自動對齊：整數 pitch × 3 與真實週期可能差 1 px 以上（T550 Y：3×18 = 54，真實 3×18.41 ≈ 55.2）
 // → 在 nominal ±3 內找與原圖最吻合（平均絕對差最小）的平移。axis 0 = 沿列（Y）、1 = 沿欄（X）。
 int best_shift(const cv::Mat& sub, int axis, bool from_end, int nominal, int L) {
@@ -316,15 +313,18 @@ cv::Mat periodic_pad(const cv::Mat& sub, const Pad& p, int sl, int sr, int st, i
     return out;
 }
 
-// 補邊後的偵測結果 → 原 zone 座標：扣掉補邊、丟掉中心落在補邊區的缺陷。
-void unpad_result(DetectionResult& dr, int pad_x, int pad_y, int W, int H) {
+// 補邊後的偵測結果 → 原 zone 座標：扣掉補邊、丟掉中心落在補邊區的缺陷；
+// 補過的邊再留 guard 列/欄不報（實測 T550：slice 換張處前 1–2 列有相位跳動 → 單點假暗點，例 #18、#24 第 1 列）。
+void unpad_result(DetectionResult& dr, const Pad& p, int guard, int W, int H) {
+    const int x0 = p.l ? guard : 0, x1 = W - (p.r ? guard : 0);
+    const int y0 = p.t ? guard : 0, y1 = H - (p.b ? guard : 0);
     std::vector<DefectInfo> keep;
     keep.reserve(dr.defects.size());
     for (auto d : dr.defects) {
-        d.center_x -= pad_x; d.center_y -= pad_y;
-        if (d.center_x < 0 || d.center_y < 0 || d.center_x >= W || d.center_y >= H) continue;
-        d.min_x = std::clamp(d.min_x - pad_x, 0, W - 1); d.max_x = std::clamp(d.max_x - pad_x, 0, W - 1);
-        d.min_y = std::clamp(d.min_y - pad_y, 0, H - 1); d.max_y = std::clamp(d.max_y - pad_y, 0, H - 1);
+        d.center_x -= p.l; d.center_y -= p.t;
+        if (d.center_x < x0 || d.center_y < y0 || d.center_x >= x1 || d.center_y >= y1) continue;
+        d.min_x = std::clamp(d.min_x - p.l, 0, W - 1); d.max_x = std::clamp(d.max_x - p.l, 0, W - 1);
+        d.min_y = std::clamp(d.min_y - p.t, 0, H - 1); d.max_y = std::clamp(d.max_y - p.t, 0, H - 1);
         keep.push_back(d);
     }
     dr.defects.swap(keep);
@@ -555,7 +555,6 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
             cv::Mat padded = periodic_pad(sub_cont, want, sl, sr, st, sb);
             if (!padded.empty()) { pad = want; sub_cont = padded; }
         }
-        const int pad_x = pad.l, pad_y = pad.t;
 
         ZoneConfig zc = z;  // 帶入實際影像尺寸
         zc.width = sub_cont.cols;
@@ -564,11 +563,11 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
 
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
         const bool padded = pad.l || pad.r || pad.t || pad.b;
-        if (padded) unpad_result(dr, pad_x, pad_y, zw, zh);
+        if (padded) unpad_result(dr, pad, z.edge_fill_guard, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
-            if (padded) unpad_result(dr2, pad_x, pad_y, zw, zh);
+            if (padded) unpad_result(dr2, pad, z.edge_fill_guard, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {
                 verify_failed = true;
@@ -604,7 +603,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zr.roi_offset_y = r.y;
         zr.zone = z;
         zr.zone.edge_fill = 0;   // DeathMargin 顯示：補過的邊 = 0、沒補的邊（晶片邊）照常
-        zr.pad_l = pad.l; zr.pad_r = pad.r; zr.pad_t = pad.t; zr.pad_b = pad.b;
+        zr.pad_l = pad.l ? 1 : 0; zr.pad_r = pad.r ? 1 : 0; zr.pad_t = pad.t ? 1 : 0; zr.pad_b = pad.b ? 1 : 0;
+        zr.pad_guard = z.edge_fill_guard;
         zr.result = std::move(dr);
         agg.total_time_ms += zr.result.process_time_ms;
         agg.zones.push_back(std::move(zr));
