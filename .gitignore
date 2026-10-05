@@ -47,6 +47,7 @@ control/src/config/array_topology.json
 # ===== Misc =====
 /tmp/
 control/src/publish/
+control/publish/
 
 # spec-forge MCP
 tools/spec-forge-mcp/node_modules/
