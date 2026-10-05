@@ -87,6 +87,10 @@ static bool file_exists(const std::string& p) {
 }
 
 static int g_edge_fill_override = -1;   // --edge-fill 0/1（-1 = 用 ini/ZoneConfig）
+// 兩段式亮缺陷（2026-10-06 原型）：DIV 亮門檻放低到 t1 粗篩 → 只在亮候選點周圍小塊跑 DIV 投票確認（門檻 = 配方 BTH）
+static float g_cascade_t1 = 0.0f;        // --cascade-bright <t1>（0 = 關）
+static int   g_cascade_pt = 1;           // --cascade-pitch-time（投票每方向看幾個 pitch）
+static int   g_cascade_choose = 7;       // --cascade-choose（8×PitchTime 路中至少幾路超標）
 
 struct Args {
     std::string mode = "offline-file";
@@ -163,6 +167,8 @@ void usage(const char* prog) {
     "  --save-threads <n>    缺陷小圖平行寫入緒數（0=自動）\n"
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
     "  --edge-fill <0|1>     補邊：zone 四周補往內平移 3 pitch 的 pattern，消掉 kernel 邊緣死區（覆寫 ini edge_fill）\n"
+    "  --cascade-bright <t1> 兩段式亮缺陷（DIV zone）：亮門檻放低到 t1 粗篩，候選點小塊跑 DIV 投票確認（門檻 = 配方 BTH）\n"
+    "  --cascade-pitch-time <n> / --cascade-choose <n>  第二段投票參數（預設 1 / 7）\n"
     "  --mode bench           量純 GPU process_image 速度：一張圖重複跑，報 gpu_ms/wall_ms 統計\n"
     "  --bench-iters <n>      bench 量測張數（預設 100）\n"
     "  --bench-warmup <n>     bench 暖機張數（丟棄，預設 10；吸收 CUDA init/JIT）\n"
@@ -192,6 +198,9 @@ bool parse_args(int argc, char** argv, Args& a) {
         if (k == "--mode") a.mode = next("--mode");
         else if (k == "--stitch") a.stitch = true;
         else if (k == "--edge-fill") g_edge_fill_override = std::stoi(next("--edge-fill"));
+        else if (k == "--cascade-bright") g_cascade_t1 = std::stof(next("--cascade-bright"));
+        else if (k == "--cascade-pitch-time") g_cascade_pt = std::stoi(next("--cascade-pitch-time"));
+        else if (k == "--cascade-choose") g_cascade_choose = std::stoi(next("--cascade-choose"));
         else if (k == "--input") a.input = next("--input");
         else if (k == "--output") a.output = next("--output");
         else if (k == "--recipe") a.recipe = next("--recipe");
@@ -506,6 +515,51 @@ void apply_edge_check_slice(const EdgeCheckConfig& cfg, const cv::Mat& gray,
     }
 }
 
+// 兩段式第二段：dr 內的亮缺陷（第一段 DIV 以低門檻 t1 抓的候選）→ 每顆切 (2·(mx+c)) × (2·(my+c)) 小塊拼成拼圖
+// → DIV 投票（mode 2，只檢亮：DTH 0.01）跑一次 → 拼圖裡核心 ±c 內有亮票的候選才留下。暗缺陷原樣保留。
+// 小塊邊界 = 投票 kernel 死區（pitch×PitchTime + search + 1）+ 3×3 SAD 多 1 → 核心像素的鄰居都在自己這塊裡。
+// 回傳第二段花的時間（GPU + host 裁切），加進 process_time_ms（誠實的端到端）。
+double cascade_bright(GpuPipeline& pipe, DetectionResult& dr, const cv::Mat& img, const ZoneConfig& zc, float bth) {
+    auto t0 = std::chrono::steady_clock::now();
+    std::vector<DefectInfo> keep, cand;
+    for (const auto& d : dr.defects) (d.is_bright ? cand : keep).push_back(d);
+    if (cand.empty()) return 0.0;
+    const int c = 6;
+    const int mx = zc.pitch_x * g_cascade_pt + zc.search_range_x + 2, my = zc.pitch_y * g_cascade_pt + zc.search_range_y + 2;
+    const int pw = 2 * (mx + c), ph = 2 * (my + c);
+    const int MW = 2048, cols = MW / pw, rows = ((int)cand.size() + cols - 1) / cols;
+    cv::Mat mosaic = cv::Mat::zeros(rows * ph, MW, CV_8UC1);
+    for (size_t i = 0; i < cand.size(); ++i) {
+        const int cx = (int)std::lround(cand[i].center_x), cy = (int)std::lround(cand[i].center_y);
+        const cv::Rect src(cx - pw / 2, cy - ph / 2, pw, ph), clip = src & cv::Rect(0, 0, img.cols, img.rows);
+        if (clip.empty()) continue;
+        const cv::Rect dst((int)(i % cols) * pw + (clip.x - src.x), (int)(i / cols) * ph + (clip.y - src.y), clip.width, clip.height);
+        img(clip).copyTo(mosaic(dst));
+    }
+    ZoneConfig z2 = zc;
+    z2.algo_mode = 2; z2.pitch_times = g_cascade_pt; z2.choose_amount = g_cascade_choose;
+    z2.enable_multiscale = 0; z2.preproc_remap = false; z2.smooth_times2 = 0;
+    z2.BTH = bth; z2.DTH = 0.01f;
+    z2.width = mosaic.cols; z2.height = mosaic.rows;
+    DetectionResult v = pipe.process_frame(mosaic.data, mosaic.cols, mosaic.rows, z2);
+    std::vector<char> ok(cand.size(), 0);
+    for (const auto& d : v.defects) {
+        if (!d.is_bright) continue;
+        for (int yy = d.min_y; yy <= d.max_y; ++yy)                  // blob 任一點落在某候選的核心 ±c
+            for (int xx = d.min_x; xx <= d.max_x; ++xx) {
+                const int col = xx / pw, row = yy / ph;
+                const size_t i = (size_t)row * cols + col;
+                if (col >= cols || i >= cand.size()) continue;
+                if (std::abs(xx - (col * pw + pw / 2)) <= c && std::abs(yy - (row * ph + ph / 2)) <= c) ok[i] = 1;
+            }
+    }
+    for (size_t i = 0; i < cand.size(); ++i) if (ok[i]) keep.push_back(cand[i]);
+    dr.defects.swap(keep);
+    dr.num_defects = (int)dr.defects.size();
+    const double host_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    return std::max(host_ms, v.process_time_ms);
+}
+
 // [手冊 p4][手冊 r1] R1.4 步8：verify→blob→Rule→截斷 的順序是鐵律（詳見導師卡）
 // 對一張影像跑所有 zone，回傳聚合結果。
 // verify=true 時每個 zone 跑兩次比對 bit-exact，不一致則把 verify_failed 設 true 並印第一個差異。
@@ -560,13 +614,17 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zc.width = sub_cont.cols;
         zc.height = sub_cont.rows;
         zc.panel_id = panel_id;
+        const bool cascade = g_cascade_t1 > 0.0f && z.algo_mode == 0 && g_cascade_t1 < z.BTH;
+        if (cascade) zc.BTH = g_cascade_t1;                          // 第一段：亮門檻放低粗篩
 
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
+        if (cascade) dr.process_time_ms += cascade_bright(pipe, dr, sub_cont, zc, z.BTH);
         const bool padded = pad.l || pad.r || pad.t || pad.b;
         if (padded) unpad_result(dr, pad, z.edge_fill_guard, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
+            if (cascade) cascade_bright(pipe, dr2, sub_cont, zc, z.BTH);
             if (padded) unpad_result(dr2, pad, z.edge_fill_guard, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {
