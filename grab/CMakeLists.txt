@@ -29,6 +29,9 @@ if(NOT IBVERBS_LIB OR NOT RDMACM_LIB)
           "  sudo apt install libibverbs-dev librdmacm-dev")
 endif()
 set(RDMA_LIBS ${RDMACM_LIB} ${IBVERBS_LIB} pthread)
+# zlib：rdma_sender 在 x86 用 zlib crc32（與 crc32_ieee 逐位元相同、快 2 倍）
+find_package(ZLIB REQUIRED)
+list(APPEND RDMA_LIBS ZLIB::ZLIB)
 message(STATUS "[OK] RDMA libs: ${IBVERBS_LIB} ${RDMACM_LIB}")
 
 # =============================================================================

@@ -45,6 +45,11 @@
 //   --cam-map     PATH       MAC↔cam_id 備援映射（預設 <exe上一層>/cam_map.json；Gap #21）
 //                            CCD 身分以相機 DeviceUserID（CCDnn）為準，此檔為過渡/備援；
 //                            任一來源存在 → 嚴格模式（無身分/重複拒開）；皆無 → 列舉順序暫派 + WARN
+//   --cpus        pcore|all|LIST  行程 CPU 親和性（預設 pcore）。pcore = Intel 混合架構只用大核
+//                            （讀 /sys/devices/cpu_core/cpus；非混合架構自動等同 all）；LIST 如 0-7,12。
+//                            啟動第一步就設 → pylon 取像 thread / RDMA / 8100 全部繼承。
+//                            小核行頻 4.4GHz vs 大核 5.7GHz，CRC/拼接 memcpy 在小核慢 1.1–2.5 倍。
+//                            ⚠️ 只管本行程；網卡中斷（kernel 收包）照舊分散在所有核，不受影響。
 // =============================================================================
 
 #include "cam_manager.h"
@@ -52,12 +57,15 @@
 #include "rdma_sender.h"
 #include "../../shared/FrameHeader.h"
 
+#include <sched.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -171,6 +179,51 @@ static bool parse_host_port(const std::string& s, std::string& host, std::string
     return true;
 }
 
+// ---- CPU 親和性（--cpus）----
+// 解析 "0-15" / "0-7,12,14-15" 形式；格式錯回 false。
+static bool parse_cpu_list(const std::string& s, cpu_set_t& set) {
+    CPU_ZERO(&set);
+    size_t i = 0; int n = 0;
+    while (i < s.size()) {
+        size_t j = s.find(',', i); if (j == std::string::npos) j = s.size();
+        const std::string tok = s.substr(i, j - i);
+        char* end = nullptr;
+        long a = strtol(tok.c_str(), &end, 10), b = a;
+        if (end == tok.c_str()) return false;
+        if (*end == '-') { const char* p = end + 1; b = strtol(p, &end, 10); if (end == p) return false; }
+        if (*end != '\0' || a < 0 || b < a || b >= CPU_SETSIZE) return false;
+        for (long c = a; c <= b; ++c) { CPU_SET((int)c, &set); ++n; }
+        i = j + 1;
+    }
+    return n > 0;
+}
+
+// spec = "all" → 不動；"pcore" → 混合架構只用大核（非混合架構 = all）；其他 = CPU 清單。
+// 回傳 false 只在使用者給了明確清單但格式錯/設不進去（fail-fast，別默默跑在錯的核上）。
+static bool apply_cpu_affinity(const std::string& spec) {
+    if (spec == "all") { printf("[main] CPU 親和性：不限制（--cpus all）\n"); return true; }
+    std::string list = spec;
+    if (spec == "pcore") {
+        std::ifstream f("/sys/devices/cpu_core/cpus");   // Intel 混合架構才有（大核清單）
+        if (!(f >> list)) {
+            printf("[main] CPU 親和性：非 Intel 混合架構，不限制\n");
+            return true;
+        }
+    }
+    cpu_set_t set;
+    if (!parse_cpu_list(list, set)) {
+        fprintf(stderr, "[main] --cpus 格式錯誤：%s（例：pcore / all / 0-15）\n", spec.c_str());
+        return false;
+    }
+    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
+        fprintf(stderr, "[main] sched_setaffinity(%s) 失敗：%s\n", list.c_str(), strerror(errno));
+        return false;
+    }
+    printf("[main] CPU 親和性：%s（%s，%d 個邏輯核；所有取像/RDMA thread 繼承）\n",
+           list.c_str(), spec == "pcore" ? "大核" : "指定", CPU_COUNT(&set));
+    return true;
+}
+
 int main(int argc, char** argv) {
     // ---- 解析 CLI ----
     std::string rdma_dest;
@@ -186,6 +239,7 @@ int main(int argc, char** argv) {
     int         ctrl_port   = 8100;
     std::string cam_cfg_path;                  // 空 = 預設 exe 上一層/cam_config.json
     std::string cam_map_path;                  // 空 = 預設 exe 上一層/cam_map.json
+    std::string cpus        = "pcore";        // 預設只用大核（混合架構）；all = 不限制
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -208,12 +262,15 @@ int main(int argc, char** argv) {
         else if (a == "--ctrl-port")   ctrl_port    = atoi(next());
         else if (a == "--cam-config")  cam_cfg_path = next();
         else if (a == "--cam-map")     cam_map_path = next();
+        else if (a == "--cpus")        cpus         = next();
         else { fprintf(stderr, "未知參數：%s\n", a.c_str()); return 1; }
     }
 
     if (rdma_dest.empty()) {
         fprintf(stderr, "必填：--rdma-dest IP:PORT\n"); return 1;
     }
+    // 必須在建立任何 thread（pylon / 8100 / RDMA）之前設：thread 建立時繼承呼叫端的親和性
+    if (!apply_cpu_affinity(cpus)) return 1;
     std::string rdma_host, rdma_port;
     if (!parse_host_port(rdma_dest, rdma_host, rdma_port)) {
         fprintf(stderr, "--rdma-dest 格式錯誤，應為 IP:PORT\n"); return 1;
