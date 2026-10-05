@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover
 
 CTX = 256          # 每張上下各帶相鄰張幾列（> 2 × pitch + 高通半徑）
 EDGE_SHRINK = 1    # 晶片內側邊往內縮幾個 pitch（縮掉的那圈在 IOI 內，交 AI）
+DARK_COL = 12      # 晶片內亮度低於此值的欄不檢（過暗不可檢）
 B = 32             # 區塊大小（px）
 
 
@@ -244,6 +245,19 @@ def _regions(st, px, py, dummy_max_pitches, progress):
         if c['x1'] < st.w: c['x1'] -= sx
         if c['y0'] > 0: c['y0'] += sy
         if c['y1'] < st.H: c['y1'] -= sy
+    # 過暗不可檢：晶片內亮度 < DARK_COL 的欄切掉（近黑處 DIV 比值被雜訊主導；實測 T550 IP08 左右緣亮度 ≈ 7、
+    # 中央 42 → 2 顆假點）。切掉的寬度記在 dark_trim，報告提醒調光源。
+    for c in chips:
+        cb = np.median(bmb[c['y0'] // B:max(c['y0'] // B + 1, c['y1'] // B)], axis=0)
+        ok = np.nonzero(cb >= DARK_COL)[0]
+        if len(ok) == 0:
+            c['dark_trim'] = [c['x0'], c['x1']]
+            continue
+        nx0, nx1 = max(c['x0'], int(ok[0]) * B), min(c['x1'], int(ok[-1] + 1) * B)
+        if nx0 > c['x0'] or nx1 < c['x1']:
+            c['dark_trim'] = [nx0 - c['x0'], c['x1'] - nx1]
+            c['x0'], c['x1'] = nx0, nx1
+    chips = [c for c in chips if c['x1'] - c['x0'] > 4 * B]
     ioi = ioi_rects(chips, gx, gy, 2 * int(round(py)) + 2, 2 * int(round(px)) + 2)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
