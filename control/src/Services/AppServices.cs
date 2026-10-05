@@ -13,6 +13,7 @@ public sealed class AppServices
     public RecipeStore RecipeStore { get; }            // 配方單一資料來源（共用）
     public OfflineReviewService Review { get; }
     public UpstreamServer Upstream { get; }            // 上位機 CF_/8787 server（接線見 UpstreamWiring）
+    public DiagModeState DiagMode { get; } = new();    // 機況助手（Loop + 大模型）在跑 → CF_READY 未就緒
 
     public AppServices(SystemConfigModel cfg, LogService log, ConnectionManager conn,
                        RecipeService recipes, RecipeStore store, OfflineReviewService review,

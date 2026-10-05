@@ -32,7 +32,9 @@
 - [ ] Grab：`bash tools/archive/install_archive.sh CFAOI-0n`（三台各自編號）→ `/srv/cfaoi` + `cfaoi-archive.timer`；`STATUS.json` 全 OK
 - [ ] 廠商手冊/SOP 放進 `20_docs/vendor`、`20_docs/sop`（命名照 README）；參考圖在 `50_raw/reference/`
 - [ ] Spark → Grab 金鑰 SSH（authorized_keys 限定 `from="192.168.3.1"`）；LoopEngineering 部署含遠端路徑功能後跑 `tools/archive/loop_register.sh`
-- [ ] 決定 LoopEngineering 在生產 Spark 上的模型常駐方式（vLLM 佔統一記憶體，會和 IP 搶 GPU / 記憶體）
+- [ ] 運作模式（生產只跑三支；機況助手由 Control 開）：主 Spark `scripts/deploy/setup_loop_mode.sh --fab`
+- [ ] 第二台 Spark 直連線：spark-3961 上 `scripts/deploy/fix_spark_link.sh --apply` → 主 Spark ping 192.168.177.12 通
+- [ ] 實測：Control「開啟機況助手」→ 兩台載入就緒 → 開啟畫面 → 「結束並回生產」→ CF_READY 回 OK、Spark 可用記憶體恢復
 
 ## C. 時間同步（fab 內沒有 NTP 伺服器）
 

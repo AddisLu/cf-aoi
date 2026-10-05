@@ -30,6 +30,31 @@
         </Grid>
       </Border>
 
+      <!-- 機況助手：機台有問題 / 調機時才開（Loop + 本地大模型，兩台 Spark）；生產只跑 Control/Grab/IP -->
+      <Border Classes="card" IsVisible="{Binding LoopAvailable}">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel VerticalAlignment="Center" Spacing="3">
+            <TextBlock FontSize="15" FontWeight="Bold" Text="機況助手（AI 診斷・調機）"/>
+            <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding LoopStateText}"/>
+            <TextBlock Classes="mono dim" FontSize="11" Text="{Binding LoopDetail}"/>
+            <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap"
+                       Text="只在機台有問題或調機（停線）時開啟；開著期間上位機 CF_READY 會回未就緒，用完請按「結束並回生產」。"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0"
+                      IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+            <Button Classes="primary" Content="開啟機況助手" Command="{Binding StartLoopCommand}"
+                    IsVisible="{Binding LoopActive, Converter={StaticResource InverseBool}}"
+                    ToolTip.Tip="啟動 Loop 並在兩台 Spark 載入大模型（約 5–10 分鐘）"/>
+            <Button Classes="primary" Content="開啟畫面" Command="{Binding OpenLoopCommand}"
+                    IsEnabled="{Binding LoopReady}" IsVisible="{Binding LoopActive}"
+                    ToolTip.Tip="在瀏覽器開啟 Loop（機況診斷、知識庫、對話）"/>
+            <Button Classes="bad" Content="結束並回生產" Command="{Binding StopLoopCommand}"
+                    IsVisible="{Binding LoopActive}"
+                    ToolTip.Tip="停止兩台 Spark 的大模型與 Loop，釋放記憶體；確認 IP 生產模式在跑"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
       <!-- 警告（版本不一致 / 時間差） -->
       <Border Background="{DynamicResource WarnBg}" CornerRadius="{DynamicResource Rad}" Padding="12,9"
               IsVisible="{Binding Warning, Converter={StaticResource NotEmptyToBool}}">

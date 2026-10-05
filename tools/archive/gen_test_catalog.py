@@ -65,6 +65,7 @@ CATALOG = [
     ("tools/cam_align/gvsp_testpacket.py", "hw", "grab", "python3 tools/cam_align/gvsp_testpacket.py"),
     ("tools/grab_setup/verify_grab_host.sh", "hw", "grab", "tools/grab_setup/verify_grab_host.sh [--arm]"),
     ("tools/archive/test_archive.py", "unit", "grab", "python3 tools/archive/test_archive.py"),
+    ("tools/node_agent/test_agent_loop.py", "unit", "any", "python3 tools/node_agent/test_agent_loop.py"),
 ]
 KIND_ZH = {"unit": "單元（不需硬體）", "sim": "模擬裝置", "e2e": "端到端（需程式在跑）", "hw": "實機"}
 TEST_LIKE = re.compile(r"(^|/)(test_[^/]+|[^/]*_test\.(cpp|py)|verify_[^/]+|[^/]*_verify\.cpp|[^/]*Tests\.cs)$")

@@ -42,7 +42,7 @@ control/
     │   ├── Step1View.axaml(.cs)          ← 檢測複判（原離線分析；寬幅版面：影像全寬橫幅）
     │   ├── DefectSortView.axaml(.cs)     ← 缺陷遠端歸檔 + 小圖人工分類（frmSortDefect）
     │   ├── SystemSettingsView.axaml(.cs) ← 系統設定（分頁：**系統狀態**〔NodeAgentsView〕/ 連線設定）
-    │   ├── NodeAgentsView.axaml(.cs)     ← 系統狀態：經節點代理（8300）管理 Grab/Spark（重啟/切模式/log/診斷包/重開機）
+    │   ├── NodeAgentsView.axaml(.cs)     ← 系統狀態：經節點代理（8300）管理 Grab/Spark（重啟/切模式/log/診斷包/重開機）＋機況助手卡片（開/關 Loop + 大模型）
     │   ├── SingleCcdSetupView.axaml(.cs) ← 單 CCD 檢測工作台（內嵌於工作台 Step 4；寬幅：上全寬影像+下三欄）
     │   ├── ZoneParamEditorView.axaml(.cs)← 34 列表單獨立頁（**現無導覽入口**；表單邏輯由 SingleCcdSetupView 進階摺疊直接綁 ParamRows）
     │   ├── RemoteImageBrowserView.axaml(.cs) ← 「從 IP 載入」遠端影像瀏覽對話框
@@ -68,7 +68,7 @@ control/
     │   ├── UpstreamServer.cs          ← TCP ← 上位機（CF_ / 8787 / 9 參數，已 Start + 已接線）
     │   ├── UpstreamWiring.cs          ← CF_ 回呼接既有流程（LoadRecipe→IP+Grab 預熱、GRAB_START/STOP→Grab、GetResult→IP）
     │   ├── IpClient.cs                ← TCP → IP（含 UTF-8 整行解碼，見不變式）
-    │   ├── AgentClient.cs             ← TCP → 節點代理 8300（每命令一條短連線；STATUS/SERVICE/LOGS/DIAG/POWER）
+    │   ├── AgentClient.cs             ← TCP → 節點代理 8300（每命令一條短連線；STATUS/SERVICE/LOGS/DIAG/POWER/LOOP）
     │   ├── GrabClient.cs              ← TCP → Grab（LIST_CAMERAS/SET_CAM_MAP/GRAB_ARM·START·STOP/曝光增益/TUNE_MEAN/GET_CAM_NODES）
     │   ├── IHeartbeatClient.cs        ← 心跳介面（IpClient/GrabClient 實作）
     │   └── ConnectionManager.cs       ← 定期 CHECK_HEALTH（5s 逾時×連續 2 次才斷）+ 自動重連 + SetUpstreamConnected
@@ -88,6 +88,7 @@ control/
     │
     └── Services/
         ├── AppServices.cs             ← 手動 DI 容器（Build/DesignTime）
+        ├── DiagModeState.cs           ← 機況助手開著 = 診斷模式 → CF_READY 未就緒（大模型佔 Spark 記憶體）
         ├── ConfigLoader.cs            ← appsettings.json 讀寫（SaveShareSetting 只改該節點）
         ├── RecipeService.cs           ← 配方讀寫 + XML 序列化 + ~ 展開 + CopyParamsToIps（工作台 Step5）
         ├── RecipeStore.cs             ← 配方單一資料來源（single source of truth）

@@ -92,3 +92,21 @@
   `bash apply_update.sh . --spark`（驗 bundle、工作樹須乾淨、只允許往前、編譯失敗不重啟並印回退指令；
   改到服務設定時提醒重跑安裝腳本）。Windows 解壓包內 zip 覆蓋 control 資料夾。
   實測：用此流程把 Spark 從 8b197ee → 99cc5f3 → a0cab72 → 05ce700 連續更新 3 次，全鏈皆 7/7。
+
+## 8. 運作模式：生產 vs 機況助手（2026-10-05 定案）
+
+| 模式 | 跑什麼 | 誰開 |
+|---|---|---|
+| **生產（run 貨）** | 只有 Control / Grab / IP（開機預設） | 開機自動 |
+| **機況助手（機台有問題 / 調機）** | + LoopEngineering + 本地大模型（DeepSeek-V4-Flash，**兩台 Spark 叢集**：上方 37 顆那台 + 下方 18 顆那台） | Windows Control「系統設定 → 系統狀態 → 機況助手」 |
+
+- **為什麼要互斥**：大模型 `gpu_memory_utilization 0.82` 佔 Spark 統一記憶體約 80%；2026-10-05 實測與 IP 生產並存時
+  119GB 只剩約 5GB。→ 機況助手開著期間，Control 對上位機 **CF_READY 回未就緒**（「診斷模式中…」），上位機不會送料。
+- **流程**：「開啟機況助手」（確認）→ 代理 `LOOP start`：啟動 Loop（user service）+ 載入模型（背景 5–10 分鐘，卡片顯示進度）
+  →「開啟畫面」用瀏覽器開 `http://192.168.3.1:4711`（節點代理的轉送口，只放行控制網/RDMA 網段；Loop 本身仍只聽本機）
+  → 診斷、查知識庫（`grab:/srv/cfaoi` 遠端路徑）→「結束並回生產」：停兩台模型 + Loop，IP 若停在調參或沒在跑就啟動生產。
+- **設定**：主 Spark 跑 `scripts/deploy/setup_loop_mode.sh`（代理 LOOP_* 設定、vLLM 叢集網卡改到 port1、停掉目前模型；
+  進 fab 前加 `--fab` 取消 Loop 開機自啟）。第二台 Spark 的直連線：在 spark-3961 跑 `scripts/deploy/fix_spark_link.sh`。
+- **驗證**：代理 `tools/node_agent/test_agent_loop.py` 17 項（假 Loop + 假 systemctl：開/關、帶 token、狀態、轉送口）；
+  Control `--selftest upstream`（診斷模式 → CF_READY 未就緒、關掉 → OK）。實機（Windows 按鈕 → 兩台 Spark 載入）待第二台 Spark 線修好。
+

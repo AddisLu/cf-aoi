@@ -630,6 +630,11 @@ public static class SelfTest
         var rNotReady = await Cmd("CF_READY");
         svc.Connection.IsGrabConnected = true;  svc.Connection.IsIpConnected = true;
         var rReady  = await Cmd("CF_READY");
+        // 機況助手開著（診斷模式：大模型佔 Spark 記憶體）→ 節點都連上也要回未就緒；關掉 → 回 OK
+        svc.DiagMode.Set(true, "診斷模式中（機況助手）");
+        var rDiag   = await Cmd("CF_READY");
+        svc.DiagMode.Set(false, "");
+        var rBack   = await Cmd("CF_READY");
         var rLoad   = await Cmd("CF_LOAD_RECIPE|DEFAULT|panelA|2026-06-19-00-00-00|||||||0");
         var rGet    = await Cmd("CF_GET_RESULT");
         var rCheck  = await Cmd("CF_CHECK_ALIGN");
@@ -642,6 +647,7 @@ public static class SelfTest
 
         bool notReady = rNotReady.StartsWith("ERR") && rNotReady.Contains("Grab 未連線") && rNotReady.Contains("IP 未連線");
         bool ready = rReady.StartsWith("OK");
+        bool diag  = rDiag.StartsWith("ERR") && rDiag.Contains("診斷模式") && rBack.StartsWith("OK");
         bool load  = rLoad.StartsWith("OK");                                          // OnLoadRecipe→假 IP OK
         bool get   = rGet.StartsWith("OK") && rGet.Contains("IP0_panelA_DEFAULT") && rGet.Contains("3,5"); // path+count 非 JSON
         bool checkFail = rCheck.StartsWith("ERR");                                    // ★A 誠實失敗(非假 OK)
@@ -650,13 +656,14 @@ public static class SelfTest
 
         Console.WriteLine($"  CF_READY 節點未連線 → ERR+原因: {(notReady ? "PASS" : "FAIL")} (\"{rNotReady}\")");
         Console.WriteLine($"  CF_READY 兩節點連線 → OK: {(ready ? "PASS" : "FAIL")} (\"{rReady}\")");
+        Console.WriteLine($"  CF_READY 診斷模式(機況助手開著) → ERR、關掉 → OK: {(diag ? "PASS" : "FAIL")} (\"{rDiag}\" / \"{rBack}\")");
         Console.WriteLine($"  CF_LOAD_RECIPE → OK(接 IP): {(load ? "PASS" : "FAIL")} (\"{rLoad}\")");
         Console.WriteLine($"  CF_GET_RESULT → OK|path|count 非JSON: {(get ? "PASS" : "FAIL")} (\"{rGet}\")");
         Console.WriteLine($"  CF_CHECK_ALIGN → ERR 誠實失敗(非假OK): {(checkFail ? "PASS" : "FAIL")} (\"{rCheck}\")");
         Console.WriteLine($"  CF_SET_ALIGN → ERR 誠實失敗(非假OK): {(setFail ? "PASS" : "FAIL")} (\"{rSet}\")");
         Console.WriteLine($"  CF_STOP → ERR 誠實失敗(offline 無取像可停): {(stopFail ? "PASS" : "FAIL")} (\"{rStop}\")");
         Console.WriteLine($"  上位機連線燈轉綠(OnConnectedChanged): {(lampGreen ? "PASS" : "FAIL")}");
-        bool ok = notReady && ready && load && get && checkFail && setFail && stopFail && lampGreen;
+        bool ok = notReady && ready && diag && load && get && checkFail && setFail && stopFail && lampGreen;
         Console.WriteLine(ok ? "✓ 上位機 CF_：接線啟動+回呼接 IP+9參數交握；align/grab 誠實失敗(非假OK)；燈轉綠 (L2 in-process)"
                              : "✗ 不符");
         return ok ? 0 : 1;

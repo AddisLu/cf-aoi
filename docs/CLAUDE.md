@@ -72,6 +72,10 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
   夾別與命名規則：[tools/archive/README_CFAOI_HOME.md](../tools/archive/README_CFAOI_HOME.md)（安裝後即 `/srv/cfaoi/README.md`）。
   安裝：`bash tools/archive/install_archive.sh <機台編號>`。驗證用參考圖放 `50_raw/reference/`（永不自動清）。
   LoopEngineering（Spark :4711，本地模型 + RAG）以**遠端路徑** `grab:/srv/cfaoi` 經 SSH 直接讀（不複製）：`tools/archive/loop_register.sh`。
+- **運作模式（2026-10-05 定案）**：生產只跑 Control / Grab / IP；機台有問題或調機時由 Windows Control「機況助手」開
+  Loop + 大模型（兩台 Spark 叢集，佔 Spark ~80% 記憶體 → 開著時 CF_READY 未就緒）。詳見
+  [commercial_deploy_plan.md §8](commercial_deploy_plan.md)；Spark 端設定 `scripts/deploy/setup_loop_mode.sh`。
+  兩台 Spark 直連線 = 各自 port1（`enp1s0f1np1` 177.x / `enP2p1s0f1np1` 178.x，MTU 9000）；port0 = Grab RDMA。
 
 ### 多 CCD 陣列：三層模型（運算單元 / CCD / per-CCD 配方）— 基礎概念，所有 session 繼承
 

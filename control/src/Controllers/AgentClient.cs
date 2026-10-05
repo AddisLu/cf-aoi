@@ -85,6 +85,10 @@ public sealed class AgentClient
     public Task<JsonNode?> DiagAsync(CancellationToken ct = default)
         => CallAsync("DIAG", null, TimeSpan.FromSeconds(120), ct);
 
+    /// <summary>機況助手：status / start（啟 Loop + 載入大模型，背景數分鐘）/ stop（停兩台 Spark 的模型 + Loop）。</summary>
+    public Task<JsonNode?> LoopAsync(string action, CancellationToken ct = default)
+        => CallAsync("LOOP", new JsonObject { ["action"] = action }, TimeSpan.FromSeconds(action == "status" ? 10 : 240), ct);
+
     public Task<JsonNode?> PowerAsync(string action, CancellationToken ct = default)
         => CallAsync("POWER", new JsonObject { ["action"] = action, ["confirm"] = true }, TimeSpan.FromSeconds(10), ct);
 }

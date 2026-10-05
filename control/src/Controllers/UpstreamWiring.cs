@@ -102,7 +102,7 @@ public static class UpstreamWiring
         // ⚠️ 已知限制（docs/code_review_20260802.md K1）：下方 catch 把例外吞成「空結果」，
         // 且 UpstreamServer 對本命令一律回 OK → IP 離線時上位機會把「查詢失敗」誤讀成「本批 0 筆結果」。
         // CF_READY → 以心跳確認過的連線狀態判定（ConnectionManager 每 2.5s CHECK_HEALTH，連續 2 次失敗才判斷線）。
-        // 兩個節點都連上才回 OK；否則 ERR 並寫明哪個沒連上 + 設定的位址（現場人員據此查線/查服務）。
+        // 兩個節點都連上、且不在診斷模式（機況助手關閉）才回 OK；否則 ERR 並寫明原因（現場人員據此查線/查服務）。
         up.OnReady = () =>
         {
             var c = svc.Connection;
@@ -117,6 +117,8 @@ public static class UpstreamWiring
                 var ip = svc.Config.ActiveIp is { } n ? $"{n.Host}:{n.Port}" : "未設定";
                 missing.Add($"IP 未連線（{ip}）");
             }
+            // 機況助手（Loop + 大模型）開著 = 診斷模式：大模型佔 Spark 大部分記憶體，不可送料生產
+            if (svc.DiagMode.Active) missing.Add(svc.DiagMode.Reason);
             return missing.Count == 0 ? (true, "") : (false, string.Join("；", missing));
         };
 

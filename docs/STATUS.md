@@ -1220,6 +1220,14 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
 - LoopEngineering「遠端路徑」`<機台>:<路徑>`（另一 repo，分支 `feat/remote-paths`，2050 測試全過）：RAG 來源、機況監看、
   對話檔案工具直接經 SSH 讀 `grab:/srv/cfaoi`；**未部署**（待 Spark→Grab 金鑰授權 + 合併/重啟由 Addis 決定）。
 
+**運作模式：生產 vs 機況助手（2026-10-05，L2 — 代理/Control 離線驗證；實機待第二台 Spark 線修好）**
+- 生產只跑 Control/Grab/IP；機台有問題/調機 → Windows Control「系統狀態 → 機況助手」開 Loop + 大模型（兩台 Spark），
+  「結束並回生產」關掉；開著期間 CF_READY 回未就緒。代理新命令 `LOOP status|start|stop` + 轉送口 192.168.3.1:4711。
+- 實測現況（2026-10-05）：主 Spark 的大模型（32 小時前雙機啟動）**已卡住**——5 token 請求 40 秒無回應（第二台 Spark
+  177.12/178.12 不通），卻仍佔記憶體（119GB 剩 5GB，IP 生產同時在跑）；Loop 仍顯示 ready（偵測不到）。
+  vLLM 叢集 `.env` 網卡仍是 port0（改接線後是 Grab RDMA 線）→ `setup_loop_mode.sh` 改 port1。
+- 驗證：`test_agent_loop.py` 17 項、Control `--selftest upstream`（含診斷模式 CF_READY）全過、Control 建置 0 警告。
+
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
   本機 ssh spark-3961 host key 驗證失敗，未處理。不影響 grab/IP。

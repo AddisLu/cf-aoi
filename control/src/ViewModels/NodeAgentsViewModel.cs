@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -41,6 +42,15 @@ public sealed partial class NodeAgentsViewModel : ObservableObject
     // 內嵌確認列
     [ObservableProperty] private bool awaitingConfirm;
     [ObservableProperty] private string confirmText = "";
+
+    // 機況助手（Loop + 本地大模型；只在設了 LOOP_ENABLED 的 Spark 上）
+    [ObservableProperty] private bool loopAvailable;
+    [ObservableProperty] private bool loopActive;
+    [ObservableProperty] private bool loopReady;
+    [ObservableProperty] private string loopStateText = "";
+    [ObservableProperty] private string loopDetail = "";
+    private string _loopUrl = "";
+    private AgentNodeItem? _loopNode;
 
     // log 檢視
     [ObservableProperty] private string logTitle = "";
@@ -110,6 +120,95 @@ public sealed partial class NodeAgentsViewModel : ObservableObject
         foreach (var n in Nodes.Where(n => n.Online && n.TimeWarn))
             warn.Append((warn.Length > 0 ? "　" : "") + $"{n.Name} 時間差 {n.TimeOffsetText}（>1 秒，結果日期/log 會對不上）。");
         Warning = warn.ToString();
+        UpdateLoop();
+    }
+
+    // ── 機況助手 ─────────────────────────────────────────────────────────
+    // 運作模式：生產只跑 Control/Grab/IP；機台有問題或調機 → 這裡開 Loop + 載入大模型（兩台 Spark 叢集），
+    // 用完「結束並回生產」釋放記憶體。開著時 CF_READY 回未就緒（AppServices.DiagMode）。
+    private void UpdateLoop()
+    {
+        _loopNode = Nodes.FirstOrDefault(n => n.Online && n.LoopEnabled);
+        LoopAvailable = _loopNode is not null || Nodes.Any(n => n.LoopEnabled);
+        if (_loopNode is null)
+        {
+            LoopActive = LoopReady = false;
+            LoopStateText = LoopAvailable ? "⚠ 主 Spark 連不上，無法得知機況助手狀態" : "";
+            LoopDetail = "";
+            _svc.DiagMode.Set(false, "");
+            return;
+        }
+        var n = _loopNode;
+        LoopActive = n.LoopActive;
+        LoopReady = n.LoopModelStatus == "ready";
+        _loopUrl = n.LoopUrl;
+        LoopStateText = n.LoopModelStatus switch
+        {
+            "ready" => "● 就緒：大模型已載入，可開啟畫面",
+            "starting" => $"◐ 載入大模型中…{Elapsed(n.LoopSince)}（約 5–10 分鐘）",
+            "error" => $"⚠ 大模型載入失敗：{n.LoopError}",
+            _ when n.LoopService == "active" => "◐ Loop 已啟動，大模型未載入",
+            _ => "○ 關閉（生產模式）",
+        };
+        LoopDetail = $"{n.Name} 可用記憶體 {n.MemAvailGb:0.0} GB · 模型 {n.LoopModelId}";
+        _svc.DiagMode.Set(LoopActive, "診斷模式中（機況助手／大模型佔用 Spark 記憶體）→ 系統狀態按「結束並回生產」");
+    }
+
+    private static string Elapsed(string since)
+    {
+        if (!DateTimeOffset.TryParse(since, out var t)) return "";
+        var m = (int)(DateTimeOffset.Now - t).TotalMinutes;
+        return m >= 1 ? $"（已 {m} 分）" : "";
+    }
+
+    [RelayCommand]
+    private void StartLoop()
+    {
+        if (_loopNode is not { } n) { ActionStatus = "❌ 主 Spark 連不上"; return; }
+        Ask("開啟機況助手？會在 Spark 載入大模型（兩台 Spark，約 5–10 分鐘），佔用約 80% 記憶體 —— " +
+            "只在機台有問題或調機（停線）時使用；開著期間上位機 CF_READY 會回未就緒。", async () =>
+        {
+            ActionStatus = "啟動 Loop 並載入大模型…";
+            await n.Client.LoopAsync("start");
+            ActionStatus = "✓ 已開始載入大模型；就緒後按「開啟畫面」（狀態每 5 秒更新）";
+            _svc.Log.Warn("系統狀態：開啟機況助手（診斷模式）");
+        });
+    }
+
+    [RelayCommand]
+    private void OpenLoop()
+    {
+        if (string.IsNullOrEmpty(_loopUrl)) { ActionStatus = "❌ 主 Spark 未設定 LOOP_PUBLIC_URL"; return; }
+        try
+        {
+            Process.Start(new ProcessStartInfo(_loopUrl) { UseShellExecute = true });
+            ActionStatus = "已在瀏覽器開啟機況助手";
+        }
+        catch (Exception ex) { ActionStatus = $"❌ 開不了瀏覽器：{ex.Message}"; }
+    }
+
+    [RelayCommand]
+    private void StopLoop()
+    {
+        if (_loopNode is not { } n) { ActionStatus = "❌ 主 Spark 連不上"; return; }
+        Ask("結束機況助手並回生產？會停止兩台 Spark 的大模型與 Loop（正在進行的對話會中斷），" +
+            "並確認 IP 生產模式在跑。", async () =>
+        {
+            ActionStatus = "停止大模型與 Loop…";
+            await n.Client.LoopAsync("stop");
+            // 回生產：IP 若停在調參模式或沒在跑 → 啟動生產服務（與調參互斥，啟動即自動停調參）
+            foreach (var ip in Nodes.Where(x => x.Role == "ip" && x.Online))
+            {
+                var prod = ip.Services.FirstOrDefault(sv => sv.Unit == "cfaoi-ip-production");
+                if (prod is { IsActive: false })
+                {
+                    ActionStatus = $"啟動 {ip.Name} IP 生產…";
+                    await ip.Client.ServiceAsync(prod.Unit, "start");
+                }
+            }
+            ActionStatus = "✓ 已結束機況助手，回到生產模式（Control / Grab / IP）";
+            _svc.Log.Info("系統狀態：結束機況助手，回生產模式");
+        });
     }
 
     private static bool SameVersion(string node, string control)
@@ -284,6 +383,17 @@ public sealed partial class AgentNodeItem : ObservableObject
     [ObservableProperty] private string error = "";
     [ObservableProperty] private bool servicesHealthy;
 
+    // 機況助手（代理 STATUS 的 loop 區塊；只有主 Spark 的 enabled=true）
+    public bool LoopEnabled { get; private set; }
+    public bool LoopActive { get; private set; }
+    public string LoopService { get; private set; } = "";
+    public string LoopModelStatus { get; private set; } = "";
+    public string LoopModelId { get; private set; } = "";
+    public string LoopSince { get; private set; } = "";
+    public string LoopError { get; private set; } = "";
+    public string LoopUrl { get; private set; } = "";
+    public double MemAvailGb { get; private set; }
+
     public AgentNodeItem(NodeAgentsViewModel owner, AgentConfig cfg)
     {
         _owner = owner;
@@ -326,6 +436,17 @@ public sealed partial class AgentNodeItem : ObservableObject
                 item.Apply(s!);
             }
         }
+        MemAvailGb = (d["mem_avail_mb"]?.GetValue<double>() ?? 0) / 1024.0;
+        var lp = d["loop"];
+        LoopEnabled = lp?["enabled"]?.GetValue<bool>() == true;
+        LoopActive = LoopEnabled && lp?["active"]?.GetValue<bool>() == true;
+        LoopService = lp?["service"]?.GetValue<string>() ?? "";
+        LoopModelStatus = lp?["model"]?["status"]?.GetValue<string>() ?? "";
+        LoopSince = lp?["model"]?["since"]?.GetValue<string>() ?? "";
+        LoopError = lp?["model"]?["error"]?.GetValue<string>() ?? "";
+        LoopModelId = lp?["model_id"]?.GetValue<string>() ?? "";
+        LoopUrl = lp?["url"]?.GetValue<string>() ?? "";
+
         // 健康：Grab 角色 = cfaoi-grab 在跑；IP 角色 = 生產或調參其一在跑
         ServicesHealthy = Services.Count > 0 && Services.Any(x => x.IsActive)
                           && (Role != "grab" || Services.All(x => x.IsActive));
