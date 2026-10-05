@@ -89,6 +89,10 @@ public sealed class AgentClient
     public Task<JsonNode?> LoopAsync(string action, CancellationToken ct = default)
         => CallAsync("LOOP", new JsonObject { ["action"] = action }, TimeSpan.FromSeconds(action == "status" ? 10 : 240), ct);
 
+    /// <summary>一鍵健檢（只在 Grab）：相機/取像/交換機/RDMA/GPU，回 markdown 報告；gpu=true 另跑深度檢查（1–2 分鐘）。</summary>
+    public Task<JsonNode?> TriageAsync(bool gpu, CancellationToken ct = default)
+        => CallAsync("TRIAGE", new JsonObject { ["gpu"] = gpu }, TimeSpan.FromSeconds(gpu ? 900 : 420), ct);
+
     public Task<JsonNode?> PowerAsync(string action, CancellationToken ct = default)
         => CallAsync("POWER", new JsonObject { ["action"] = action, ["confirm"] = true }, TimeSpan.FromSeconds(10), ct);
 }

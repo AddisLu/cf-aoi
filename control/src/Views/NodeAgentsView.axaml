@@ -21,6 +21,10 @@
           </StackPanel>
           <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
                       IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+            <Button Classes="primary" Content="一鍵健檢" Command="{Binding RunTriageCommand}"
+                    ToolTip.Tip="自動檢查相機（缺台/掉封包/參數被改）、交換機、Grab↔Spark RDMA、GPU，給出原因與該怎麼做"/>
+            <CheckBox Content="含 GPU" IsChecked="{Binding TriageGpu}" VerticalAlignment="Center"
+                      ToolTip.Tip="另跑 GPU 深度檢查：離線單元測試 + 參考圖測圖（多 1–2 分鐘，不影響生產）"/>
             <Button Classes="ghost" Content="重新整理" Command="{Binding RefreshCommand}"/>
             <Button Classes="primary" Content="全部重新啟動" Command="{Binding RestartAllCommand}"
                     ToolTip.Tip="先 Spark IP、再 Grab；只重啟目前在跑的服務"/>

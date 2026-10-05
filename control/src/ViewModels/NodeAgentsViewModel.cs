@@ -52,6 +52,9 @@ public sealed partial class NodeAgentsViewModel : ObservableObject
     private string _loopUrl = "";
     private AgentNodeItem? _loopNode;
 
+    // 一鍵健檢（Grab 代理 TRIAGE）
+    [ObservableProperty] private bool triageGpu;
+
     // log 檢視
     [ObservableProperty] private string logTitle = "";
     [ObservableProperty] private string logText = "";
@@ -332,6 +335,24 @@ public sealed partial class NodeAgentsViewModel : ObservableObject
             ActionStatus = "✓ 全部重新啟動完成；Control 會在幾秒內自動重連（看上方燈號）";
             _svc.Log.Info("系統狀態：全部重新啟動");
         });
+
+    /// <summary>一鍵健檢：在 Grab 上跑 cfaoi_triage.py（相機/取像/交換機/RDMA/GPU），結論顯示在下方檢視區；
+    /// 報告也存進機台資料夾，機況助手讀得到。產線取像中會自動略過取像測試（不打擾生產）。</summary>
+    [RelayCommand]
+    private async Task RunTriage() => await RunAsync(async () =>
+    {
+        var grab = Nodes.FirstOrDefault(n => n.Role == "grab" && n.Online)
+                   ?? throw new AgentException("Grab 節點代理連不上，無法健檢");
+        ActionStatus = TriageGpu ? "一鍵健檢中（含 GPU 深度檢查，約 2–3 分鐘）…" : "一鍵健檢中（約 1 分鐘）…";
+        var d = await grab.Client.TriageAsync(TriageGpu);
+        int fail = d?["fail"]?.GetValue<int>() ?? 0, warn = d?["warn"]?.GetValue<int>() ?? 0;
+        LogTitle = $"一鍵健檢結果　{DateTime.Now:HH:mm}　（報告：{d?["report"]?.GetValue<string>()}）";
+        LogText = d?["markdown"]?.GetValue<string>() ?? "";
+        HasLog = true;
+        ActionStatus = fail > 0 ? $"❌ 健檢發現 {fail} 項異常、{warn} 項注意 —— 看下方結論；不懂可開機況助手問"
+                     : warn > 0 ? $"⚠ 健檢 {warn} 項注意（可生產）—— 看下方結論" : "✓ 健檢全部正常";
+        _svc.Log.Info($"系統狀態：一鍵健檢 異常 {fail}、注意 {warn}");
+    });
 
     /// <summary>收集診斷包：各節點 tar.gz + Control 自己的 log → OutputDir/diag/&lt;時間&gt;/（給工程師帶出 fab）。</summary>
     [RelayCommand]

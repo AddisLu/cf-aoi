@@ -280,6 +280,37 @@ def loop_proxy():
         threading.Thread(target=pair.pump, args=(t, c), daemon=True).start()
 
 
+_TRIAGE_LOCK = threading.Lock()
+
+
+def cmd_triage(p):
+    """一鍵健檢（只在 Grab）：跑 tools/triage/cfaoi_triage.py，回傳報告 Markdown + 各項結果。
+    交換機 console 同時只能一個程式用 → 一次只跑一個。"""
+    if ROLE != "grab":
+        raise ValueError("一鍵健檢在 Grab 主機上執行（它接著相機、交換機 console、RDMA 線）")
+    if not _TRIAGE_LOCK.acquire(blocking=False):
+        raise RuntimeError("健檢已在執行中，請稍候")
+    try:
+        args = ["python3", os.path.join(REPO, "tools", "triage", "cfaoi_triage.py"), "--json"]
+        if p.get("gpu"):
+            args.append("--gpu")
+        rc, out, err = run(args, 900)
+        try:
+            j = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
+        except ValueError:
+            j = {}
+        if not j.get("report"):
+            raise RuntimeError(f"健檢沒有產生報告（rc={rc}）：{(err or out).strip()[-300:]}")
+        with open(j["report"], encoding="utf-8") as f:
+            md = f.read()
+        items = j.get("items", [])
+        return {"report": j["report"], "markdown": md, "exit": rc,
+                "fail": sum(1 for i in items if i["level"] == "FAIL"),
+                "warn": sum(1 for i in items if i["level"] == "WARN")}
+    finally:
+        _TRIAGE_LOCK.release()
+
+
 def cmd_loop(p):
     if not LOOP_ENABLED:
         raise ValueError("這台沒有設定機況助手（LOOP_ENABLED=0）；Loop 只在主 Spark 上")
@@ -433,6 +464,7 @@ COMMANDS = {
     "DIAG": cmd_diag,
     "POWER": cmd_power,
     "LOOP": cmd_loop,
+    "TRIAGE": cmd_triage,
 }
 
 
