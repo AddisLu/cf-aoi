@@ -98,6 +98,21 @@ check('放寬 20%：DIV 暗門檻變低、亮門檻變高', lo['dark'] < td['dar
 lo_s = E.loosen(ts, 0.2)
 check('放寬 20%：SUB 暗門檻更負、亮門檻更大', lo_s['dark'] < ts['dark'] and lo_s['bright'] > ts['bright'], (ts, lo_s))
 
+print('4. 真實晶片間隙（T550 IP04 第 14/15 張，間隙跨兩張；有 dummy 週期帶、pad、亮帶、暗線）')
+GAP = next((d for pat in ('/srv/cfaoi/50_raw/reference/T550*/IP04', '~/cfaoi_reference/T550*/IP04', '~/cfaoi_reference/T550*_IP04')
+            for d in sorted(glob.glob(os.path.expanduser(pat))) if os.path.exists(os.path.join(d, 'IP04_Origin000015.tif'))), None)
+if GAP:
+    st = np.vstack([E.load(os.path.join(GAP, 'IP04_Origin%06d.tif' % n)) for n in (14, 15)])
+    rg = E.analyze_regions(st, 25.86, 18.5, min_chip_frac=0.03)
+    # 人工 1:1 判讀：上晶片 pattern 止 3857、dummy 帶 4437–4996、下晶片起 5572（接圖後座標，0–10000）
+    truth = [3857, 4437, 4996, 5572]
+    got = [rg['rows'][0][1], rg['rows'][1][0], rg['rows'][1][1], rg['rows'][2][0]] if len(rg['rows']) == 3 else []
+    check('間隙內分出 3 段 pattern（上晶片 / dummy 帶 / 下晶片）', len(rg['rows']) == 3, rg['rows'])
+    check('四條邊界都在 1 個 pitch 內（≤ 20 px；粗分段原本差 ~50–65 px）',
+          len(got) == 4 and all(abs(a - b) <= 20 for a, b in zip(got, truth)), list(zip(got, truth)))
+else:
+    print('  SKIP  找不到 T550 IP04 第 14/15 張')
+
 import shutil  # noqa: E402
 shutil.rmtree(tmp, ignore_errors=True)
 print('全數通過' if not FAIL else f'失敗 {len(FAIL)} 項：{FAIL}')

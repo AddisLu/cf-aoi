@@ -183,6 +183,52 @@ def segments(profile, min_len, thr=0.5):
     return out
 
 
+def energy_profile(img, px, py, axis, sel=None):
+    """沿某方向的紋理能量剖面（axis=0：每列一值；axis=1：每欄一值），只平均 sel 選到的另一方向範圍，
+    再以一個 pitch 寬做方框平滑——週期起伏被抹平、邊界仍是對稱的斜坡，半高點 = 真邊界。"""
+    f = img.astype(np.float32)
+    h = f - cv2.GaussianBlur(f, (0, 0), max(px, py))
+    # 只算「有週期」的能量：|hp| 減掉與 ±1 pitch 鄰居（沿剖面方向）的最小差。單條線、pad 邊、
+    # 亮帶交界在 ±pitch 處對不上 → 歸零，不會把邊界拉走（實測 dummy 區下緣：65 px → 見 spec）。
+    p = py if axis == 0 else px
+    shifts = sorted({int(np.floor(p)), int(np.ceil(p))})
+    res = None
+    for d in shifts:
+        for sgn in (1, -1):
+            r = np.abs(h - np.roll(h, sgn * d, axis=axis))
+            res = r if res is None else np.minimum(res, r)
+    hp = np.clip(np.abs(h) - res, 0, None)
+    if sel is not None:
+        hp = hp[:, sel] if axis == 0 else hp[sel, :]
+    prof = hp.mean(axis=1 - axis)
+    k = int(round(py if axis == 0 else px)) | 1
+    return np.convolve(prof, np.ones(k) / k, mode='same')
+
+
+def refine_segments(prof, segs, search):
+    """粗分段（大窗口，邊界會往 bypass 多吃半個窗口）→ 在 ±search 內找能量剖面的半高點。
+    實測 T550 IP04 第 14/15 張晶片間隙：粗分段誤差 ~50 px → 細修後 ≤ 1 個 pitch。"""
+    n = len(prof)
+    out = []
+    for s, e in segs:
+        def cross(b, inside_dir):
+            lo, hi = max(0, b - search), min(n, b + search)
+            ins = prof[max(0, b - 3 * search):max(1, b - search)] if inside_dir < 0 else prof[min(n - 1, b + search):min(n, b + 3 * search)]
+            outs = prof[min(n - 1, b + search):min(n, b + 3 * search)] if inside_dir < 0 else prof[max(0, b - 3 * search):max(1, b - search)]
+            if len(ins) == 0 or len(outs) == 0:
+                return b                                           # 貼影像邊：沒有外側可比，維持原值
+            mid = (np.median(ins) + np.median(outs)) / 2
+            w = prof[lo:hi] >= mid
+            idx = np.nonzero(w[1:] != w[:-1])[0]
+            if len(idx) == 0:
+                return b
+            return int(lo + idx[np.argmin(np.abs(lo + idx - b))] + 1)
+        s2 = cross(s, +1) if s > 0 else s
+        e2 = cross(e, -1) if e < n else e
+        out.append((s2, e2) if e2 - s2 > search else (s, e))
+    return out
+
+
 def glass_edges(img, smooth=31, min_jump=12.0):
     """玻璃上下邊界：列平均亮度剖面的第一/最後一個大躍變（同 IP edge_check 的想法）。"""
     prof = img.mean(axis=1).astype(np.float32)
@@ -201,6 +247,12 @@ def analyze_regions(img, px, py, min_chip_frac=0.08):
     h, w = mask.shape
     rows = segments(mask.mean(axis=1), int(h * min_chip_frac))
     cols = segments(mask.mean(axis=0), int(w * 0.02))
+    search = int(4 * max(px, py))                       # = pattern_mask 窗口
+    if rows and cols:                                   # 細修：只看有 pattern 的那幾欄 / 那幾列
+        csel = np.zeros(w, bool); [csel.__setitem__(slice(a, b), True) for a, b in cols]
+        rsel = np.zeros(h, bool); [rsel.__setitem__(slice(a, b), True) for a, b in rows]
+        rows = refine_segments(energy_profile(img, px, py, 0, csel), rows, search)
+        cols = refine_segments(energy_profile(img, px, py, 1, rsel), cols, search)
     top, bot = glass_edges(img)
     zones = [{'StartX': c0, 'EndX': c1 - 1, 'StartY': r0, 'EndY': r1 - 1} for r0, r1 in rows for c0, c1 in cols]
     return {'mask': mask, 'rows': rows, 'cols': cols, 'glass_top': top, 'glass_bottom': bot, 'zones': zones,
