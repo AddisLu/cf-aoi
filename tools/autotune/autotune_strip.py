@@ -85,20 +85,29 @@ def block_map(st, px, py, progress=None):
 
 
 def components(bm, px, py, min_blocks=6):
-    """區塊圖 → 元件外框（區塊座標）。門檻 = max(p90 × 0.3, 1.0)，與 pattern_mask 同規則。"""
+    """區塊圖 → (晶片外框, dummy 外框)（區塊座標）。
+    兩層門檻（實測 T550：晶片 ≈ 12–16、dummy 帶 ≈ 2–4.6、平坦玻璃 ≈ 0.4–0.9）：
+      高 = max(p90 × 0.3, 1.0) → 晶片；低 = 背景中位數 × 4 → 晶片以外的弱週期區 = dummy 帶。"""
     thr = max(float(np.percentile(bm, 90)) * 0.3, 1.0)
-    m = (bm > thr).astype(np.uint8)
     k = max(1, int(round(2 * max(px, py) / B)))           # ~2 pitch：補 pattern 內的小洞、去雜點
-    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
-    n, lab, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=4)
-    boxes = []
-    for j in range(1, n):
-        x, y, w, h, a = stats[j]
-        if w >= min_blocks and h >= min_blocks:
-            boxes.append({'bx': int(x), 'by': int(y), 'bw': int(w), 'bh': int(h),
-                          'fill': round(float(a) / (w * h), 3)})
-    return boxes, thr, m
+    ker = np.ones((k, k), np.uint8)
+    def clean(m):
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, ker)
+        return cv2.morphologyEx(m, cv2.MORPH_OPEN, ker)
+    hi = clean((bm > thr).astype(np.uint8))
+    bg = float(np.median(bm[bm <= thr])) if (bm <= thr).any() else 0.0
+    thr_lo = min(thr, max(4 * bg, 0.5))
+    lo = clean(((bm > thr_lo) & (cv2.dilate(hi, ker) == 0)).astype(np.uint8))
+    def boxes_of(m):
+        n, _, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=4)
+        out = []
+        for j in range(1, n):
+            x, y, w, h, a = stats[j]
+            if w >= min_blocks and h >= 2:
+                out.append({'bx': int(x), 'by': int(y), 'bw': int(w), 'bh': int(h),
+                            'fill': round(float(a) / (w * h), 3)})
+        return out
+    return boxes_of(hi), boxes_of(lo), {'hi': round(thr, 3), 'lo': round(thr_lo, 3), 'bg': round(bg, 3)}, hi
 
 
 def _cross(prof, b, inside_dir, search):
@@ -119,29 +128,33 @@ def _cross(prof, b, inside_dir, search):
     return int(lo + idx[np.argmin(np.abs(lo + idx - b))] + 1)
 
 
-def refine_box(st, box, px, py, n_col_samples=4, sample_h=1500):
-    """區塊外框 → 全解析度 panel 座標（每條邊找半高點）。"""
+def refine_box(st, box, px, py, nb_rows, nb_cols, n_col_samples=4, sample_h=1500):
+    """區塊外框 → 全解析度 panel 座標（每條邊找半高點）。貼區塊圖邊的邊直接 = 整條 / CCD 邊。"""
     search = int(4 * max(px, py))
     x0, x1 = box['bx'] * B, (box['bx'] + box['bw']) * B
     y0, y1 = box['by'] * B, (box['by'] + box['bh']) * B
-    xi0, xi1 = x0 + search, max(x0 + search + 1, x1 - search)          # 只看框內部的欄/列
-    # 上下邊：取該邊附近的列帶，只平均框內的欄
+    at_top, at_bot = box['by'] == 0, box['by'] + box['bh'] >= nb_rows
+    at_left, at_right = box['bx'] == 0, box['bx'] + box['bw'] >= nb_cols
+    xi0, xi1 = x0 + search, max(x0 + search + 1, x1 - search)          # 只看框內部的欄
     def yedge(y, d):
-        if (d > 0 and y <= 0) or (d < 0 and y >= st.H):
-            return max(0, min(st.H, y))
         img, top = st.rows(y - 4 * search, y + 4 * search)
         prof = E.energy_profile(img[:, xi0:xi1], px, py, 0)
         return top + _cross(prof, y - top, d, search)
-    ny0, ny1 = yedge(y0, +1), yedge(y1, -1)
-    # 左右邊：在框內均勻取幾段列帶，平均欄剖面
-    ys = np.linspace(ny0 + search, max(ny0 + search + 1, ny1 - search - sample_h), n_col_samples).astype(int)
-    prof = None
-    for yy in ys:
-        img, _ = st.rows(int(yy), int(yy) + sample_h)
-        p = E.energy_profile(img, px, py, 1)
-        prof = p if prof is None else prof + p
-    nx0 = _cross(prof, x0, +1, search) if x0 > 0 else 0
-    nx1 = _cross(prof, x1, -1, search) if x1 < st.w else st.w
+    ny0 = 0 if at_top else yedge(y0, +1)
+    ny1 = st.H if at_bot else yedge(y1, -1)
+    nx0, nx1 = (0 if at_left else x0), (st.w if at_right else x1)
+    if not (at_left and at_right):                                   # 左右邊：框內取幾段列帶平均欄剖面
+        hh = min(sample_h, max(1, ny1 - ny0))
+        ys = np.linspace(ny0, max(ny0, ny1 - hh), n_col_samples).astype(int)
+        prof = None
+        for yy in ys:
+            img, _ = st.rows(int(yy), int(yy) + hh)
+            p = E.energy_profile(img, px, py, 1)
+            prof = p if prof is None else prof + p
+        if not at_left:
+            nx0 = _cross(prof, x0, +1, search)
+        if not at_right:
+            nx1 = _cross(prof, x1, -1, search)
     return {'x0': int(nx0), 'x1': int(nx1), 'y0': int(ny0), 'y1': int(ny1)}
 
 
@@ -154,22 +167,22 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
         px, py = p['x'], p['y']
     progress(f'pitch {px:.2f} × {py:.2f}，{len(st.paths)} 張 → panel {st.w} × {st.H}')
     bm = block_map(st, px, py)
-    boxes, thr, m = components(bm, px, py)
+    hi_boxes, lo_boxes, thr, m = components(bm, px, py)
     chips, dummy = [], []
-    for b in boxes:
-        r = refine_box(st, b, px, py)
+    for b, weak in [(b, False) for b in hi_boxes] + [(b, True) for b in lo_boxes]:
+        r = refine_box(st, b, px, py, bm.shape[0], bm.shape[1])
         hgt, wid = r['y1'] - r['y0'], r['x1'] - r['x0']
-        thin_y = hgt < dummy_max_pitches * py
+        thin_y = hgt < dummy_max_pitches * py and r['y0'] > 0 and r['y1'] < st.H
         thin_x = wid < dummy_max_pitches * px and r['x0'] > 0 and r['x1'] < st.w
         r['fill'] = b['fill']
-        (dummy if (thin_y or thin_x) else chips).append(r)
+        (dummy if (weak or thin_y or thin_x) else chips).append(r)
     chips.sort(key=lambda r: (r['y0'], r['x0']))
     dummy.sort(key=lambda r: (r['y0'], r['x0']))
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)
     return {'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
-            'chips': chips, 'dummy': dummy, 'block_thr': round(thr, 3),
+            'chips': chips, 'dummy': dummy, 'block_thr': thr,
             'pattern_frac': round(pat / area, 4), 'roi_frac': round(roi / area, 4), 'block_map': bm}
 
 
