@@ -105,8 +105,10 @@ private:
 struct ServerLiveness {
     std::atomic<bool>    loop_alive{false};
     std::atomic<int64_t> busy_since_ms{0};
+    std::atomic<bool>    stopping{false};   // 主動關閉（正常結束流程）→ 不算異常
 
     std::string check(const char* name, int64_t max_busy_ms) const {
+        if (stopping) return "";            // 正常結束中：行程馬上就退出，不必也不該報「卡死」
         if (!loop_alive) return std::string(name) + " 命令迴圈已退出（連不上命令埠）";
         const int64_t since = busy_since_ms.load();
         if (since != 0 && now_ms() - since > max_busy_ms)

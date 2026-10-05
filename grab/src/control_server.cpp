@@ -95,6 +95,7 @@ bool ControlServer::start() {
 }
 
 void ControlServer::stop() {
+    live_.stopping = true;   // watchdog：正常結束，不是卡死
     running_ = false;
     if (listen_fd_ >= 0) { ::shutdown(listen_fd_, SHUT_RDWR); ::close(listen_fd_); listen_fd_ = -1; }
     if (thread_.joinable()) thread_.join();

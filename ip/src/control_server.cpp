@@ -358,6 +358,7 @@ bool ControlServer::start() {
 }
 
 void ControlServer::stop() {
+    live_.stopping = true;   // watchdog：正常結束，不是卡死
     if (!running_.exchange(false)) {
         if (thread_.joinable()) thread_.join();
         return;
