@@ -89,6 +89,9 @@ bool ControlServer::start() {
     }
 
     running_ = true;
+    // watchdog：listen 已成功 = 迴圈即將開跑；在這裡就標記在線，否則 Pinger 首次檢查可能早於
+    // run() 第一行 → 誤報「命令迴圈已退出」（2026-10-05 Spark 每次啟動都印一次）
+    live_.loop_alive = true;
     thread_  = std::thread(&ControlServer::run, this);
     printf("[ctrl] Grab 命令 server 監聽 port %d\n", port_);
     return true;
@@ -102,7 +105,6 @@ void ControlServer::stop() {
 }
 
 void ControlServer::run() {
-    live_.loop_alive = true;   // watchdog：迴圈退出（含 B11 accept 錯誤）→ 不再回報 → systemd 重啟
     while (running_) {
         sockaddr_in peer{};
         socklen_t plen = sizeof(peer);
