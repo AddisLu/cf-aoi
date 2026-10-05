@@ -868,7 +868,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(api_grabsvc(body.get('action', '')))
         elif u.path == '/api/snapshot':
             ts = time.strftime('%Y%m%d_%H%M%S')
-            outdir = os.path.expanduser(f'~/CamAlign_{ts}')
+            # 機台資料夾在 → 50_raw/align/<yyyyMMdd_HHmmss>/（統一歸檔、命名規則見 /srv/cfaoi/README.md）
+            arc = os.environ.get('CFAOI_HOME', '/srv/cfaoi')
+            outdir = (os.path.join(arc, '50_raw', 'align', ts) if os.path.isdir(os.path.join(arc, '50_raw'))
+                      else os.path.expanduser(f'~/CamAlign_{ts}'))
             saved = []
             with STATE_LOCK:
                 cams = list(CAMS.values())
@@ -1080,7 +1083,7 @@ table.inv input.ip{width:128px}
       點畫面任一處可看 1:1 放大。</li>
   <li><b>健檢</b>：卡片狀態列的<b>完整度</b> < 99.5% 會變黃 → 多半是 Camera Link 線鬆了（斷電、兩端重插鎖螺絲），
       或網路掉包。</li>
-  <li><b>存檔</b>：「💾 存快照」存到家目錄 CamAlign_時間/，每台一組 PNG＋RAW＋JSON（含當下參數）。</li>
+  <li><b>存檔</b>：「💾 存快照」存到機台資料夾 /srv/cfaoi/50_raw/align/時間/（沒有機台資料夾時存家目錄 CamAlign_時間/），每台一組 PNG＋RAW＋JSON（含當下參數）。</li>
   <li><b>收尾</b>：「⏹ 停止」（相機設定自動還原）→ 關閉分頁（產線 Grab 自動恢復）。</li>
  </ol></div>
 </dialog>

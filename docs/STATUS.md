@@ -1209,6 +1209,17 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
 - 實機（6 × raL8192）：掃描 6/6、暫停/恢復 cfaoi-grab、CCD06 同值重寫讀回一致、6 台同時取像完整度 100%/掉包 0、
   快照 18 檔；離線 `test_offline.py` 48 項全過（新增 provision 14 項：撞名/撞 IP/使用中/讀回不符/CCP 一定釋放）。
 
+**機台資料夾 `/srv/cfaoi` + 自動歸檔（2026-10-05，L2 — 實資料試跑於暫存夾；/srv 尚待 sudo 安裝）**
+- `tools/archive/cfaoi_archive.py`（timer 每 10 分鐘）：00_software / 10_logs / 20_docs / 30_tests / 40_defects / 50_raw /
+  60_config / 70_knowledge，命名規則 `tools/archive/README_CFAOI_HOME.md`。Spark 結果、defect 小圖、原始圖、_diag、journald
+  經 RDMA 直連網段拉回（原始圖限速、低優先權）；參數只在內容變更時進 history；每日摘要（每台片數/NG/缺陷、incident、
+  服務事件、參數變更）給 RAG。實資料試跑：log 16 天、檢測結果 230MB、設定 11 項、摘要 351 片；第二輪 0 變動（增量）。
+  離線 `test_archive.py` 全過；`gen_test_catalog.py` 33 支測試說明（檔頭自動擷取）。
+- 參考圖：Spark 舊機台 IP04 原圖 26 張（8160×5000 TIF，md5 一致）+ 新版 IP 輸出 → 暫放 `~/cfaoi_reference/`，
+  安裝時移到 `50_raw/reference/20251202_IP04_GPU-Only-TestImage/`（永不自動清）。
+- LoopEngineering「遠端路徑」`<機台>:<路徑>`（另一 repo，分支 `feat/remote-paths`，2050 測試全過）：RAG 來源、機況監看、
+  對話檔案工具直接經 SSH 讀 `grab:/srv/cfaoi`；**未部署**（待 Spark→Grab 金鑰授權 + 合併/重啟由 Addis 決定）。
+
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
   本機 ssh spark-3961 host key 驗證失敗，未處理。不影響 grab/IP。

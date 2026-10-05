@@ -250,6 +250,7 @@ WantedBy=multi-user.target"
     echo "✓ cfaoi-grab 已啟用並啟動（開機自啟）；log：journalctl -u cfaoi-grab -f"
     mkdir -p "$HOME/cfaoi_logs"
     install_agent grab "$HOME/cfaoi_logs"
+    bash "$REPO/tools/archive/install_archive.sh"   # 機台資料夾 /srv/cfaoi + 自動歸檔
 else
     echo "未知角色：$ROLE（ip|grab）"; exit 1
 fi

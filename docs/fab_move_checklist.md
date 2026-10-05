@@ -27,6 +27,13 @@
       `Enable-Autostart.cmd`；第一次啟動防火牆選「允許」
 - [ ] 上位機程式（同仁提供）在同一台 Windows 安裝好，連 `127.0.0.1:8787`
 
+## B2. 機台資料夾與 LoopEngineering（詳見 CLAUDE.md §2「機台資料夾」）
+
+- [ ] Grab：`bash tools/archive/install_archive.sh CFAOI-0n`（三台各自編號）→ `/srv/cfaoi` + `cfaoi-archive.timer`；`STATUS.json` 全 OK
+- [ ] 廠商手冊/SOP 放進 `20_docs/vendor`、`20_docs/sop`（命名照 README）；參考圖在 `50_raw/reference/`
+- [ ] Spark → Grab 金鑰 SSH（authorized_keys 限定 `from="192.168.3.1"`）；LoopEngineering 部署含遠端路徑功能後跑 `tools/archive/loop_register.sh`
+- [ ] 決定 LoopEngineering 在生產 Spark 上的模型常駐方式（vLLM 佔統一記憶體，會和 IP 搶 GPU / 記憶體）
+
 ## C. 時間同步（fab 內沒有 NTP 伺服器）
 
 - [x] **Grab 當校時主機**（chrony：有網路跟 pool、無網路用本地時鐘 stratum 10）— 2026-10-05 bootstrap 收編

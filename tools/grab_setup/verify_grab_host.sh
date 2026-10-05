@@ -8,6 +8,12 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ARM=0; [ "${1:-}" = '--arm' ] && ARM=1
 PASS=0; FAIL=0
+# 結果同時存進機台資料夾：/srv/cfaoi/30_tests/results/<yyyyMMdd>/<yyyyMMdd>_<HHmmss>_grab_verify-grab-host.log
+if [ -d /srv/cfaoi/30_tests ] && [ -z "${CFAOI_VERIFY_TEE:-}" ]; then
+  d=/srv/cfaoi/30_tests/results/$(date +%Y%m%d); mkdir -p "$d"
+  CFAOI_VERIFY_TEE=1 "$0" "$@" 2>&1 | tee "$d/$(date +%Y%m%d_%H%M%S)_grab_verify-grab-host.log"
+  exit "${PIPESTATUS[0]}"
+fi
 ok()   { printf '  \033[32mPASS\033[0m  %-42s %s\n' "$1" "${2:-}"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31mFAIL\033[0m  %-42s %s\n' "$1" "${2:-}"; FAIL=$((FAIL+1)); }
 info() { printf '  ····  %-42s %s\n' "$1" "${2:-}"; }

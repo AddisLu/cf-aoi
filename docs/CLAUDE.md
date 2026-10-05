@@ -67,6 +67,11 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 - **下方陣列（18 × L803K 經 Pleora iPORT，另一組 交換機/Grab/Spark）**：CCD38–CCD55，iPORT persistent IP
   **192.168.4.nn**（尾碼 = 編號；`grab/build/iport_provision set <SN> CCDnn` 寫入），Grab 相機網卡需有 192.168.4.x
   （現行 192.168.4.2）；Grab 以 `GRAB_EXTRA=--camera ebus` 啟動。控制網建議 .12（Spark）/.22（Grab）。
+- **機台資料夾 `/srv/cfaoi`（Grab，2026-10-05）**：相關軟體、機台 log、參考資料、測試說明、defect 小圖、原始圖、
+  參數快照、每日摘要的**唯一固定位置**；`cfaoi-archive.timer` 每 10 分鐘從本機與 Spark（經 192.168.3.1）歸檔。
+  夾別與命名規則：[tools/archive/README_CFAOI_HOME.md](../tools/archive/README_CFAOI_HOME.md)（安裝後即 `/srv/cfaoi/README.md`）。
+  安裝：`bash tools/archive/install_archive.sh <機台編號>`。驗證用參考圖放 `50_raw/reference/`（永不自動清）。
+  LoopEngineering（Spark :4711，本地模型 + RAG）以**遠端路徑** `grab:/srv/cfaoi` 經 SSH 直接讀（不複製）：`tools/archive/loop_register.sh`。
 
 ### 多 CCD 陣列：三層模型（運算單元 / CCD / per-CCD 配方）— 基礎概念，所有 session 繼承
 
