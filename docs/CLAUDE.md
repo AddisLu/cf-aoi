@@ -41,6 +41,31 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
     → RDMA libibverbs →
 ```
 
+### 實機網路與 IP 配置（2026-10-05 定案，上方陣列；fab 內無網路）
+
+> **Tailscale 只是開發期遠端用**（`*.tailffdb68.ts.net`），fab 內不存在 → 產線設定一律用下表的 IP。
+> 細節與實測：STATUS「截取中心移機 + 6 相機全鏈」、[grab_machine_migration.md](grab_machine_migration.md)。
+
+| 機台 | 網口 | IP | 接到 | 線位是否固定 |
+|---|---|---|---|---|
+| **Control**（Windows，= 上位機同機，線上人員唯一螢幕）| 任一網口 | 192.168.10.1/24 + `route -p add 192.168.3.0/24 via 192.168.10.21` | Grab `enp3s0` 直連 | Grab 端**固定** `enp3s0` |
+| **Grab**（`user-IMB-M47`，i9-14900K）| 板載 `enp3s0`（I226 2.5G）| 192.168.10.21/24（控制網，**兼路由** ip_forward=1）| Control | **固定** |
+| | ConnectX-5 f0 `enp1s0f0np0`（MAC …:CC:18）| 192.168.3.2/24，MTU 9000 | Spark port0 DAC 直連（RDMA）| **固定**（bootstrap 以 MAC 認卡）|
+| | ConnectX-5 f1 `enp1s0f1np1`（MAC …:CC:19）| 192.168.5.200/24、169.254.0.200/16、192.168.4.2/24，MTU 9000 | 交換機 100G 埠（現 5945 `HGE1/0/25`）| 交換機端任一 100G 埠皆可 |
+| | 板載 `enp4s0`/`enp5s0` | 未用 | — | — |
+| **Spark**（`spark-c16f`，上方 IP）| port0 `enp1s0f0np0`（`cf-rdma`）| 192.168.3.1/24 + 回程路由 192.168.10.0/24 via 192.168.3.2 | Grab f0 | **固定** |
+| | port1 `enp1s0f1np1` / `enP2p1s0f1np1` | 192.168.177.11 / 178.11 | spark-3961（Spark↔Spark）| **固定** |
+| **相機** CCD01–CCD37（raL8192）| — | 192.168.5.**nn**（nn = CCD 編號，存在相機內）| 交換機任一 1G 埠 | **不固定**（身分存在相機本身）|
+| 交換機 console | USB `/dev/ttyUSB0` | 9600 8N1 | 5945 aux | — |
+
+- **服務埠**：Control ← 上位機 **8787**；Control → Grab **8100**、→ IP **8200**；Grab → IP RDMA **18515**。
+  Control `appsettings.json`：`GrabA` = 192.168.10.21:8100、`IpSpark` = 192.168.3.1:8200（ActiveIpNode）。
+- **為何相機可亂插、主機線不行**：相機的 CCD 編號與 IP 寫在相機 flash（DeviceUserID + persistent IP），
+  grab 以此綁定、與交換機埠無關（交換機 48 個 25G 埠已全部預設 1G）。主機端則是設定綁在**特定網口**
+  （ConnectX-5 以 MAC、Spark 以介面名、控制網以 `enp3s0`），插錯埠 = 網段對調/連不上。
+- **進 fab 前準備**：[fab_move_checklist.md](fab_move_checklist.md)；**商業化（線上人員只碰 Control）**：[commercial_deploy_plan.md](commercial_deploy_plan.md)。
+- **下方陣列（18 × L803K，另一組 交換機/Grab/Spark）待定**：建議沿用同一套規則，控制網 .12（Spark）/.22（Grab）。
+
 ### 多 CCD 陣列：三層模型（運算單元 / CCD / per-CCD 配方）— 基礎概念，所有 session 繼承
 
 「IP」一詞在本專案有三義，易混。固定用下列三層詞彙，**勿再混用「IP」一詞**：

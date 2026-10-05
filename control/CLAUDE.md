@@ -202,11 +202,12 @@ IP 端未消費的參數（AlgorithmWay/Blob* 等）標「IP待接」。閾值�
 {
   "UpstreamServer": { "ListenPort": 8787, "Optional": true },
   "Nodes": {
-    "IpOffline": { "Host": "127.0.0.1", "Port": 8200, "Mode": "offline-tcp" },
-    "IpOnline":  { "Host": "192.168.10.11", "Port": 8200, "Mode": "online" },
-    "GrabA":     { "Host": "192.168.10.21", "Port": 8100 }
+    "IpOffline": { "Host": "addis-b850m-ds3h.tailffdb68.ts.net", "Port": 8200, "Mode": "offline-tcp" },  // 開發用
+    "IpOnline":  { "Host": "192.168.10.11", "Port": 8200, "Mode": "online" },        // 舊規劃，未用
+    "IpSpark":   { "Host": "192.168.3.1",   "Port": 8200, "Mode": "rdma-process" },  // 產線 IP（經 Grab 轉送）
+    "GrabA":     { "Host": "192.168.10.21", "Port": 8100 }                           // 控制網直連 Grab
   },
-  "ActiveIpNode": "IpOffline",
+  "ActiveIpNode": "IpSpark",                // 網路拓樸見 docs/CLAUDE.md §2「實機網路與 IP 配置」
   "Grab": { "FramesPerPanel": 0 },          // CF_GRAB_START 帶給 Grab 的每片張數；0=連續（生產應設 N）
   "RecipeIps": [ "IP0" ],                   // 配方可編輯的 IP/CCD 分區清單（多分區加 "IP1"…；預設留空防 config 疊加重複）
   "Paths": {
