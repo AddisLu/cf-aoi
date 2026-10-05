@@ -151,7 +151,8 @@ def _loop_http(method, path, body=None, timeout=3.0):
     """呼叫本機 LoopEngineering API；回 (http 狀態碼, JSON)；連不上回 (0, {})。"""
     import urllib.error
     import urllib.request
-    data = json.dumps(body).encode() if body is not None else (b"" if method == "POST" else None)
+    # POST 一律帶 JSON 內容：Loop（Fastify）對 Content-Type: application/json 的空內容直接回 400
+    data = json.dumps(body if body is not None else {}).encode() if method == "POST" else None
     req = urllib.request.Request(LOOP_URL + path, data=data, method=method,
                                  headers={"Content-Type": "application/json"})
     tok = _loop_token()
@@ -162,7 +163,10 @@ def _loop_http(method, path, body=None, timeout=3.0):
             return r.status, json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         try:
-            return e.code, json.loads(e.read() or b"{}")
+            d = json.loads(e.read() or b"{}")
+            if isinstance(d, dict) and d.get("message"):        # Fastify 錯誤：error=「Bad Request」、說明在 message
+                d["error"] = f"{d.get('error') or ''} {d['message']}".strip()
+            return e.code, d
         except ValueError:
             return e.code, {}
     except (OSError, ValueError):
@@ -197,8 +201,9 @@ def loop_status():
     tok = _loop_token()
     url = (LOOP_PUBLIC_URL + "/" + (f"?token={tok}" if tok else "")) if LOOP_PUBLIC_URL else ""
     return {"enabled": True, "service": service, "model": model, "model_id": LOOP_MODEL, "url": url,
-            # 診斷模式 = Loop 在跑或模型佔著記憶體 → Control 據此擋 CF_READY（生產只跑三支程式）
-            "active": service in ("active", "activating") or model["status"] in ("starting", "ready")}
+            # 診斷模式 = 大模型載入中或已載入（佔 Spark ~80% 記憶體）→ Control 據此擋 CF_READY。
+            # Loop 服務本身很輕（實驗室開發時常駐），只有它在跑不算。
+            "active": model["status"] in ("starting", "ready")}
 
 
 def _allowed(addr):

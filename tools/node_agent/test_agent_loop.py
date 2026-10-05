@@ -58,6 +58,12 @@ class FakeLoop(BaseHTTPRequestHandler):
     def do_POST(self):
         LOOP["calls"].append(("POST", self.path))
         LOOP["auth"].append(self.headers.get("Authorization"))
+        # 同 Fastify：Content-Type JSON 但內容空 → 400（2026-10-05 實機踩到）
+        n = int(self.headers.get("Content-Length") or 0)
+        if self.headers.get("Content-Type", "").startswith("application/json") and n == 0:
+            return self._send(400, {"statusCode": 400, "error": "Bad Request",
+                                    "message": "Body cannot be empty when content-type is set to 'application/json'"})
+        self.rfile.read(n)
         if self.path.startswith("/api/local/models/") and self.path.endswith("/load"):
             if LOOP["refuse_load"]:
                 return self._send(409, {"error": "weights not cached"})
@@ -146,6 +152,12 @@ p, port = start_agent({"LOOP_PROXY_LISTEN": f"127.0.0.1:{proxy_port}", "LOOP_ENA
 try:
     d = call(port, "STATUS")["data"]["loop"]
     check("閒置：服務停止、非診斷模式", d["enabled"] and d["service"] == "inactive" and d["active"] is False, d)
+    with open(state_file, "w") as f:
+        f.write("active")
+    d = call(port, "STATUS")["data"]["loop"]
+    check("Loop 服務在跑但沒載模型 → 不算診斷模式（不擋 CF_READY）", d["service"] == "active" and d["active"] is False, d)
+    with open(state_file, "w") as f:
+        f.write("inactive")
     check("開畫面網址帶 token", d["url"] == "http://192.168.3.1:4711/?token=tok123", d["url"])
 
     r = call(port, "LOOP", {"action": "start"})
