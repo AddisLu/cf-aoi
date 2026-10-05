@@ -31,17 +31,17 @@
 
 | 項目 | 現況 | 目標 |
 |---|---|---|
-| Grab 啟動 | 人按 Grab 桌面圖示（終端機視窗） | systemd 服務、開機自啟 |
-| Spark 開機模式 | **開機自啟調參模式**（offline） | 開機自啟生產模式 |
-| Control `CF_READY` | **一律回 OK**（不管 Grab/IP 有沒有連上） | 三個節點都就緒才 OK，否則 ERR + 原因 |
+| Grab 啟動 | ✅ systemd 服務、開機自啟（2026-10-05） | — |
+| Spark 開機模式 | ✅ 開機自啟生產模式（2026-10-05） | — |
+| Control `CF_READY` | ✅ Grab+IP 皆連線才 OK，否則 ERR + 原因（2026-10-05） | 階段 2：加相機台數/故障相機判定 |
 | 卡死偵測 | 只有 Control 心跳燈（紅燈要人處理） | systemd watchdog 自動重啟 + 代理可遠端重啟 |
 | 遠端管理 | 無（要到機台前或 SSH） | Control「系統」頁 + 節點代理 |
-| 時間同步 | 靠 Internet NTP | Grab 當校時主機 |
+| 時間同步 | ✅ Grab chrony 校時主機、Spark 已跟上（Windows 待設） | — |
 | 程式更新 | git pull（要網路） | USB 帶版本包，Control 顯示三台版本是否一致 |
 
 ## 4. 分階段
 
-**階段 1 — 開機即就緒（最優先，進 fab 前必做）**
+**階段 1 — 開機即就緒（最優先，進 fab 前必做）** — 2026-10-05 軟體部分完成；剩 BIOS 與斷電復電實測
 - Grab 改 systemd 服務（`--cam-count` 用實際台數、`LimitMEMLOCK=infinity`、`--cpus pcore`）
 - Spark 開機自啟改生產模式
 - BIOS 復電自動開機、chrony 校時

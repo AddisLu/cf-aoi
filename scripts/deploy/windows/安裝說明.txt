@@ -19,6 +19,12 @@ CF-AOI Control（Windows 免安裝版）
   3) 確認：
        ping 192.168.10.21      （Grab）
        ping 192.168.3.1        （Spark）
+  4) 校時（fab 內沒有網路，跟 Grab 對時；三台時間一致，結果日期夾/log 才對得上）：
+       sc config w32time start= auto
+       net start w32time
+       w32tm /config /manualpeerlist:192.168.10.21 /syncfromflags:manual /update
+       w32tm /resync
+       w32tm /query /status          （Source 應為 192.168.10.21）
 
 三、桌面圖示與開機自動啟動（雙擊即可，不需系統管理員）
   Create-Desktop-Shortcut.cmd   → 桌面出現「CF-AOI Control」

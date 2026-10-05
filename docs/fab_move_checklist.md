@@ -28,16 +28,18 @@
 
 ## C. 時間同步（fab 內沒有 NTP 伺服器）
 
-- [ ] 目前兩台都靠 Internet 校時（systemd-timesyncd）→ 進 fab 會各自漂移，日期夾/log 對不上
-- [ ] 改成 **Grab 當校時主機**（chrony，本地時鐘），Spark 指向 192.168.3.2、Windows 指向 192.168.10.21
+- [x] **Grab 當校時主機**（chrony：有網路跟 pool、無網路用本地時鐘 stratum 10）— 2026-10-05 bootstrap 收編
+- [x] Spark 跟 Grab 對時（timesyncd `NTP=192.168.3.2`）— 2026-10-05 實測 Server 192.168.3.2、offset +31ms
+- [ ] Windows 跟 Grab 對時：安裝說明.txt 第二節 4)（`w32tm /config /manualpeerlist:192.168.10.21 …`）
 - [ ] 進場後抽查三台時間差 < 1 秒
 
 ## D. 開機即就緒（無人值守；詳見 [commercial_deploy_plan.md](commercial_deploy_plan.md)）
 
 - [ ] 三台 BIOS：**斷電復電後自動開機**（AC Power Recovery = Power On）
-- [ ] Spark：開機自動進**生產模式**（`enable cfaoi-ip-production`、`disable cfaoi-ip-offline`）
-      ⚠️ 現況相反：開機自啟的是調參模式
-- [ ] Grab：改成 systemd 服務開機自啟（現況要人按桌面圖示）
+- [x] Spark：開機自動進**生產模式**（enabled production / disabled offline）— 2026-10-05
+- [x] Grab：`cfaoi-grab` systemd 服務開機自啟、Restart=always；台數在 `/etc/default/cfaoi-grab` — 2026-10-05
+- [x] 免密碼管理（polkit）、Control `CF_READY` 真檢查 Grab+IP 連線 — 2026-10-05
+- [x] 服務化後全鏈 `verify_step3_trigger` 7/7、Spark recv 60/0 — 2026-10-05
 - [ ] 實測：三台**同時斷電再復電**，不碰任何鍵盤，Control 三顆燈自己變綠、上位機流程可跑
 
 ## E. 線材與標籤
