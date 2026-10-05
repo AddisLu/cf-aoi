@@ -89,6 +89,7 @@ static bool file_exists(const std::string& p) {
 static int g_edge_fill_override = -1;   // --edge-fill 0/1（-1 = 用 ini/ZoneConfig）
 // 兩段式亮缺陷（2026-10-06 原型）：DIV 亮門檻放低到 t1 粗篩 → 只在亮候選點周圍小塊跑 DIV 投票確認（門檻 = 配方 BTH）
 static float g_cascade_t1 = 0.0f;        // --cascade-bright <t1>（0 = 關）
+static float g_cascade_t1d = 0.0f;       // --cascade-dark <t1>（0 = 關）：暗門檻放鬆到 t1 粗篩 → 投票確認（門檻 = 配方 DTH）
 static int   g_cascade_pt = 1;           // --cascade-pitch-time（投票每方向看幾個 pitch）
 static int   g_cascade_choose = 7;       // --cascade-choose（8×PitchTime 路中至少幾路超標）
 
@@ -168,6 +169,7 @@ void usage(const char* prog) {
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
     "  --edge-fill <0|1>     補邊：zone 四周補往內平移 3 pitch 的 pattern，消掉 kernel 邊緣死區（覆寫 ini edge_fill）\n"
     "  --cascade-bright <t1> 兩段式亮缺陷（DIV zone）：亮門檻放低到 t1 粗篩，候選點小塊跑 DIV 投票確認（門檻 = 配方 BTH）\n"
+    "  --cascade-dark <t1>   兩段式暗缺陷：暗門檻放鬆到 t1 粗篩，候選小塊投票確認（門檻 = 配方 DTH）\n"
     "  --cascade-pitch-time <n> / --cascade-choose <n>  第二段投票參數（預設 1 / 7）\n"
     "  --mode bench           量純 GPU process_image 速度：一張圖重複跑，報 gpu_ms/wall_ms 統計\n"
     "  --bench-iters <n>      bench 量測張數（預設 100）\n"
@@ -199,6 +201,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--stitch") a.stitch = true;
         else if (k == "--edge-fill") g_edge_fill_override = std::stoi(next("--edge-fill"));
         else if (k == "--cascade-bright") g_cascade_t1 = std::stof(next("--cascade-bright"));
+        else if (k == "--cascade-dark") g_cascade_t1d = std::stof(next("--cascade-dark"));
         else if (k == "--cascade-pitch-time") g_cascade_pt = std::stoi(next("--cascade-pitch-time"));
         else if (k == "--cascade-choose") g_cascade_choose = std::stoi(next("--cascade-choose"));
         else if (k == "--input") a.input = next("--input");
@@ -515,14 +518,16 @@ void apply_edge_check_slice(const EdgeCheckConfig& cfg, const cv::Mat& gray,
     }
 }
 
-// 兩段式第二段：dr 內的亮缺陷（第一段 DIV 以低門檻 t1 抓的候選）→ 每顆切 (2·(mx+c)) × (2·(my+c)) 小塊拼成拼圖
-// → DIV 投票（mode 2，只檢亮：DTH 0.01）跑一次 → 拼圖裡核心 ±c 內有亮票的候選才留下。暗缺陷原樣保留。
-// 小塊邊界 = 投票 kernel 死區（pitch×PitchTime + search + 1）+ 3×3 SAD 多 1 → 核心像素的鄰居都在自己這塊裡。
-// 回傳第二段花的時間（GPU + host 裁切），加進 process_time_ms（誠實的端到端）。
-double cascade_bright(GpuPipeline& pipe, DetectionResult& dr, const cv::Mat& img, const ZoneConfig& zc, float bth) {
+// 兩段式第二段：dr 內「要確認」的那一極（亮 and/or 暗）的缺陷 = 第一段 DIV 用放鬆門檻抓的候選
+// → 每顆切 (2·(mx+c)) × (2·(my+c)) 小塊拼成拼圖 → DIV 投票（mode 2）跑一次 → 拼圖裡核心 ±c 內有同極票的候選才留下。
+// 不確認的那一極原樣保留。小塊邊界 = 投票 kernel 死區（pitch×PitchTime + search + 1）+ 3×3 SAD 多 1。
+// bth / dth ≤ 0 表示該極不確認。回傳第二段花的時間（host 端到端，含 GPU）。
+double cascade_verify(GpuPipeline& pipe, DetectionResult& dr, const cv::Mat& img, const ZoneConfig& zc,
+                      float bth, float dth) {
     auto t0 = std::chrono::steady_clock::now();
     std::vector<DefectInfo> keep, cand;
-    for (const auto& d : dr.defects) (d.is_bright ? cand : keep).push_back(d);
+    for (const auto& d : dr.defects)
+        ((d.is_bright ? bth > 0 : dth > 0) ? cand : keep).push_back(d);
     if (cand.empty()) return 0.0;
     const int c = 6;
     const int mx = zc.pitch_x * g_cascade_pt + zc.search_range_x + 2, my = zc.pitch_y * g_cascade_pt + zc.search_range_y + 2;
@@ -539,17 +544,16 @@ double cascade_bright(GpuPipeline& pipe, DetectionResult& dr, const cv::Mat& img
     ZoneConfig z2 = zc;
     z2.algo_mode = 2; z2.pitch_times = g_cascade_pt; z2.choose_amount = g_cascade_choose;
     z2.enable_multiscale = 0; z2.preproc_remap = false; z2.smooth_times2 = 0;
-    z2.BTH = bth; z2.DTH = 0.01f;
+    z2.BTH = bth > 0 ? bth : 9.0f; z2.DTH = dth > 0 ? dth : 0.01f;
     z2.width = mosaic.cols; z2.height = mosaic.rows;
     DetectionResult v = pipe.process_frame(mosaic.data, mosaic.cols, mosaic.rows, z2);
     std::vector<char> ok(cand.size(), 0);
     for (const auto& d : v.defects) {
-        if (!d.is_bright) continue;
-        for (int yy = d.min_y; yy <= d.max_y; ++yy)                  // blob 任一點落在某候選的核心 ±c
+        for (int yy = d.min_y; yy <= d.max_y; ++yy)                  // blob 任一點落在某候選的核心 ±c，且同極
             for (int xx = d.min_x; xx <= d.max_x; ++xx) {
                 const int col = xx / pw, row = yy / ph;
                 const size_t i = (size_t)row * cols + col;
-                if (col >= cols || i >= cand.size()) continue;
+                if (col >= cols || i >= cand.size() || cand[i].is_bright != d.is_bright) continue;
                 if (std::abs(xx - (col * pw + pw / 2)) <= c && std::abs(yy - (row * ph + ph / 2)) <= c) ok[i] = 1;
             }
     }
@@ -615,17 +619,20 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zc.height = sub_cont.rows;
         zc.panel_id = panel_id;
         // 第二段投票門檻（配方 BTH）可以比 t1 低：t1 只決定「誰當候選」，把關的是投票（壓雜訊後亮門檻可到 ≈1.25）
-        const bool cascade = g_cascade_t1 > 0.0f && z.algo_mode == 0;
-        if (cascade) zc.BTH = g_cascade_t1;                          // 第一段：亮門檻放低粗篩
+        const bool cas_b = g_cascade_t1 > 0.0f && z.algo_mode == 0, cas_d = g_cascade_t1d > 0.0f && z.algo_mode == 0;
+        const bool cascade = cas_b || cas_d;
+        if (cas_b) zc.BTH = g_cascade_t1;                            // 第一段：放鬆門檻粗篩
+        if (cas_d) zc.DTH = g_cascade_t1d;
+        const float vb = cas_b ? z.BTH : 0.0f, vd = cas_d ? z.DTH : 0.0f;   // 第二段投票門檻 = 配方
 
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
-        if (cascade) dr.process_time_ms += cascade_bright(pipe, dr, sub_cont, zc, z.BTH);
+        if (cascade) dr.process_time_ms += cascade_verify(pipe, dr, sub_cont, zc, vb, vd);
         const bool padded = pad.l || pad.r || pad.t || pad.b;
         if (padded) unpad_result(dr, pad, z.edge_fill_guard, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
-            if (cascade) cascade_bright(pipe, dr2, sub_cont, zc, z.BTH);
+            if (cascade) cascade_verify(pipe, dr2, sub_cont, zc, vb, vd);
             if (padded) unpad_result(dr2, pad, z.edge_fill_guard, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {

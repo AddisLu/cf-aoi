@@ -22,11 +22,20 @@ SLICES_PER_PANEL = 37 * 63     # 87.5 mm/s、8 µm/列、玻璃 2500 mm → 每�
 TACT_S = 28.6     # 掃描時間（邊拍邊算要跟上的是這個）
 
 EF = ['--edge-fill', '1']
-VARIANTS = [   # (名稱, 偵測, 配方選項, IP 額外參數)
-    ('兩段式 t1=1.33', 'div', {}, EF + ['--cascade-bright', '1.33']),
-    ('兩段式 t1=1.31', 'div', {}, EF + ['--cascade-bright', '1.31']),
-    ('兩段式 t1=1.30', 'div', {}, EF + ['--cascade-bright', '1.30']),
-]
+VARIANTS = {   # 極性 → [(名稱, 偵測, 配方選項, IP 額外參數)]
+    'bright': [
+        ('div（對照）', 'div', {}, EF),
+        ('兩段式 t1=1.33', 'div', {}, EF + ['--cascade-bright', '1.33']),
+        ('兩段式 t1=1.31', 'div', {}, EF + ['--cascade-bright', '1.31']),
+    ],
+    'dark': [
+        ('div（對照）', 'div', {}, EF),
+        ('divvote 1p', 'divvote', {'pitch_time': 1, 'choose': 7, 'multiscale': 0}, EF),
+        ('兩段式暗 t1=0.70', 'div', {}, EF + ['--cascade-dark', '0.70']),
+        ('兩段式暗 t1=0.72', 'div', {}, EF + ['--cascade-dark', '0.72']),
+        ('兩段式暗 t1=0.74', 'div', {}, EF + ['--cascade-dark', '0.74']),
+    ],
+}
 
 
 def main():
@@ -34,6 +43,7 @@ def main():
     ap.add_argument('--strip', required=True)
     ap.add_argument('--ip', required=True)
     ap.add_argument('--out', default='/tmp/bench_speed')
+    ap.add_argument('--pol', default='bright', choices=['bright', 'dark'])
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     paths = sorted(glob.glob(os.path.join(a.strip, '*_Origin*.tif')))
@@ -51,34 +61,39 @@ def main():
     inj_imgs, truth = BM.inject(paths, inj_sl, chips, h)
     inj_dir = BM.write_set([paths[s] for s in inj_sl], os.path.join(a.out, 'inj'), 'none', None, r['pitch'][1],
                            imgs=[inj_imgs[s] for s in inj_sl])
-    bt = [i for i, t in enumerate(truth) if t['pol'] == 'bright']
+    bt = [i for i, t in enumerate(truth) if t['pol'] == a.pol]
+    FS = BM.BRIGHT_F if a.pol == 'bright' else BM.DARK_F
     rows = []
-    for name, mode, opt, extra in VARIANTS:
+    for name, mode, opt, extra in VARIANTS[a.pol]:
         work = os.path.join(a.out, 'run')
         curve = []
-        for b in np.arange(1.10, 2.0, 0.01):
-            th = {'dark': 0.01, 'bright': round(float(b), 3)}
+        seq = np.arange(1.10, 2.0, 0.01) if a.pol == 'bright' else np.arange(0.95, 0.35, -0.01)
+        for b in seq:
+            th = {'dark': 0.01, 'bright': round(float(b), 3)} if a.pol == 'bright' else {'dark': round(float(b), 3), 'bright': 9.0}
             d, ms = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt, extra)
             curve.append((round(float(b), 3), len(d)))
             if len(d) <= 5:
                 break
-        tb = round(curve[-1][0] * 1.03, 3)
-        th = {'dark': 0.01, 'bright': tb}
+        tb = round(curve[-1][0] * (1.03 if a.pol == 'bright' else 0.97), 3)
+        th = {'dark': 0.01, 'bright': tb} if a.pol == 'bright' else {'dark': tb, 'bright': 9.0}
         _, ms = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt, extra)
         ms_slice = ms / len(paths)
         d, _ = BM.run(a.ip, chips, ioi, pi, th, inj_dir, work, mode, opt, extra)
-        hit, fp = BM.match(d, truth, [])
-        by = {f: round(np.mean([hit[i] for i in bt if truth[i]['f'] == f]), 2) for f in BM.BRIGHT_F}
+        clean, _ = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt, extra)
+        hit, fp = BM.match(d, truth, [x for x in clean if x['slice'] in inj_sl])
+        by = {f: round(np.mean([hit[i] for i in bt if truth[i]['f'] == f]), 2) for f in FS}
+        bs = {z: round(np.mean([hit[i] for i in bt if truth[i]['size'] == z and truth[i]['f'] in FS[1:]]), 2) for z in BM.SIZES}
         rate = float(np.mean([hit[i] for i in bt]))
         panel_s = (ms_slice + 7.4) * SLICES_PER_PANEL / 1000 if mode != 'div' else ms_slice * SLICES_PER_PANEL / 1000
-        row = {'name': name, 'bright_th': tb, 'bright_rate': round(rate, 3), 'by_contrast': by,
+        row = {'name': name, 'pol': a.pol, 'th': tb, 'rate': round(rate, 3), 'by_contrast': by, 'by_size': bs, 'fp_inj': fp,
                'ms_slice': round(ms_slice, 1), 'panel_s_with_div': round(panel_s, 1),
                'tact_use': round(panel_s / TACT_S, 2)}
         rows.append(row)
         json.dump(rows, open(os.path.join(a.out, 'speed.json'), 'w'), ensure_ascii=False, indent=1)
-        print(f'{name:22s} 亮門檻 {tb:.3f}  亮檢出 {rate:6.1%}  25/35/50/70%：'
-              f'{by[1.25]:.0%}/{by[1.35]:.0%}/{by[1.5]:.0%}/{by[1.7]:.0%}  GPU {ms_slice:5.1f} ms/張  '
-              f'＋DIV 每片 {panel_s:5.1f} s（節拍 {panel_s / TACT_S:.0%}）', flush=True)
+        cs = '/'.join(f'{by[f]:.0%}' for f in FS)
+        ss = '/'.join(f'{bs[z]:.0%}' for z in BM.SIZES)
+        print(f'{name:18s} {a.pol} 門檻 {tb:.3f}  檢出 {rate:6.1%}  對比 {cs}  大小1/2/3/5/9 {ss}  植入誤判 {fp}  '
+              f'GPU {ms_slice:5.1f} ms/張  每片 {panel_s:5.1f} s（掃描 {panel_s / TACT_S:.0%}）', flush=True)
 
 
 if __name__ == '__main__':
