@@ -583,3 +583,177 @@ bool CamEbus::read_machine_params(MachineParams& mp, std::string& err) {
 // 載入前由 cam_manager.cpp 先補好環境變數。
 extern "C" ICamera* cfaoi_ebus_create() { return new CamEbus(); }
 extern "C" void cfaoi_ebus_enumerate(std::vector<CamInfo>* out) { *out = CamEbus::enumerate_cameras(); }
+
+// ── iPORT CCD 命名（iport_provision 呼叫；規則同 raL8192 的 cam_provision）────────────
+// 身分存在 iPORT 自己身上：GigE Vision 使用者名稱 = "CCDnn"（cam_id = nn）、persistent IP = 192.168.4.nn
+// （下方陣列 CCD38–55 → .38–.55；與上方 192.168.5.nn 同一套「尾碼 = 編號」規則）。
+// 一律走 **GigE Vision 標準暫存器 + WRITEREG**，不走 GenICam 字串節點 / WRITEMEM：
+//   iPORT 韌體 1.03.03.109 / 1.03.05.119 的 WRITEMEM 寫 GenICam 區會「回 SUCCESS 但寫入 0」（調機工具實測、
+//   README），而 tools/cam_align/gvcp_setip.py 用 WRITEREG 寫 0x0014/0x064C… 已實機驗過。寫完一律讀回比對。
+//   0x00E8–0x00F7 使用者名稱（16 bytes，大端序打包：每個 32-bit 暫存器第一個字元在最高位元組）
+//   0x0014 Net IF config：0x05 = Persistent IP + LLA（0x06 = DHCP + LLA，出廠）
+//   0x064C / 0x065C / 0x066C persistent IP / mask / gateway
+#include <arpa/inet.h>
+#include <regex>
+#include <sstream>
+#include <thread>
+#include "ebus_plugin.h"
+
+namespace {
+struct DevRec { std::string vendor, model, serial, mac, ip, user; bool pleora = false; };
+
+std::vector<DevRec> discover_all() {
+    std::vector<DevRec> out;
+    std::map<std::string, bool> seen;
+    PvSystem sys;
+    sys.SetDetectionTimeout(1500);
+    sys.Find();
+    auto add = [&](const PvDeviceInfo* di) {          // 立即複製（FindDevice 會讓舊指標失效）
+        if (!di) return;
+        auto* g = dynamic_cast<const PvDeviceInfoGEV*>(di);
+        DevRec r;
+        r.mac = g ? mac_compact(g->GetMACAddress().GetAscii()) : "";
+        if (r.mac.empty() || seen[r.mac]) return;
+        seen[r.mac] = true;
+        r.vendor = di->GetVendorName().GetAscii();
+        r.model = di->GetModelName().GetAscii();
+        r.serial = di->GetSerialNumber().GetAscii();
+        r.ip = g ? g->GetIPAddress().GetAscii() : "";
+        r.user = di->GetUserDefinedName().GetAscii();
+        r.pleora = is_pleora(di);
+        out.push_back(r);
+    };
+    for (uint32_t i = 0; i < sys.GetInterfaceCount(); ++i) {
+        const PvInterface* itf = sys.GetInterface(i);
+        for (uint32_t d = 0; d < itf->GetDeviceCount(); ++d) add(itf->GetDeviceInfo(d));
+    }
+    for (const auto& ip : extra_devices()) {
+        const PvDeviceInfo* di = nullptr;
+        if (sys.FindDevice(ip.c_str(), &di).IsOK()) add(di);
+    }
+    return out;
+}
+
+bool ip_to_u32(const std::string& s, uint32_t& v) {
+    in_addr a{};
+    if (::inet_pton(AF_INET, s.c_str(), &a) != 1) return false;
+    v = ntohl(a.s_addr);
+    return true;
+}
+
+bool write_name(PvDeviceGEV* g, const std::string& name) {
+    char buf[16] = {0};
+    std::memcpy(buf, name.data(), std::min<size_t>(name.size(), 15));
+    for (int i = 0; i < 16; i += 4) {
+        const uint32_t v = ((uint32_t)(uint8_t)buf[i] << 24) | ((uint32_t)(uint8_t)buf[i + 1] << 16) |
+                           ((uint32_t)(uint8_t)buf[i + 2] << 8) | (uint32_t)(uint8_t)buf[i + 3];
+        if (!g->WriteRegister(0x00E8 + i, v).IsOK()) return false;
+    }
+    return true;
+}
+
+bool read_name(PvDeviceGEV* g, std::string& name) {
+    char buf[17] = {0};
+    for (int i = 0; i < 16; i += 4) {
+        uint32_t v = 0;
+        if (!g->ReadRegister(0x00E8 + i, v).IsOK()) return false;
+        buf[i] = (char)(v >> 24); buf[i + 1] = (char)(v >> 16); buf[i + 2] = (char)(v >> 8); buf[i + 3] = (char)v;
+    }
+    name = buf;
+    return true;
+}
+
+std::string u32_to_ip(uint32_t v) {
+    return std::to_string(v >> 24) + "." + std::to_string((v >> 16) & 0xFF) + "." +
+           std::to_string((v >> 8) & 0xFF) + "." + std::to_string(v & 0xFF);
+}
+}  // namespace
+
+extern "C" void cfaoi_ebus_provision(const char* target_c, const char* ccd_c, const char* ip_c, bool force_ip,
+                                     EbusProvisionResult* out) {
+    std::ostringstream log;
+    auto done = [&](int rc) { out->rc = rc; out->log = log.str(); };
+    const std::string target = target_c ? target_c : "", ccd = ccd_c ? ccd_c : "";
+    std::string ip = ip_c ? ip_c : "";
+
+    std::smatch m;
+    if (!std::regex_match(ccd, m, std::regex("CCD([0-9]{2})"))) {
+        log << "CCD 名稱須為 CCDnn（例 CCD38），收到 " << ccd << "\n"; return done(2);
+    }
+    const int n = std::stoi(m[1].str());
+    if (n == 0) { log << "CCD 編號自 01 起（IP 尾碼 = 編號，.0 是網段位址）\n"; return done(2); }
+    if (ip.empty()) ip = "192.168.4." + std::to_string(n);
+    uint32_t ipv = 0;
+    if (!ip_to_u32(ip, ipv) || (ipv & 0xFF) == 0 || (ipv & 0xFF) == 255) {
+        log << "IP 不合法：" << ip << "\n"; return done(2);
+    }
+
+    ensure_ebus_env();
+    // 1) 探索全部 GigE Vision 裝置（含 Basler）→ 找目標（只收 Pleora）+ 檢查名稱/IP 撞號
+    const auto devs = discover_all();
+    const DevRec* tgt = nullptr;
+    const std::string tmac = mac_compact(target);
+    for (const auto& d : devs)
+        if (d.pleora && (d.serial == target || d.ip == target || (tmac.size() == 12 && d.mac == tmac))) tgt = &d;
+    if (!tgt) { log << "找不到 iPORT：" << target << "（iport_provision list 看清單）\n"; return done(1); }
+    for (const auto& d : devs) {
+        if (&d == tgt) continue;
+        if (d.user == ccd) { log << "✗ 名稱 " << ccd << " 已被 " << d.model << " " << d.serial << "（" << d.ip << "）使用\n"; return done(1); }
+        if (d.ip == ip) { log << "✗ IP " << ip << " 已被 " << d.model << " " << d.serial << " 使用 → 先把它改到暫時位址\n"; return done(1); }
+    }
+    const std::string mac = tgt->mac, serial = tgt->serial, model = tgt->model;
+    std::string mac_colon;
+    for (size_t i = 0; i < mac.size(); i += 2) mac_colon += (i ? ":" : "") + mac.substr(i, 2);
+    log << "目標：" << model << " SN=" << serial << " MAC=" << mac_colon << " 目前 IP=" << tgt->ip
+        << " 名稱=\"" << tgt->user << "\"\n";
+
+    // 2) 連線（需取得控制權：cfaoi_grab / eBUS Player / 調機工具開著它時會失敗）
+    PvSystem sys;
+    sys.SetDetectionTimeout(1500);
+    sys.Find();
+    const PvDeviceInfo* di = find_device(sys, mac);
+    PvResult r;
+    PvDevice* dev = di ? PvDevice::CreateAndConnect(di, &r) : nullptr;
+    auto* g = dynamic_cast<PvDeviceGEV*>(dev);
+    if (!g) {
+        log << "✗ 連不上（" << (di ? r.GetCodeString().GetAscii() : "NOT_FOUND")
+            << "）→ 先停 cfaoi_grab（GRAB_STOP / systemctl stop cfaoi-grab）、關 eBUS Player / 調機工具\n";
+        if (dev) PvDevice::Free(dev);
+        return done(1);
+    }
+    bool ok = write_name(g, ccd) &&
+              g->WriteRegister(0x064C, ipv).IsOK() &&
+              g->WriteRegister(0x065C, 0xFFFFFF00u).IsOK() &&
+              g->WriteRegister(0x066C, 0).IsOK() &&
+              g->WriteRegister(0x0014, 0x05).IsOK();
+    std::string rb_name; uint32_t rb_ip = 0, rb_cfg = 0;
+    const bool rb = read_name(g, rb_name) && g->ReadRegister(0x064C, rb_ip).IsOK() && g->ReadRegister(0x0014, rb_cfg).IsOK();
+    g->Disconnect();
+    PvDevice::Free(dev);
+    log << "寫入：名稱=" << ccd << " persistent IP=" << ip << "/24 IPConfig=0x05（Persistent+LLA）\n";
+    log << "讀回：名稱=\"" << rb_name << "\" persistent IP=" << u32_to_ip(rb_ip)
+        << " IPConfig=0x" << std::hex << rb_cfg << std::dec << "\n";
+    if (!ok || !rb || rb_name != ccd || rb_ip != ipv || (rb_cfg & 0x07) != 0x05) {
+        log << "✗ 寫入或讀回不符（韌體 WRITEREG 也失效？用調機工具 gvcp_setip.py 交叉確認）\n";
+        return done(1);
+    }
+
+    // 3) ForceIP：persistent IP 要重開機才用；FORCEIP 讓目前位址立即換成同一個值
+    if (force_ip && tgt->ip != ip) {
+        PvResult fr = PvDeviceGEV::SetIPConfiguration(mac_colon.c_str(), ip.c_str(), "255.255.255.0", "0.0.0.0");
+        log << "ForceIP " << ip << "：" << fr.GetCodeString().GetAscii() << "\n";
+    }
+    // 4) 重新探索確認（名稱/IP 在網路上看得到才算數；ARP 快取可能讓 ping 短暫不通）
+    for (int t = 0; t < 4; ++t) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        for (const auto& d : discover_all()) {
+            if (d.mac != mac) continue;
+            if (d.user == ccd && (!force_ip || d.ip == ip)) {
+                log << "✓ 確認：" << model << " SN=" << serial << " → " << ccd << " @ " << d.ip << "\n";
+                return done(0);
+            }
+        }
+    }
+    log << "⚠ 已寫入並讀回正確，但重新探索還沒看到新名稱/IP（裝置重開或稍後再 list 確認）\n";
+    return done(0);
+}

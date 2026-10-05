@@ -1,8 +1,6 @@
 #include "cam_manager.h"
 #include "cam_pylon.h"
-#include <dlfcn.h>
-#include <unistd.h>
-#include <climits>
+#include "ebus_plugin.h"
 
 #include <algorithm>
 #include <cctype>
@@ -401,49 +399,6 @@ std::vector<CamManager::Fault> CamManager::faults() const {
     return out;
 }
 
-// ── eBUS 外掛（libcfaoi_cam_ebus.so，與 cfaoi_grab 同目錄）────────────────────
-// 只在 --camera ebus 時載入：eBUS 函式庫載入當下就要 GENICAM_ROOT_V3_4 等環境變數（沒有就 exit），
-// 所以先 setenv 再 dlopen；pylon 模式完全不碰 eBUS（也避開兩套 GenICam 同行程）。
-namespace {
-struct EbusPlugin {
-    ICamera* (*create)() = nullptr;
-    void (*enumerate)(std::vector<CamInfo>*) = nullptr;
-    std::string error;
-};
-
-const EbusPlugin& ebus_plugin() {
-    static EbusPlugin p = [] {
-        EbusPlugin r;
-#ifdef CFAOI_EBUS_ROOT
-        const std::string root = CFAOI_EBUS_ROOT;
-        const std::string genicam = root + "/lib/genicam";
-        const std::string log = genicam + "/log/config/DefaultLogging.properties";
-        const char* home = std::getenv("HOME");
-        const std::string cache = std::string(home ? home : "/tmp") + "/.config/Pleora/genicam_cache_v3_4";
-        ::setenv("PUREGEV_ROOT", root.c_str(), 0);
-        for (const char* k : {"GENICAM_ROOT", "GENICAM_ROOT_V3_4"}) ::setenv(k, genicam.c_str(), 0);
-        for (const char* k : {"GENICAM_LOG_CONFIG", "GENICAM_LOG_CONFIG_V3_4"}) ::setenv(k, log.c_str(), 0);
-        for (const char* k : {"GENICAM_CACHE", "GENICAM_CACHE_V3_4"}) ::setenv(k, cache.c_str(), 0);
-        if (std::system(("mkdir -p '" + cache + "'").c_str()) != 0) { /* 快取建不了只是慢 */ }
-        char exe[PATH_MAX] = {0};
-        const ssize_t n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-        std::string dir = n > 0 ? std::string(exe, (size_t)n) : std::string(".");
-        dir = dir.substr(0, dir.find_last_of('/'));
-        const std::string so = dir + "/libcfaoi_cam_ebus.so";
-        void* h = ::dlopen(so.c_str(), RTLD_NOW | RTLD_LOCAL);
-        if (!h) { r.error = std::string("載入 ") + so + " 失敗：" + ::dlerror(); return r; }
-        r.create = reinterpret_cast<ICamera* (*)()>(::dlsym(h, "cfaoi_ebus_create"));
-        r.enumerate = reinterpret_cast<void (*)(std::vector<CamInfo>*)>(::dlsym(h, "cfaoi_ebus_enumerate"));
-        if (!r.create || !r.enumerate) r.error = "libcfaoi_cam_ebus.so 缺少進入點";
-#else
-        r.error = "本 grab 建置時沒有 eBUS SDK（/opt/pleora/ebus）→ --camera ebus 不可用";
-#endif
-        if (!r.error.empty()) fprintf(stderr, "[cam_manager] ✗ eBUS：%s\n", r.error.c_str());
-        return r;
-    }();
-    return p;
-}
-}  // namespace
 
 std::vector<CamInfo> CamManager::enumerate() const {
     if (backend_ == CamBackend::Ebus) {

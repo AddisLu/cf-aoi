@@ -167,6 +167,8 @@ grab/
     ├── image_replay_sender.cpp   ← 檔案回放送器（Gap #27；stdin 餵 Mono8 raw）
     ├── probe_cam_nodes.cpp       ← GenICam 節點探測（Gap #2 Stage 0）
     ├── cam_provision.cpp         ← 相機身分配置：DeviceUserID=CCDnn + persistent IP（換相機 CLI 路徑）
+    ├── iport_provision.cpp       ← 下方 iPORT（L803K）身分配置：名稱 CCDnn + persistent IP 192.168.4.nn（經 eBUS 外掛）
+    ├── ebus_plugin.h             ← eBUS 外掛載入器（先補 GenICam 環境變數再 dlopen；cfaoi_grab / iport_provision 共用）
     └── cam_mean_gray_test.cpp    ← 曝光/增益→mean gray 單調性驗證（Gap #2 Stage 2+3）
 ```
 
@@ -326,4 +328,10 @@ grab/
      `PvDeviceInfo*` 失效**（實測 segfault）→ 找到即轉 CamInfo。`--serial` 可給序號/MAC/IP；
      `CFAOI_EBUS_DEVICES=ip,…` 列舉時單播補找。
    - 測試（無實體 iPORT）：`grab/test/ebus_sim/`（`PvSoftDeviceGEV` 假扮 L803K；`Start()` 要網卡 **MAC**）、
-     `ebus_frame_check` 逐張驗內容。**未驗**：實體 iPORT + L803K 的取像與序列埠控制、iPORT 的 CCD 命名工具。
+     `ebus_frame_check` 逐張驗內容。**未驗**：實體 iPORT + L803K 的取像與序列埠控制。
+   - **iPORT CCD 命名 `iport_provision list | set <SN|MAC|IP> CCDnn [ip] [--no-force-ip]`**（2026-10-05）：
+     規則同 cam_provision（CCDnn、1 開頭、IP 尾碼 = 編號，下方預設 **192.168.4.nn**）；名稱/IP 撞到任何
+     GigE 裝置（含 Basler）→ 拒絕。**一律寫 GigE Vision 標準暫存器 + WRITEREG**（0x00E8 名稱、0x0014=0x05、
+     0x064C/65C/66C IP/mask/gw）並讀回比對——iPORT 韌體 WRITEMEM 寫 GenICam 區會回 SUCCESS 卻寫 0。
+     模擬裝置實測：三種防呆擋下、寫入讀回正確、grab LIST_CAMERAS 綁定 CCD38/cam_id 38（bind_source=user_id）。
+     **ForceIP 未在實體驗**（模擬裝置綁主機網卡，不能改它的 IP）。

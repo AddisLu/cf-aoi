@@ -1197,7 +1197,10 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   實測生產服務停約 1 分鐘後回復）。L803K 曝光/增益/行速率走 iPORT UART 的 L800 協定（移植自調機工具）。
 - 模擬實測（`PvSoftDeviceGEV` 假扮 L803K，8160×5000）：Grab eBUS → RDMA → Spark **recv 10/0、影像 8160×5000**；
   `ebus_frame_check` 20 張逐行內容 0 錯、無錯位/混幀/重複，跳號皆計入 dropped。模擬器整張瞬間送出 → 同主機偶有
-  不完整幀（整張作廢，防呆有效）；**實際掉幀率、UART 控制、iPORT CCD 命名都待實體 iPORT + L803K 接上**。
+  不完整幀（整張作廢，防呆有效）；**實際掉幀率、UART 控制都待實體 iPORT + L803K 接上**。
+- **iPORT CCD 命名工具 `iport_provision`**（L2，模擬裝置）：寫 GigE Vision 使用者名稱 CCDnn + persistent IP
+  192.168.4.nn（標準暫存器 + WRITEREG，避開 iPORT 的 WRITEMEM bug），讀回比對；名稱撞 CCD03、IP 撞 192.168.5.1、
+  格式錯三種防呆皆擋下；寫入 CCD38 後 grab LIST_CAMERAS 綁定 cam_id 38。ForceIP 待實體 iPORT 驗。
 
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；

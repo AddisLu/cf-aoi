@@ -75,9 +75,11 @@
 
 ## I. 下方陣列（18 × L803K）— 進場前仍未完成的項目
 
-- [ ] Grab 的 eBUS 取像路徑（`cam_ebus`）尚未實作
 - [ ] Control 同時管 2 台 Grab + 2 台 Spark、結果合併回上位機（尚未實作）
-- [ ] CCD 編號 CCD38–55、行速率統一、spark-3961 網路整理（SSH host key）
+- [x] Grab eBUS 取像後端（`--camera ebus`）+ iPORT CCD 命名工具（`iport_provision`）— 2026-10-05 模擬驗通
+- [ ] 實體 iPORT + L803K 實測：取像/掉幀率、UART 曝光/行速率、`iport_provision` ForceIP
+- [ ] 18 台命名 CCD38–55（`iport_provision set <SN> CCDnn` → 192.168.4.nn）、行速率統一
+- [ ] spark-3961 網路整理（SSH host key）
 
 ## J. 文件（Claude 在 fab 內無法協助）
 

@@ -160,6 +160,11 @@ if(EBUS_ROOT)
     target_link_libraries(ebus_frame_check PRIVATE nlohmann_json::nlohmann_json)
   endif()
   add_dependencies(ebus_frame_check cfaoi_cam_ebus)
+  # 下方陣列 iPORT 的 CCD 身分配置（CCDnn + persistent IP 192.168.4.nn；同 cam_provision 規則）
+  add_executable(iport_provision src/iport_provision.cpp)
+  target_compile_definitions(iport_provision PRIVATE CFAOI_EBUS_ROOT="${EBUS_ROOT}")
+  target_link_libraries(iport_provision PRIVATE ${CMAKE_DL_LIBS})
+  add_dependencies(iport_provision cfaoi_cam_ebus)
 endif()
 
 # RDMA + pthread

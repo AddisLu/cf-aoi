@@ -64,7 +64,9 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
   grab 以此綁定、與交換機埠無關（交換機 48 個 25G 埠已全部預設 1G）。主機端則是設定綁在**特定網口**
   （ConnectX-5 以 MAC、Spark 以介面名、控制網以 `enp3s0`），插錯埠 = 網段對調/連不上。
 - **進 fab 前準備**：[fab_move_checklist.md](fab_move_checklist.md)；**商業化（線上人員只碰 Control）**：[commercial_deploy_plan.md](commercial_deploy_plan.md)。
-- **下方陣列（18 × L803K，另一組 交換機/Grab/Spark）待定**：建議沿用同一套規則，控制網 .12（Spark）/.22（Grab）。
+- **下方陣列（18 × L803K 經 Pleora iPORT，另一組 交換機/Grab/Spark）**：CCD38–CCD55，iPORT persistent IP
+  **192.168.4.nn**（尾碼 = 編號；`grab/build/iport_provision set <SN> CCDnn` 寫入），Grab 相機網卡需有 192.168.4.x
+  （現行 192.168.4.2）；Grab 以 `GRAB_EXTRA=--camera ebus` 啟動。控制網建議 .12（Spark）/.22（Grab）。
 
 ### 多 CCD 陣列：三層模型（運算單元 / CCD / per-CCD 配方）— 基礎概念，所有 session 繼承
 
