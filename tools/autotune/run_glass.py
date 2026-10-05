@@ -30,6 +30,10 @@ except ImportError:  # pragma: no cover
     cv2 = None
 
 
+DARK_ABS = 25        # 玻璃亮度中位數低於此值 = 偏暗，不調參（T550 正常 CCD 約 60–90）
+DARK_REL = 0.5       # 低於全片中位數 × 此值 = 偏暗（相對其他 CCD）
+
+
 def count(ip, r, pi, search, th, strip, out, extra):
     V.IP_EXTRA[:] = extra
     xml = W.make_recipe(r['chips'], r['dummy'], pi, th, search)
@@ -111,6 +115,13 @@ def one_ccd(args):
     del imgs, masks
     res = {'glass_dir': os.path.dirname(ccd_dir.rstrip('/')), 'ccd': name, 'pitch': [round(px, 2), round(py, 2)], 'pitch_int': pi, 'chips': r['chips'], 'ioi': r['dummy'],
            'roi_frac': r['roi_frac'], 'pattern_frac': r['pattern_frac'], 'n_slices': len(paths)}
+    res['glass_brightness'] = r.get('glass_brightness')
+    if r.get('pitch_first'):
+        res['pitch_first'] = r['pitch_first']
+    if (r.get('glass_brightness') or 0) < DARK_ABS:
+        # 偏暗（光源/相機/曝光異常）：不調參——門檻會被放到很鬆把問題蓋掉（實測 T550 IP06 → 0.47/1.59）
+        res['warning'] = f'影像偏暗（玻璃亮度中位數 {r.get("glass_brightness")} < {DARK_ABS}）→ 先查光源/相機/曝光，不自動調參'
+        return res
     if not r['chips'] or base is None:
         res['error'] = '找不到晶片（沒有 pattern？）'
         return res
@@ -149,14 +160,20 @@ def main():
     jobs = [(d, a.ip, a.out, a.ip_args.split(), a.plateau_dark, a.plateau_bright, a.safety, (1, 1)) for d in dirs]
     with ProcessPoolExecutor(a.jobs) as ex:
         results = list(ex.map(one_ccd, jobs))
+    bs = [r['glass_brightness'] for r in results if r.get('glass_brightness')]
+    med = float(np.median(bs)) if bs else 0
+    for r in results:
+        if r.get('glass_brightness') and r['glass_brightness'] < DARK_REL * med and 'warning' not in r:
+            r['warning'] = f'比其他 CCD 暗（{r["glass_brightness"]} < 全片中位數 {med:.0f} × {DARK_REL}）→ 查光源/相機'
     print(f'{"CCD":5s} {"pitch":>13s} {"晶片":>4s} {"IOI":>3s} {"底線 暗/亮":>13s} {"門檻 暗/亮":>13s} {"候選":>4s} {"實檢":>7s}')
     for r in results:
-        if 'error' in r:
-            print(f'{r["ccd"]:5s} {r["error"]}')
+        if 'error' in r or ('warning' in r and 'th' not in r):
+            print(f'{r["ccd"]:5s} 亮度 {r.get("glass_brightness")}  {r.get("error") or r.get("warning")}')
             continue
         print(f'{r["ccd"]:5s} {r["pitch"][0]:6.2f}×{r["pitch"][1]:5.2f} {len(r["chips"]):4d} {len(r["ioi"]):3d} '
               f'{r["floor"]["floor_dark"]:.3f}/{r["floor"]["floor_bright"]:.3f} {r["th"]["dark"]:.3f}/{r["th"]["bright"]:.3f} '
-              f'{len(r["candidates"]):4d} {r["inspected_of_glass"]:7.2%}  ({r["sec"]}s)')
+              f'{len(r["candidates"]):4d} {r["inspected_of_glass"]:7.2%}  亮度 {r.get("glass_brightness")}  ({r["sec"]}s)'
+              + (f'  ⚠ {r["warning"]}' if r.get('warning') else ''))
     json.dump(results, open(os.path.join(a.out, 'glass_summary.json'), 'w'), ensure_ascii=False, indent=1)
 
 

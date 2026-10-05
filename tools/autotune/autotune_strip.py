@@ -165,13 +165,45 @@ def refine_box(st, box, px, py, nb_rows, nb_cols, n_col_samples=4, sample_h=1500
     return {'x0': int(nx0), 'x1': int(nx1), 'y0': int(ny0), 'y1': int(ny1)}
 
 
+def chip_pitch(st, chips, n=3):
+    """只在晶片內量 pitch：取最大晶片完整涵蓋的幾張 slice，區塊必須 ≥95% 落在晶片內。
+    （實測 T550 IP09：CCD 左側 2400 px 是外圍 pad/標記，整張量 → 29.3 × 20.89，晶片內才是 25.8 × 18.5）"""
+    if not chips:
+        return None
+    c = max(chips, key=lambda r: (r['x1'] - r['x0']) * (r['y1'] - r['y0']))
+    full = [i for i in range(len(st.paths)) if c['y0'] <= i * st.h and (i + 1) * st.h <= c['y1']]
+    if not full:
+        return None
+    xs, ys = [], []
+    for i in [full[len(full) * k // (n + 1)] for k in range(1, n + 1)]:
+        m = np.zeros((st.h, st.w), np.uint8)
+        m[:, c['x0']:c['x1']] = 1
+        p = E.estimate_pitch(st.slice(i), mask=m)
+        if p:
+            xs.append(p['x'])
+            ys.append(p['y'])
+    return (float(np.median(xs)), float(np.median(ys))) if xs else None
+
+
 def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print):
-    """一條 CCD → {'pitch', 'chips': [panel 座標框], 'dummy': [...], 'bypass_frac', ...}。"""
+    """一條 CCD → {'pitch', 'chips': [panel 座標框], 'dummy': [...], 'bypass_frac', ...}。
+    pitch 沒給時兩段式：整張先量 → 找晶片 → 只在晶片內重量；差 > 2% 就用新 pitch 重做區域。"""
     st = Strip(sorted(paths))
-    if px is None or py is None:
-        mid = st.slice(len(st.paths) // 2)
-        p = E.estimate_pitch(mid)
-        px, py = p['x'], p['y']
+    if px is not None and py is not None:
+        return _regions(st, px, py, dummy_max_pitches, progress)
+    p = E.estimate_pitch(st.slice(len(st.paths) // 2))
+    if not p:
+        return _regions(st, 26.0, 18.0, dummy_max_pitches, progress) | {'error': 'pitch 量不出來（沒有 pattern？）'}
+    r = _regions(st, p['x'], p['y'], dummy_max_pitches, progress)
+    q = chip_pitch(st, r['chips'])
+    if q and (abs(q[0] - p['x']) / q[0] > 0.02 or abs(q[1] - p['y']) / q[1] > 0.02):
+        progress(f'晶片內重量 pitch：{p["x"]:.2f}×{p["y"]:.2f} → {q[0]:.2f}×{q[1]:.2f}，重做區域')
+        r = _regions(st, q[0], q[1], dummy_max_pitches, progress)
+        r['pitch_first'] = [round(p['x'], 2), round(p['y'], 2)]
+    return r
+
+
+def _regions(st, px, py, dummy_max_pitches, progress):
     progress(f'pitch {px:.2f} × {py:.2f}，{len(st.paths)} 張 → panel {st.w} × {st.H}')
     rowb = []
     bm = block_map(st, px, py, bright=rowb)
@@ -208,7 +240,9 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)
-    return {'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
+    bb = rowb[glass[0] // B:glass[1] // B] if glass[1] > glass[0] else rowb
+    return {'glass_brightness': round(float(np.median(bb)), 1) if len(bb) else 0.0,
+            'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
             'chips': chips, 'dummy': dummy, 'block_thr': thr, 'glass': glass,
             'pattern_frac': round(pat / area, 4), 'roi_frac': round(roi / area, 4), 'block_map': bm}
 
