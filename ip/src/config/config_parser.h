@@ -51,6 +51,8 @@ public:
         int fast_search_range = 1;  // For fast kernel: 0=none, 1=±1px, 2=±2px
                                     // 線掃相機 skew 容忍（垂直向）；recipe 走 clamp(SearchY,0,2)
         int enable_multiscale = 1;  // 0=off, 1=2x, 2=2x+4x
+        int edge_fill = 0;
+        int edge_fill_guard = 2;    // 補過的邊最外 N 列/欄不報（換張相位跳動）          // 1 = 補邊：zone 四周補「往內平移 3 pitch」的 pattern，消掉 kernel 邊緣死區
                                     // ⚠️ 預設 1（沿自 Demo）：多尺度**僅 mode2(DIV-voting) 會執行**
                                     //   （gpu_pipeline.cpp Step 4.5），mode0/mode1 讀了不用。
                                     //   連帶效應：recipe 未寫 <EnableMultiscale> 時沿用此預設 →
@@ -177,6 +179,8 @@ private:
             else if (key == "search_range_y") config.search_range_y = std::stoi(value);
             else if (key == "fast_search_range") config.fast_search_range = std::stoi(value);
             else if (key == "enable_multiscale") config.enable_multiscale = std::stoi(value);
+            else if (key == "edge_fill") config.edge_fill = std::stoi(value);
+            else if (key == "edge_fill_guard") config.edge_fill_guard = std::stoi(value);
         }
         else if (section == "LensShading") {
             if (key == "enable_lsc") config.enable_lsc = (std::stoi(value) != 0);

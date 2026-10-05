@@ -33,11 +33,14 @@ def run_ip(ip, recipe_xml, strip, out):
     subprocess.run(['rm', '-rf', res])
     t = time.time()
     p = subprocess.run([ip, '--mode', 'offline-file', '--input', strip, '--recipe', rp, '--output', res,
-                        '--no-overlay', '--max-patches', '0', '--ip-name', 'IPAT'],
+                        '--no-overlay', '--max-patches', '0', '--ip-name', 'IPAT'] + IP_EXTRA,
                        capture_output=True, text=True)
     if p.returncode != 0:
         raise SystemExit(f'IP 失敗 rc={p.returncode}\n{p.stdout[-2000:]}\n{p.stderr[-2000:]}')
     return res, time.time() - t, p.stdout
+
+
+IP_EXTRA = []      # --ip-args 傳給 cfaoi_ip 的額外參數（例：--edge-fill 1）
 
 
 def collect(res):
@@ -80,15 +83,15 @@ def subset_dir(paths, keep, out):
     return out
 
 
-DM_RE = re.compile(r'\[DeathMargin\] zone \d+ ROI=\((\d+),(\d+)\)\+(\d+)x(\d+) death_margin=\(x:(\d+), y:(\d+)\)')
+DM_RE = re.compile(r'\[DeathMargin\] zone \d+ ROI=\((\d+),(\d+)\)\+(\d+)x(\d+) death_margin=\(l:(\d+), r:(\d+), t:(\d+), b:(\d+)\)')
 
 
 def inspected_area(log):
     """IP log 的 DeathMargin → (zone 面積總和, 扣掉四邊死區後實際檢到的面積)。"""
     roi = eff = 0
-    for x, y, w, h, mx, my in (tuple(map(int, m)) for m in DM_RE.findall(log)):
+    for x, y, w, h, ml, mr, mt, mb in (tuple(map(int, m)) for m in DM_RE.findall(log)):
         roi += w * h
-        eff += max(0, w - 2 * mx) * max(0, h - 2 * my)
+        eff += max(0, w - ml - mr) * max(0, h - mt - mb)
     return roi, eff
 
 
@@ -167,8 +170,10 @@ def main():
     ap.add_argument('--manual', default='0.60,1.40', help='對照組人工門檻 暗,亮')
     ap.add_argument('--calibrate', action='store_true', help='IP 實檢二分搜尋：暗/亮各自找 0 誤判的最緊門檻')
     ap.add_argument('--safety', type=float, default=0.03, help='校準後再留的安全邊際')
+    ap.add_argument('--ip-args', default='', help='傳給 cfaoi_ip 的額外參數，如 "--edge-fill 1"')
     a = ap.parse_args()
     truth = [tuple(int(v) for v in t.split(':')) for t in a.truth]
+    IP_EXTRA[:] = a.ip_args.split()
     search = tuple(int(v) for v in a.search.split(','))
     paths = sorted(glob.glob(os.path.join(a.strip, '*_Origin*.tif')))
     os.makedirs(a.out, exist_ok=True)

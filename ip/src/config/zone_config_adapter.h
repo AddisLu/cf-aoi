@@ -60,6 +60,11 @@ struct ZoneConfig {
     int search_range_y = 3;
     int fast_search_range = 1;   // 0=none, 1=±1px, 2=±2px
     int enable_multiscale = 1;   // 0=off, 1=2x, 2=2x+4x
+    // 補邊（2026-10-05）：kernel 跳過距邊 2×pitch+search 的像素（死區）。1 = 送 GPU 前在 zone 四周補一圈
+    // 「往內平移 3 pitch 複製的 pattern」（平移 2 pitch 會讓左 2 鄰居落回中心自己），死區落在補的那圈，
+    // 原本的邊緣改為單邊比對；補邊區的缺陷丟掉、座標扣回。kernel 本體不動。
+    int edge_fill = 0;
+    int edge_fill_guard = 2;     // 補過的邊最外 N 列/欄不報（實測 T550 換張處前 1–2 列相位跳動）
 
     // === 演算法模式 ===
     // 0 = DIV（比例式 center/mean₈ vs BTH/DTH，gpu_algo kernel）

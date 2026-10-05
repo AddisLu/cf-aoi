@@ -33,6 +33,8 @@ struct ZoneResult {
     int roi_offset_y = 0;
     ZoneConfig zone;        // 該 zone 的參數（供 death-margin 計算/log 用）
     DetectionResult result; // result.defects 座標相對於該 ROI 子影像
+    int pad_l = 0, pad_r = 0, pad_t = 0, pad_b = 0;   // 補邊（edge_fill）：該邊有補 = 1（死區只剩 guard）
+    int pad_guard = 0;
 };
 
 // 一張影像（panel）的完整檢測結果（聚合所有 zone）。
