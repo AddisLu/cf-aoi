@@ -80,11 +80,23 @@ def subset_dir(paths, keep, out):
     return out
 
 
-def fp_count(a, r, pi, search, th, strip, truth, h, tag):
+DM_RE = re.compile(r'\[DeathMargin\] zone \d+ ROI=\((\d+),(\d+)\)\+(\d+)x(\d+) death_margin=\(x:(\d+), y:(\d+)\)')
+
+
+def inspected_area(log):
+    """IP log 的 DeathMargin → (zone 面積總和, 扣掉四邊死區後實際檢到的面積)。"""
+    roi = eff = 0
+    for x, y, w, h, mx, my in (tuple(map(int, m)) for m in DM_RE.findall(log)):
+        roi += w * h
+        eff += max(0, w - 2 * mx) * max(0, h - 2 * my)
+    return roi, eff
+
+
+def fp_count(a, r, pi, search, th, strip, truth, h, tag, want_log=False):
     xml = W.make_recipe(r['chips'], r['dummy'], pi, th, search)
-    res, _, _ = run_ip(a.ip, xml, strip, os.path.join(a.out, tag))
+    res, _, log = run_ip(a.ip, xml, strip, os.path.join(a.out, tag))
     tp, fps = score(collect(res), truth, h, r['chips'])
-    return tp, fps
+    return (tp, fps, log) if want_log else (tp, fps)
 
 
 def bisect(f, lo, hi, n=9):
@@ -130,6 +142,16 @@ def calibrate(a, r, pi, search, base, truth, paths, h):
                                  'fp_list': fps[:10]})
         print(f'[驗證] {train}校準 → {test}實檢：暗 {th["dark"]} 亮 {th["bright"]} → 真缺陷 {tp}/{n_t}、誤判 {len(fps)}'
               + (f'  例：{[(f["slice"], f["x"], f["y"], f["type"], f["size"]) for f in fps[:5]]}' if fps else ''))
+    # bypass：整條面積裡，晶片外（間隙/外圍）+ 每張 slice 四邊死區（逐張處理時 ±2 pitch 比不到）
+    _, _, log = fp_count(a, r, pi, search, final(cal['全部']), dirs['全部'], truth, h, 'area', want_log=True)
+    roi_a, eff_a = inspected_area(log)
+    total = r['width'] * r['height']
+    glass = r['width'] * (r['height'] - min([d['y0'] for d in r['dummy']] + [c['y0'] for c in r['chips']]))
+    report['area'] = {'strip': total, 'glass': glass, 'roi': roi_a, 'inspected': eff_a,
+                      'roi_of_glass': round(roi_a / glass, 4), 'inspected_of_glass': round(eff_a / glass, 4),
+                      'inspected_of_roi': round(eff_a / roi_a, 4)}
+    print(f'[bypass] 玻璃內：檢測區 {roi_a / glass:.2%}；扣每張四邊死區後實際檢到 {eff_a / glass:.2%}'
+          f'（死區吃掉檢測區的 {1 - eff_a / roi_a:.2%}）')
     json.dump(report, open(os.path.join(a.out, 'calibration.json'), 'w'), ensure_ascii=False, indent=1)
 
 

@@ -179,6 +179,16 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
     chips.sort(key=lambda r: (r['y0'], r['x0']))
     dummy = merge_bands([d for d in dummy if not any(_overlap(d, c) for c in chips) and d['y1'] > d['y0']],
                         gap=int(16 * py))
+    # IOI 撐滿到上下相鄰晶片的邊：間隙裡的 dummy/外圍整段給 AI，不依賴弱週期門檻剛好切在哪
+    # （實測只用 2 張時弱門檻變高，dummy 帶只抓到 4429–4832，真實到 4996）
+    for d in dummy:
+        above = [c['y1'] for c in chips if c['y1'] <= d['y0'] and c['x0'] < d['x1'] and d['x0'] < c['x1']]
+        below = [c['y0'] for c in chips if c['y0'] >= d['y1'] and c['x0'] < d['x1'] and d['x0'] < c['x1']]
+        if above:
+            d['y0'] = max(above)
+        if below:
+            d['y1'] = min(below)
+    dummy = merge_bands(dummy, gap=0)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)

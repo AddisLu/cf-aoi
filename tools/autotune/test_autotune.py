@@ -6,6 +6,8 @@
 2. 合成整片玻璃（真實 pattern 拼成 3 欄 × 2 列 = 6 up，含玻璃外、晶片間隙、上下邊界），切成 6 條 CCD
    → 每條找出 2 列晶片、上下邊界位置正確、跨 CCD 合成「欄 × 列 = 6」與使用者輸入一致；輸入 4 up → 判不一致
 3. SUB 模式門檻（灰階差）方向正確；放寬：暗門檻往下、亮門檻往上
+4. 真實晶片間隙（T550 IP04 #14/#15）：邊界 ≤ 1 pitch、dummy 帶 → IOI
+5. 整條 CCD（panel 座標）晶片/IOI + 配方 XML（IP 實檢見 validate_ip.py，需在 Spark）
 跑法：python3 tools/autotune/test_autotune.py   預期「全數通過」
 （參考圖不在時第 1 部分略過）
 """
@@ -114,6 +116,30 @@ if GAP:
           (rg['zones'], rg['ioi']))
     check('四條邊界都在 1 個 pitch 內（≤ 20 px；粗分段原本差 ~50–65 px）',
           len(got) == 4 and all(abs(a - b) <= 20 for a, b in zip(got, truth)), list(zip(got, truth)))
+else:
+    print('  SKIP  找不到 T550 IP04 第 14/15 張')
+
+print('5. 整條 CCD（panel 座標）+ 配方輸出')
+import autotune_strip as S   # noqa: E402
+import recipe_writer as RW   # noqa: E402
+import xml.etree.ElementTree as ET   # noqa: E402
+if GAP:
+    rs = S.analyze_strip([os.path.join(GAP, 'IP04_Origin%06d.tif' % n) for n in (14, 15)], 25.86, 18.41,
+                         progress=lambda s: None)
+    ch, io = rs['chips'], rs['dummy']
+    check('兩張接起來：2 顆晶片（上晶片貼頂、下晶片貼底）', len(ch) == 2 and ch[0]['y0'] == 0 and ch[1]['y1'] == 10000, ch)
+    check('晶片邊界（panel 座標）≤ 20 px：上晶片止 3857、下晶片起 5572',
+          len(ch) == 2 and abs(ch[0]['y1'] - 3857) <= 20 and abs(ch[1]['y0'] - 5572) <= 20, ch)
+    check('間隙內的 dummy / 外圍合成 1 條 IOI，涵蓋 dummy 帶 4437–4996',
+          len(io) == 1 and io[0]['y0'] <= 4437 and io[0]['y1'] >= 4996, io)
+    xml = RW.make_recipe(ch, io, (26, 18), {'dark': 0.642, 'bright': 1.43})
+    root = ET.fromstring(xml)
+    rois, iois = root.findall('./DetectRoiList/DetectRoi'), root.findall('./DetectIoiList/DetectIoi')
+    check('配方：2 個 DetectRoi（DIV、Awc_None、pitch 26×18、local search 1）+ 1 個 DetectIoi',
+          len(rois) == 2 and len(iois) == 1 and all(r.findtext('AlgorithmCompare') == 'DIV'
+          and r.findtext('M_AlgorithmWayCompare') == 'Awc_None' and r.findtext('PitchY') == '18'
+          and r.findtext('SearchY') == '1' for r in rois))
+    check('配方 EndY 超出單張高（5000）→ IP 視為 panel 座標（I8）', max(int(r.findtext('EndY')) for r in rois) > 5000)
 else:
     print('  SKIP  找不到 T550 IP04 第 14/15 張')
 
