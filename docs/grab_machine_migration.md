@@ -68,6 +68,11 @@ scp damac:'~/Addis/cf-aoi/grab/cam_config.json' ~/Addis/cf-aoi/grab/
   ⚠️ **但 Spark 的埠位置已改**（2026-10-05 移機實況，定案）：`cf-rdma` 192.168.3.1 在 **port0 `enp1s0f0np0`**，
   Spark↔Spark（177/178）在 port1。ping 不通、兩端 link 都 UP 時，先查是否插到 Spark 另一埠
   （本機往 192.168.3.255 灌廣播，看 Spark 哪個埠 rx 漲）——細節見 STATUS「截取中心移機 + 6 相機全鏈」。
+- **控制網（Control 在 Windows，fab 內無網路）**：Windows 192.168.10.1 直連本機 `enp3s0`（192.168.10.21）；
+  本機轉送到 Spark（bootstrap 設好 `ip_forward=1`）。Spark 端回程路由：
+  `sudo nmcli con mod cf-rdma +ipv4.routes "192.168.10.0/24 192.168.3.2" && sudo nmcli device reapply enp1s0f0np0`。
+  Windows 端（系統管理員命令列）：固定 IP 192.168.10.1/24，加持久路由
+  `route -p add 192.168.3.0 mask 255.255.255.0 192.168.10.21`（不設預設閘道，免得搶走辦公室網路）。
 - **Spark 若用 systemd 起 IP**（`cfaoi-ip-production`）：unit 必須有 `LimitMEMLOCK=infinity`，否則 RDMA ring
   `ibv_reg_mr` 失敗、Grab 端只看到 `expected 9 got 8`。`scripts/deploy/install_linux_services.sh` 已補。
 

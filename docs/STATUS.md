@@ -1137,6 +1137,14 @@ Control ROI 編輯器仍 clamp X≤8160，8192 最右 32 px 框不到（未修�
 | 相機 | f1 `enp1s0f1np1` 192.168.5.200 / 169.254.0.200 / 192.168.4.2 | 5945 `HGE1/0/25` 100G |
 | console | `/dev/ttyUSB0` | 5945 aux0 |
 | Spark↔Spark | — | spark-c16f port1 `enp1s0f1np1`(177.11) / `enP2p1s0f1np1`(178.11) ↔ spark-3961 |
+| **控制網** | 板載 `enp3s0`（2.5G）192.168.10.21，**兼當路由** | Control（Windows）192.168.10.1 直連；經本機轉送到 Spark 192.168.3.1:8200 |
+
+**控制網（2026-10-05 定案，fab 內無網路、不靠 Tailscale、不加交換機）**：Windows 直連本機 `enp3s0`；
+本機 `ip_forward=1` 把控制網轉送到 RDMA 直連網段，Spark 不必另接線（回程路由
+`cf-rdma +ipv4.routes "192.168.10.0/24 192.168.3.2"` 已設、持久化）。與交換機無關 → 換 SN2201 不受影響。
+Control `appsettings`：GrabA = 192.168.10.21:8100、IpSpark = 192.168.3.1:8200。
+bootstrap 已收編（`CTRL_IF`/`CTRL_ADDRS`、停用同埠 `netplan-enp3s0` DHCP、ufw 開著時自動放行）。
+實測：本機 8100 監聽 0.0.0.0；Spark 經回程路由連 192.168.10.21:8100 通。**Windows 端待接線後實測**。
 
 CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 25563158 = CCD05 @.5**、
 **WGE1/0/33 = SN 25563157 = CCD06 @.6**（`cam_provision set`，原出廠 IP 為 .5.10 / 192.168.4.1）。

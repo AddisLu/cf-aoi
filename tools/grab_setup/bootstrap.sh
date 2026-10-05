@@ -23,6 +23,12 @@ MTU=9000
 #   f0（…:18）= RDMA 直連、f1（…:19）= 相機網段。拆卡搬過去 MAC 不變，可直接用。
 RDMA_MAC='98:03:9B:06:CC:18'
 CAM_MAC='98:03:9B:06:CC:19'
+# 控制網（fab 內無網路、不靠 Tailscale）：Control 的 Windows 主機（192.168.10.1）直連本機板載網口。
+# 本機兼當路由：控制網 ↔ RDMA 直連網段 → Control 經本機連 Spark 8200（192.168.3.1），Spark 不必另接線。
+# Spark 端要有回程路由：nmcli con mod cf-rdma +ipv4.routes "192.168.10.0/24 192.168.3.2"
+# 介面名而非 MAC：板載網口隨主機板固定（新機 = Intel I226 2.5G ×3，enp3s0 是其中一個）。
+CTRL_IF='enp3s0'
+CTRL_ADDRS='192.168.10.21/24'
 # ────────────────────────────────────────────────────────────────────────────
 
 DEB_DIRS=("$HOME/下載" "$HOME/下載/pylon" "$HOME/Downloads" "$HOME/Downloads/pylon")
@@ -115,17 +121,10 @@ if [ "$DO_NET" = 0 ]; then note '略過（--skip-network）'; else
     done
     return 1
   }
-  setup_nic() {  # setup_nic <MAC> <addrs> <用途>
-    local mac=$1 addrs=$2 what=$3 dev name
-    if ! dev=$(iface_of_mac "$mac"); then
-      warn "找不到 MAC $mac 的網卡（$what）→ 網路未設定。確認卡已插上：lspci | grep -i mellanox"
-      return
-    fi
-    name="cfaoi-$what"
-    note "$what：$mac → $dev  ($addrs, MTU $MTU)"
-    # 同一張卡上的其他自動連線設定檔（安裝時 NM 自建的「有線連線 N」DHCP）會跟 cfaoi-* 搶，
+  setup_conn() {  # setup_conn <介面> <addrs> <用途> <mtu>：建/改 cfaoi-<用途> 固定 IP 設定檔
+    local dev=$1 addrs=$2 what=$3 mtu=$4 name="cfaoi-$3" other
+    # 同一張卡上的其他自動連線設定檔（安裝時 NM 自建的「有線連線 N」/ netplan-* DHCP）會跟 cfaoi-* 搶，
     # 重開機後可能吃到 DHCP 而非固定 IP（新機 2026-10-05 實例）→ 關掉它們的 autoconnect
-    local other
     while IFS=: read -r other _; do
       [ -z "$other" ] || [ "$other" = "$name" ] && continue
       [ "$(nmcli -g connection.interface-name con show "$other" 2>/dev/null)" = "$dev" ] || continue
@@ -135,16 +134,42 @@ if [ "$DO_NET" = 0 ]; then note '略過（--skip-network）'; else
     done < <(nmcli -t -f NAME,TYPE con show | grep ':802-3-ethernet$')
     if nmcli -t -f NAME con show | grep -qx "$name"; then
       run sudo nmcli con mod "$name" ipv4.addresses "$addrs" ipv4.method manual \
-          802-3-ethernet.mtu "$MTU" connection.interface-name "$dev" connection.autoconnect yes
+          802-3-ethernet.mtu "$mtu" connection.interface-name "$dev" connection.autoconnect yes
     else
       run sudo nmcli con add type ethernet con-name "$name" ifname "$dev" \
-          ipv4.method manual ipv4.addresses "$addrs" 802-3-ethernet.mtu "$MTU" \
+          ipv4.method manual ipv4.addresses "$addrs" 802-3-ethernet.mtu "$mtu" \
           connection.autoconnect yes ipv6.method ignore
     fi
-    run sudo nmcli con up "$name" >/dev/null
+    # 沒接線時 con up 會失敗：設定檔已存好、autoconnect=yes，接上線自動生效
+    run sudo nmcli con up "$name" >/dev/null 2>&1 || note "$name：$dev 尚未接線，接上後自動生效"
+  }
+  setup_nic() {  # setup_nic <MAC> <addrs> <用途>（ConnectX-5：以 MAC 認卡）
+    local mac=$1 addrs=$2 what=$3 dev
+    if ! dev=$(iface_of_mac "$mac"); then
+      warn "找不到 MAC $mac 的網卡（$what）→ 網路未設定。確認卡已插上：lspci | grep -i mellanox"
+      return
+    fi
+    note "$what：$mac → $dev  ($addrs, MTU $MTU)"
+    setup_conn "$dev" "$addrs" "$what" "$MTU"
   }
   setup_nic "$CAM_MAC"  "$CAM_ADDRS"  cam
   setup_nic "$RDMA_MAC" "$RDMA_ADDRS" rdma
+
+  # 控制網：Control（Windows）直連本機；本機轉送到 Spark（RDMA 直連網段）
+  if [ -e "/sys/class/net/$CTRL_IF" ]; then
+    note "ctrl：$CTRL_IF  ($CTRL_ADDRS, MTU 1500；Control 主機 192.168.10.1 直連)"
+    setup_conn "$CTRL_IF" "$CTRL_ADDRS" ctrl 1500
+    # ufw 開著時：放行控制網進來的 8100，以及控制網 → RDMA 網段的轉送（回程由 ufw 內建 conntrack 放行）
+    if sudo ufw status 2>/dev/null | grep -q '^Status: active'; then
+      rdma_dev=$(iface_of_mac "$RDMA_MAC") || rdma_dev=''
+      note "ufw：放行 $CTRL_IF → 8100/tcp${rdma_dev:+、轉送 $CTRL_IF → $rdma_dev（Spark 8200）}"
+      run sudo ufw allow in on "$CTRL_IF" to any port 8100 proto tcp comment 'cfaoi ctrl → grab' >/dev/null
+      [ -n "$rdma_dev" ] && run sudo ufw route allow in on "$CTRL_IF" out on "$rdma_dev" \
+          comment 'cfaoi ctrl → spark' >/dev/null
+    fi
+  else
+    warn "找不到控制網口 $CTRL_IF → 控制網未設定（改 CONFIG 區的 CTRL_IF）"
+  fi
 fi
 
 # ── 5. sysctl ───────────────────────────────────────────────────────────────
@@ -158,6 +183,8 @@ net.core.rmem_max=33554432
 # 從「非預期介面」進來的相機廣播（GVCP 探索回應）
 net.ipv4.conf.all.rp_filter=0
 net.ipv4.conf.default.rp_filter=0
+# 控制網 → Spark：Control（Windows，192.168.10.x）經本機轉送到 RDMA 直連網段（192.168.3.1:8200）
+net.ipv4.ip_forward=1
 EOF
 if [ -f "$SYSCTL" ] && diff -q <(echo "$WANT") "$SYSCTL" >/dev/null 2>&1; then
   note "已是最新：$SYSCTL"
