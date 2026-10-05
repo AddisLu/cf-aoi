@@ -62,7 +62,7 @@ step "環境：$PRETTY_NAME  kernel $(uname -r)  repo=$REPO"
 
 # ── 1. apt 套件 ─────────────────────────────────────────────────────────────
 step '1/7 apt 套件（建置 + RDMA + 診斷 + 調機工具）'
-PKGS=(build-essential cmake pkg-config git nlohmann-json3-dev
+PKGS=(build-essential cmake pkg-config git nlohmann-json3-dev zlib1g-dev
       rdma-core libibverbs-dev librdmacm-dev ibverbs-utils infiniband-diags perftest
       python3 python3-pip python3-pil ethtool network-manager openssh-server gdb tcpdump)
 MISSING=()
@@ -123,6 +123,16 @@ if [ "$DO_NET" = 0 ]; then note '略過（--skip-network）'; else
     fi
     name="cfaoi-$what"
     note "$what：$mac → $dev  ($addrs, MTU $MTU)"
+    # 同一張卡上的其他自動連線設定檔（安裝時 NM 自建的「有線連線 N」DHCP）會跟 cfaoi-* 搶，
+    # 重開機後可能吃到 DHCP 而非固定 IP（新機 2026-10-05 實例）→ 關掉它們的 autoconnect
+    local other
+    while IFS=: read -r other _; do
+      [ -z "$other" ] || [ "$other" = "$name" ] && continue
+      [ "$(nmcli -g connection.interface-name con show "$other" 2>/dev/null)" = "$dev" ] || continue
+      [ "$(nmcli -g connection.autoconnect con show "$other" 2>/dev/null)" = yes ] || continue
+      note "停用同卡競爭設定檔的 autoconnect：$other"
+      run sudo nmcli con mod "$other" connection.autoconnect no
+    done < <(nmcli -t -f NAME,TYPE con show | grep ':802-3-ethernet$')
     if nmcli -t -f NAME con show | grep -qx "$name"; then
       run sudo nmcli con mod "$name" ipv4.addresses "$addrs" ipv4.method manual \
           802-3-ethernet.mtu "$MTU" connection.interface-name "$dev" connection.autoconnect yes
@@ -151,6 +161,11 @@ net.ipv4.conf.default.rp_filter=0
 EOF
 if [ -f "$SYSCTL" ] && diff -q <(echo "$WANT") "$SYSCTL" >/dev/null 2>&1; then
   note "已是最新：$SYSCTL"
+  # 檔案對但執行中的值不對（新機 2026-10-05：開機後 rmem_max 為 10485760）→ 重新套用
+  if [ "$(sysctl -n net.core.rmem_max)" != 33554432 ]; then
+    warn "執行中的 rmem_max=$(sysctl -n net.core.rmem_max) 與檔案不符 → 重新套用"
+    run sudo sysctl -q -p "$SYSCTL"
+  fi
 else
   note "寫入 $SYSCTL"
   [ "$DRY" = 1 ] || echo "$WANT" | sudo tee "$SYSCTL" >/dev/null

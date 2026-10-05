@@ -51,6 +51,8 @@ Conflicts=cfaoi-ip-offline.service
 User=$RUN_USER
 WorkingDirectory=$REPO/ip
 ExecStart=$REPO/ip/build/cfaoi_ip --mode rdma-process --recipe $REPO/recipes/DEFAULT/IP0/RecipeInfo.xml --output $OUT --rdma-port 18515
+# RDMA ring 要 ibv_reg_mr 鎖 155MB；systemd 預設 memlock 只有 8MB → 不設就 Cannot allocate memory 重啟迴圈
+LimitMEMLOCK=infinity
 Restart=always
 RestartSec=2
 
@@ -71,6 +73,8 @@ After=network-online.target
 User=$RUN_USER
 WorkingDirectory=$REPO/grab/build
 ExecStart=$REPO/grab/build/cfaoi_grab --rdma-dest 192.168.3.1:18515 --cam-count ALL
+# RDMA 發送緩衝同樣要 ibv_reg_mr（systemd 預設 memlock 8MB 不夠）
+LimitMEMLOCK=infinity
 Restart=on-failure
 RestartSec=3
 
