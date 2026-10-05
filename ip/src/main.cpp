@@ -252,6 +252,24 @@ bool recipe_is_panel_coords(const std::vector<ZoneConfig>& zones, int h) {
     return false;
 }
 
+// IOI（#23）同 I8：panel 座標時依 slice 平移、只留與本張相交的部分（夾在本張內）。單張座標配方原樣回傳。
+std::vector<IoiRect> ioi_for_slice(const std::vector<IoiRect>& in, const std::vector<ZoneConfig>& zones,
+                                   int h, int slice_index) {
+    bool panel = recipe_is_panel_coords(zones, h);
+    for (const auto& io : in) panel = panel || std::max(io.start_y, io.end_y) > h;
+    if (!panel) return in;
+    const int off = slice_index * h;
+    std::vector<IoiRect> out;
+    for (auto io : in) {
+        const int a = std::min(io.start_y, io.end_y) - off, b = std::max(io.start_y, io.end_y) - off;
+        if (b <= 0 || a >= h) continue;
+        io.start_y = std::max(a, 0);
+        io.end_y = std::min(b, h);
+        out.push_back(io);
+    }
+    return out;
+}
+
 // 比對兩次 process_frame 結果是否 bit-exact。一致回傳空字串；否則回傳第一個差異點描述。
 std::string first_determinism_diff(const DetectionResult& a, const DetectionResult& b) {
     if (a.num_defects != b.num_defects)
@@ -729,7 +747,7 @@ int main(int argc, char** argv) {
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed,
                                                  cli_saving_cfg, machine_optical, hdr.sliceIndex);
-            res.ioi_list = file_ioi;   // #23 興趣區
+            res.ioi_list = ioi_for_slice(file_ioi, zones, gray.rows, hdr.sliceIndex);   // #23 興趣區
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
@@ -861,7 +879,7 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg, machine_optical,
                                                  hdr.sliceIndex);
-            res.ioi_list = server.ioi_list();   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
+            res.ioi_list = ioi_for_slice(server.ioi_list(), z_snapshot, gray.rows, hdr.sliceIndex);   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
@@ -1339,7 +1357,8 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            res.ioi_list = recipe_loaded.load() ? ctrl_srv.ioi_list() : file_ioi;
+            res.ioi_list = ioi_for_slice(recipe_loaded.load() ? ctrl_srv.ioi_list() : file_ioi,
+                                         z_snapshot, (int)hdr.height, hdr.sliceIndex);
             double proc_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
             sum_proc_ms += proc_ms;
