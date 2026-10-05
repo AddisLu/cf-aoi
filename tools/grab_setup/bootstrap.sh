@@ -68,7 +68,7 @@ step "環境：$PRETTY_NAME  kernel $(uname -r)  repo=$REPO"
 
 # ── 1. apt 套件 ─────────────────────────────────────────────────────────────
 step '1/7 apt 套件（建置 + RDMA + 診斷 + 調機工具）'
-PKGS=(build-essential cmake pkg-config git nlohmann-json3-dev zlib1g-dev
+PKGS=(build-essential cmake pkg-config git nlohmann-json3-dev zlib1g-dev chrony
       rdma-core libibverbs-dev librdmacm-dev ibverbs-utils infiniband-diags perftest
       python3 python3-pip python3-pil ethtool network-manager openssh-server gdb tcpdump)
 MISSING=()
@@ -169,6 +169,22 @@ if [ "$DO_NET" = 0 ]; then note '略過（--skip-network）'; else
     fi
   else
     warn "找不到控制網口 $CTRL_IF → 控制網未設定（改 CONFIG 區的 CTRL_IF）"
+  fi
+
+  # 校時伺服器（fab 內無 NTP）：本機 chrony 有網路時跟 pool 對時，沒有時以本地時鐘為準（local stratum），
+  # 供 Spark（經 RDMA 網段對 192.168.3.2）與 Control Windows（對 192.168.10.21）對時。
+  CHRONY_CONF=/etc/chrony/conf.d/50-cfaoi.conf
+  CHRONY_WANT=$'# CF-AOI：Grab 主機當產線校時伺服器（bootstrap.sh 產生）\nallow 192.168.3.0/24\nallow 192.168.10.0/24\nlocal stratum 10'
+  if [ -d /etc/chrony/conf.d ]; then
+    if [ -f "$CHRONY_CONF" ] && [ "$(cat "$CHRONY_CONF")" = "$CHRONY_WANT" ]; then
+      note "校時伺服器：已是最新（$CHRONY_CONF）"
+    else
+      note "校時伺服器：寫入 $CHRONY_CONF（允許 192.168.3.0/24、192.168.10.0/24，無上游時本地時鐘 stratum 10）"
+      [ "$DRY" = 1 ] || echo "$CHRONY_WANT" | sudo tee "$CHRONY_CONF" >/dev/null
+      run sudo systemctl restart chrony
+    fi
+  else
+    warn 'chrony 未安裝（/etc/chrony/conf.d 不存在）→ Spark / Windows 在 fab 內無法對時'
   fi
 fi
 

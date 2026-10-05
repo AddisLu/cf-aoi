@@ -53,6 +53,9 @@ public sealed class UpstreamServer : IDisposable
     public Func<double, double, Task>? OnSetAlign { get; set; }
     // STOP（#25）：中斷目前取像/檢測。offline 無取像對象 → 不綁 → 誠實失敗 ERR（決策 A，待 Step4+/相機）
     public Func<Task<bool>>? OnStop { get; set; }
+    // READY：系統是否可生產（Grab + IP 皆連線）。null → 一律 OK（舊行為，僅供無接線的測試）。
+    // 原本 CF_READY 一律回 OK —— Grab/IP 沒起來上位機也以為就緒，送料後才在 GRAB_START 失敗。
+    public Func<(bool Ok, string Error)>? OnReady { get; set; }
     // 上位機 client 連上(true)/斷線(false) → 連線燈（真狀態）
     public Action<bool>? OnConnectedChanged { get; set; }
 
@@ -189,8 +192,11 @@ public sealed class UpstreamServer : IDisposable
                             break;
                         }
                         case CF_READY:
-                            await writer.WriteLineAsync(Resp(true));
+                        {
+                            var (ok, err) = OnReady?.Invoke() ?? (true, "");
+                            await writer.WriteLineAsync(Resp(ok, errMsg: ok ? "" : err));
                             break;
+                        }
                         default:
                             await writer.WriteLineAsync(Resp(false, errMsg: $"unknown cmd: {cmd}"));
                             break;

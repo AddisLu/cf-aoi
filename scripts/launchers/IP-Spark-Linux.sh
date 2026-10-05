@@ -15,7 +15,9 @@ if ! systemctl cat "$unit" >/dev/null 2>&1; then
   echo "找不到服務 $unit → 先安裝：scripts/deploy/install_linux_services.sh ip"
   read -r -p "按 Enter 關閉…" _; exit 1
 fi
-sudo systemctl restart "$unit" || { read -r -p "啟動失敗（見上方）。按 Enter 關閉…" _; exit 1; }
+# polkit 規則（install_linux_services.sh 裝）讓本帳號免密碼；沒有規則時退回 sudo
+systemctl restart "$unit" 2>/dev/null || sudo systemctl restart "$unit" || {
+  read -r -p "啟動失敗（見上方）。按 Enter 關閉…" _; exit 1; }
 sleep 2
 systemctl --no-pager --lines=0 status "$unit" | head -5
 echo "── 即時 log（Ctrl+C 或關視窗只停看 log，IP 繼續跑）──"

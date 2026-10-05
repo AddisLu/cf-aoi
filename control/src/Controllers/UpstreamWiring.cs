@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using CfAoiControl.Services;
 
@@ -100,6 +101,25 @@ public static class UpstreamWiring
         // CF_GET_RESULT → 由 IP 列舉缺陷結果夾組「路徑,逗號 + 缺陷數,逗號」(非 JSON，對齊契約)
         // ⚠️ 已知限制（docs/code_review_20260802.md K1）：下方 catch 把例外吞成「空結果」，
         // 且 UpstreamServer 對本命令一律回 OK → IP 離線時上位機會把「查詢失敗」誤讀成「本批 0 筆結果」。
+        // CF_READY → 以心跳確認過的連線狀態判定（ConnectionManager 每 2.5s CHECK_HEALTH，連續 2 次失敗才判斷線）。
+        // 兩個節點都連上才回 OK；否則 ERR 並寫明哪個沒連上 + 設定的位址（現場人員據此查線/查服務）。
+        up.OnReady = () =>
+        {
+            var c = svc.Connection;
+            var missing = new List<string>();
+            if (!c.IsGrabConnected)
+            {
+                var g = svc.Config.Nodes.TryGetValue("GrabA", out var gn) ? $"{gn.Host}:{gn.Port}" : "未設定";
+                missing.Add($"Grab 未連線（{g}）");
+            }
+            if (!c.IsIpConnected)
+            {
+                var ip = svc.Config.ActiveIp is { } n ? $"{n.Host}:{n.Port}" : "未設定";
+                missing.Add($"IP 未連線（{ip}）");
+            }
+            return missing.Count == 0 ? (true, "") : (false, string.Join("；", missing));
+        };
+
         up.OnGetResult = async () =>
         {
             try
