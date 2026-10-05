@@ -26,7 +26,9 @@ except ImportError:  # pragma: no cover
 
 CTX = 256          # 每張上下各帶相鄰張幾列（> 2 × pitch + 高通半徑）
 EDGE_SHRINK = 1    # 晶片內側邊往內縮幾個 pitch（縮掉的那圈在 IOI 內，交 AI）
-DARK_COL = 12      # 晶片內亮度低於此值的欄不檢（過暗不可檢）
+DARK_COL = 6       # 晶片內亮度低於此值的欄不檢（全黑，過暗不可檢）
+BANDS = (0.45, 0.75)   # 依亮度分段：欄亮度 ÷ 晶片中位數 < 0.45 = 暗段、< 0.75 = 中段、其餘 = 亮段
+MIN_BAND = 8       # 分段最小寬（區塊數 × 32 px）；更窄的併入鄰段
 B = 32             # 區塊大小（px）
 
 
@@ -259,6 +261,7 @@ def _regions(st, px, py, dummy_max_pitches, progress):
             c['x0'], c['x1'] = nx0, nx1
     chips = [c for c in chips if c['x1'] - c['x0'] > 4 * B]
     ioi = ioi_rects(chips, gx, gy, 2 * int(round(py)) + 2, 2 * int(round(px)) + 2)
+    chips = split_bands(chips, bmb, px, py, st.w)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)
@@ -267,6 +270,52 @@ def _regions(st, px, py, dummy_max_pitches, progress):
             'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
             'chips': chips, 'dummy': ioi, 'block_thr': thr, 'glass': list(gy), 'glass_x': list(gx),
             'pattern_frac': round(pat / area, 4), 'roi_frac': round(roi / area, 4), 'block_map': bm}
+
+
+def split_bands(chips, bmb, px, py, w):
+    """依亮度把晶片切成 暗/中/亮 段，每段各自校準門檻（舊機台暗角：中央/邊緣 2.5–6×，同一組門檻亮區剛好、暗區誤判）。
+    段與段之間的「處理範圍」互相多伸一個 kernel 死區（2 pitch + search）：亮段從邊界往暗段多處理 mx、暗段往亮段多處理 mx
+    → 兩段的「實際檢到」範圍剛好在邊界接上，不漏不重。核心範圍 = x0/x1（計數、報告用），處理範圍 = ex0/ex1（配方用）。"""
+    mx = 2 * int(round(px)) + 2
+    out = []
+    for ci, c in enumerate(chips):
+        cb = np.median(bmb[c['y0'] // B:max(c['y0'] // B + 1, c['y1'] // B), c['x0'] // B:max(c['x0'] // B + 1, c['x1'] // B)], axis=0)
+        rel = cb / max(float(np.median(cb)), 1e-6)
+        lv = np.digitize(rel, BANDS)                                  # 0 暗 / 1 中 / 2 亮
+        runs = []                                                    # [(level, b0, b1)]（區塊索引，相對 c['x0']）
+        for i, v in enumerate(lv):
+            if runs and runs[-1][0] == v:
+                runs[-1][2] = i + 1
+            else:
+                runs.append([int(v), i, i + 1])
+        changed = True                                               # 太窄的段併入較寬的鄰段
+        while changed and len(runs) > 1:
+            changed = False
+            for k, r in enumerate(runs):
+                if r[2] - r[1] < MIN_BAND:
+                    nb = runs[k - 1] if k > 0 and (k == len(runs) - 1 or runs[k - 1][2] - runs[k - 1][1] >= runs[k + 1][2] - runs[k + 1][1]) else runs[k + 1]
+                    nb[1], nb[2] = min(nb[1], r[1]), max(nb[2], r[2])
+                    runs.pop(k)
+                    changed = True
+                    break
+            merged = []                                              # 相鄰同級合併
+            for r in runs:
+                if merged and merged[-1][0] == r[0]:
+                    merged[-1][2] = r[2]
+                else:
+                    merged.append(r)
+            runs = merged
+        names = {0: '暗', 1: '中', 2: '亮'}
+        for k, (v, b0, b1) in enumerate(runs):
+            z = dict(c)
+            z['x0'] = c['x0'] if k == 0 else c['x0'] + b0 * B
+            z['x1'] = c['x1'] if k == len(runs) - 1 else c['x0'] + b1 * B
+            z['ex0'] = z['x0'] if k == 0 else max(0, z['x0'] - mx)
+            z['ex1'] = z['x1'] if k == len(runs) - 1 else min(w, z['x1'] + mx)
+            z['chip'], z['band'] = ci, names[v] if len(runs) > 1 else '全'
+            z['brightness'] = round(float(np.median(cb[b0:b1])), 1)
+            out.append(z)
+    return out
 
 
 def ioi_rects(chips, gx, gy, mgy, mgx):

@@ -30,9 +30,9 @@ def detect_roi(r, pitch, th, search=(1, 1), mode='div', opt=None):
     px, py = int(round(pitch[0])), int(round(pitch[1]))
     m = dict(METHODS[mode], **(opt or {}))
     return f"""    <DetectRoi>
-      <StartX>{r['x0']}</StartX>
+      <StartX>{r.get('ex0', r['x0'])}</StartX>
       <StartY>{r['y0']}</StartY>
-      <EndX>{r['x1']}</EndX>
+      <EndX>{r.get('ex1', r['x1'])}</EndX>
       <EndY>{r['y1']}</EndY>
       <M_ImagePreproc>{m['preproc']}</M_ImagePreproc>
       <SmoothTimes>{m['smooth']}</SmoothTimes>

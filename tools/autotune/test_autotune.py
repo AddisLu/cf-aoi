@@ -126,19 +126,26 @@ import xml.etree.ElementTree as ET   # noqa: E402
 if GAP:
     rs = S.analyze_strip([os.path.join(GAP, 'IP04_Origin%06d.tif' % n) for n in (14, 15)], 25.86, 18.41,
                          progress=lambda s: None)
-    ch, io = rs['chips'], rs['dummy']
+    zs, io = rs['chips'], rs['dummy']
+    ids = sorted({z['chip'] for z in zs})
+    ch = [{'y0': min(z['y0'] for z in zs if z['chip'] == i), 'y1': max(z['y1'] for z in zs if z['chip'] == i)} for i in ids]
     check('兩張接起來：2 顆晶片（上晶片貼頂、下晶片貼底）', len(ch) == 2 and ch[0]['y0'] == 0 and ch[1]['y1'] == 10000, ch)
     check('晶片邊界（panel 座標）≤ 20 px：上晶片止 3857、下晶片起 5572',
           len(ch) == 2 and abs(ch[0]['y1'] - 3857) <= 20 and abs(ch[1]['y0'] - 5572) <= 20, ch)
     check('間隙內的 dummy / 外圍合成 1 條 IOI，涵蓋 dummy 帶 4437–4996',
           len(io) == 1 and io[0]['y0'] <= 4437 and io[0]['y1'] >= 4996, io)
-    xml = RW.make_recipe(ch, io, (26, 18), {'dark': 0.642, 'bright': 1.43})
+    c0 = sorted((z for z in zs if z['chip'] == 0), key=lambda z: z['x0'])
+    check('依亮度分段（暗角）：核心範圍首尾相接、處理範圍在接縫各多伸一個死區（2 pitch + 2）',
+          len(c0) >= 2 and all(a['x1'] == b['x0'] and a['ex1'] - a['x1'] == 54 and b['x0'] - b['ex0'] == 54
+                               for a, b in zip(c0, c0[1:])), [(z['band'], z['x0'], z['x1'], z['ex0'], z['ex1']) for z in c0])
+    xml = RW.make_recipe(zs, io, (26, 18), {'dark': 0.642, 'bright': 1.43})
     root = ET.fromstring(xml)
     rois, iois = root.findall('./DetectRoiList/DetectRoi'), root.findall('./DetectIoiList/DetectIoi')
-    check('配方：2 個 DetectRoi（DIV、Awc_None、pitch 26×18、local search 1）+ 1 個 DetectIoi',
-          len(rois) == 2 and len(iois) == 1 and all(r.findtext('AlgorithmCompare') == 'DIV'
+    check('配方：每段一個 DetectRoi（DIV、Awc_None、pitch 26×18、local search 1，StartX/EndX = 處理範圍）+ 1 個 DetectIoi',
+          len(rois) == len(zs) and len(iois) == 1 and all(r.findtext('AlgorithmCompare') == 'DIV'
           and r.findtext('M_AlgorithmWayCompare') == 'Awc_None' and r.findtext('PitchY') == '18'
-          and r.findtext('SearchY') == '1' for r in rois))
+          and r.findtext('SearchY') == '1' for r in rois)
+          and sorted(int(r.findtext('StartX')) for r in rois) == sorted(z['ex0'] for z in zs))
     check('配方 EndY 超出單張高（5000）→ IP 視為 panel 座標（I8）', max(int(r.findtext('EndY')) for r in rois) > 5000)
 else:
     print('  SKIP  找不到 T550 IP04 第 14/15 張')
