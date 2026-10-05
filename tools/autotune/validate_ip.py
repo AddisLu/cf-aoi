@@ -68,6 +68,71 @@ def score(defs, truth, h, chips):
     return len(found), fps
 
 
+def subset_dir(paths, keep, out):
+    """只含部分 slice 的目錄（symlink；檔名保留 → sliceIndex 不變，panel 座標照樣對）。"""
+    os.makedirs(out, exist_ok=True)
+    for f in os.listdir(out):
+        os.unlink(os.path.join(out, f))
+    for p in paths:
+        m = re.search(r'Origin(\d+)', p)
+        if m and keep(int(m.group(1))):
+            os.symlink(p, os.path.join(out, os.path.basename(p)))
+    return out
+
+
+def fp_count(a, r, pi, search, th, strip, truth, h, tag):
+    xml = W.make_recipe(r['chips'], r['dummy'], pi, th, search)
+    res, _, _ = run_ip(a.ip, xml, strip, os.path.join(a.out, tag))
+    tp, fps = score(collect(res), truth, h, r['chips'])
+    return tp, fps
+
+
+def bisect(f, lo, hi, n=9):
+    """f(x) = 誤判數，x 往 hi 走誤判越少（單調）。回傳 0 誤判的最靠 lo 的 x。"""
+    if f(hi) > 0:
+        return None
+    for _ in range(n):
+        mid = (lo + hi) / 2
+        if f(mid) == 0:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def calibrate_on(a, r, pi, search, base, truth, strip, h, tag):
+    """暗：亮門檻關掉（9.0）找最大的 0 誤判 DTH；亮：暗門檻關掉（0.01）找最小的 0 誤判 BTH。"""
+    fd = lambda d: len(fp_count(a, r, pi, search, {'dark': round(d, 4), 'bright': 9.0}, strip, truth, h, tag + '_d')[1])
+    fb = lambda b: len(fp_count(a, r, pi, search, {'dark': 0.01, 'bright': round(b, 4)}, strip, truth, h, tag + '_b')[1])
+    # 暗：x = 1 - DTH（越大越鬆）；亮：x = BTH
+    d = bisect(lambda x: fd(1 - x), 1 - base['floor_dark'], 0.7)
+    b = bisect(fb, base['floor_bright'], 3.0)
+    return (None if d is None else round(1 - d, 4)), (None if b is None else round(b, 4))
+
+
+def calibrate(a, r, pi, search, base, truth, paths, h):
+    t0 = time.time()
+    folds = {'全部': lambda i: True, '偶數張': lambda i: i % 2 == 0, '奇數張': lambda i: i % 2 == 1}
+    dirs = {k: subset_dir(paths, f, os.path.join(a.out, 'sub_' + str(j))) for j, (k, f) in enumerate(folds.items())}
+    cal = {}
+    for k in folds:
+        cal[k] = calibrate_on(a, r, pi, search, base, truth, dirs[k], h, 'cal_' + k)
+        print(f'[校準] {k}：0 誤判的最緊門檻 暗 {cal[k][0]} / 亮 {cal[k][1]}（{time.time() - t0:.0f}s）')
+    s = a.safety
+    final = lambda c: {'dark': round(c[0] * (1 - s), 3), 'bright': round(c[1] * (1 + s), 3)}
+    report = {'pitch_int': pi, 'search': search, 'floor': base, 'chips': r['chips'], 'ioi': r['dummy'],
+              'calibrated': cal, 'safety': s, 'checks': []}
+    for train, test in (('偶數張', '奇數張'), ('奇數張', '偶數張'), ('全部', '全部')):
+        th = final(cal[train])
+        tp, fps = fp_count(a, r, pi, search, th, dirs[test], truth, h, f'x_{train}_{test}')
+        n_t = sum(1 for (sl, _, _) in truth if folds[test](sl))
+        report['checks'].append({'train': train, 'test': test, 'th': th, 'tp': tp, 'n_truth': n_t, 'fp': len(fps),
+                                 'fp_list': fps[:10]})
+        print(f'[驗證] {train}校準 → {test}實檢：暗 {th["dark"]} 亮 {th["bright"]} → 真缺陷 {tp}/{n_t}、誤判 {len(fps)}'
+              + (f'  例：{[(f["slice"], f["x"], f["y"], f["type"], f["size"]) for f in fps[:5]]}' if fps else ''))
+    json.dump(report, open(os.path.join(a.out, 'calibration.json'), 'w'), ensure_ascii=False, indent=1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--strip', required=True)
@@ -78,6 +143,8 @@ def main():
     ap.add_argument('--search', default='1,1')
     ap.add_argument('--pitch', default='', help='覆寫整數 pitch，如 26,19（預設 = 自動量測四捨五入）')
     ap.add_argument('--manual', default='0.60,1.40', help='對照組人工門檻 暗,亮')
+    ap.add_argument('--calibrate', action='store_true', help='IP 實檢二分搜尋：暗/亮各自找 0 誤判的最緊門檻')
+    ap.add_argument('--safety', type=float, default=0.03, help='校準後再留的安全邊際')
     a = ap.parse_args()
     truth = [tuple(int(v) for v in t.split(':')) for t in a.truth]
     search = tuple(int(v) for v in a.search.split(','))
@@ -105,6 +172,10 @@ def main():
     base = E.estimate_thresholds(imgs, pi[0], pi[1], 'div', masks, margin=0.0)
     del imgs, masks
     print(f'[門檻] 雜訊底線 暗 {base["floor_dark"]} / 亮 {base["floor_bright"]}（{base["n_images"]} 張，{time.time() - t0:.0f}s）')
+
+    if a.calibrate:
+        calibrate(a, r, pi, search, base, truth, paths, h)
+        return
 
     rows = []
     cases = [('auto', m) for m in (float(v) for v in a.margins.split(',') if v)] + [('manual', None)]
