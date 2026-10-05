@@ -64,7 +64,12 @@ scp damac:'~/Addis/cf-aoi/grab/cam_config.json' ~/Addis/cf-aoi/grab/
 - **相機身分/IP 存在相機自己身上**（DeviceUserID `CCDnn` + persistent IP 192.168.5.x）→ 換主機不受影響。
 - **交換機不用改**：全部 48 個 25G 埠已預設 `speed 1000` + `stp edged-port` 並 `save force`。
   ConnectX-5 拆過去 MAC 不變，`HGE1/0/25` 的 MAC table 會自己重學。
-- **Spark 端不用改**：對端仍是 `192.168.3.2`（本機）↔ `192.168.3.1`（Spark）。
+- **Spark 端 IP 不用改**：對端仍是 `192.168.3.2`（本機）↔ `192.168.3.1`（Spark）。
+  ⚠️ **但 Spark 的埠位置已改**（2026-10-05 移機實況，定案）：`cf-rdma` 192.168.3.1 在 **port0 `enp1s0f0np0`**，
+  Spark↔Spark（177/178）在 port1。ping 不通、兩端 link 都 UP 時，先查是否插到 Spark 另一埠
+  （本機往 192.168.3.255 灌廣播，看 Spark 哪個埠 rx 漲）——細節見 STATUS「截取中心移機 + 6 相機全鏈」。
+- **Spark 若用 systemd 起 IP**（`cfaoi-ip-production`）：unit 必須有 `LimitMEMLOCK=infinity`，否則 RDMA ring
+  `ibv_reg_mr` 失敗、Grab 端只看到 `expected 9 got 8`。`scripts/deploy/install_linux_services.sh` 已補。
 
 ## 4. 驗收（沒跑過這關不算搬完）
 

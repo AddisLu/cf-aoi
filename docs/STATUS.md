@@ -1125,6 +1125,65 @@ Control ROI 編輯器仍 clamp X≤8160，8192 最右 32 px 框不到（未修�
 
 ---
 
+## 截取中心移機 + 6 相機全鏈（2026-10-05）：damac → user-IMB-M47 — **L3**
+
+> 新機 `user-IMB-M47`（i9-14900K / Ubuntu 24.04）接手 damac；ConnectX-5 已移機。**此配置即定案配置**。
+
+**現況拓樸（定案）**
+
+| 連線 | 本機端 | 對端 |
+|---|---|---|
+| RDMA | f0 `enp1s0f0np0` 192.168.3.2 | **spark-c16f port0 `enp1s0f0np0` 192.168.3.1**（原為 port1，見 ②）|
+| 相機 | f1 `enp1s0f1np1` 192.168.5.200 / 169.254.0.200 / 192.168.4.2 | 5945 `HGE1/0/25` 100G |
+| console | `/dev/ttyUSB0` | 5945 aux0 |
+| Spark↔Spark | — | spark-c16f port1 `enp1s0f1np1`(177.11) / `enP2p1s0f1np1`(178.11) ↔ spark-3961 |
+
+CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 25563158 = CCD05 @.5**、
+**WGE1/0/33 = SN 25563157 = CCD06 @.6**（`cam_provision set`，原出廠 IP 為 .5.10 / 192.168.4.1）。
+
+**實測**
+- `verify_grab_host.sh`：23 過 / 2 失敗 → 補 CCD05/06 + Spark 改設定後 **26 通過 / 0 失敗**。
+- 單台取像（`cam_mean_gray_test`，6 台）：全數出幀，暗場 mean_gray 2.4–3.9（noise floor，曝光/增益單調性判讀無效屬預期）。
+- `verify_step3_trigger.py 127.0.0.1 8100 5 6`：**7/7 PASS** — ARM 冷啟 3215ms（runbook 外推 3.8s）/
+  冪等 16ms / GRAB_START **0.3ms** / grabbed=30 sent=30 dropped=0 / 第二片 0.8ms sent 累計 60 / teardown。
+  **Spark 端 recv ok/err = 60/0、CRC 全對**，輸出 CCD01–CCD06 各 10。
+- Control（本機 .NET 8 user-local）→ GrabA 8100 + IpSpark 8200 皆連上；`upstream_simulator.py` 5/5；
+  `CF_LOAD_RECIPE` 19ms → `CF_GRAB_START` 4ms（連續模式）→ `CF_STOP` OK 2.7s，Spark recv **50/0**。
+
+**當日踩到並修掉的坑**
+1. **新機網路未設**：bootstrap 首跑時網卡尚未移機 → 網路步驟被略過。卡到位後重跑 bootstrap 即可。
+   另 NM 安裝時自建的「有線連線 1/2」（DHCP, autoconnect）綁在兩個 ConnectX-5 埠上，會與 `cfaoi-*` 搶
+   → **bootstrap 改為自動關掉同卡競爭設定檔的 autoconnect**。
+2. **Spark 端兩條 QSFP 互換**：本機 DAC 插在 port0（原 Spark↔Spark 用）、spark-3961 插在 port1（原 `cf-rdma`）。
+   定案**不動線、改設定**：`cf-rdma` → `enp1s0f0np0`，`spark-link-177/178` → `enp1s0f1np1`/`enP2p1s0f1np1`，
+   該埠上的 `Wired connection 1`(DHCP) 關 autoconnect。判別法：本機往 192.168.3.255 灌 3000 個廣播，看 Spark 哪個埠 rx +3000。
+3. **`cfaoi-ip-production` 服務 RDMA 起不來**：`ibv_reg_mr: Cannot allocate memory` → Restart=always 迴圈
+   → Grab 端只看到 `expected 9 got 8`（REJECTED）。systemd 預設 memlock 8MB、ring 要 155MB（手動起時 shell 有 ~15GB 所以沒事）。
+   **installer 補 `LimitMEMLOCK=infinity`**（ip-production + grab），Spark 現場以 drop-in `memlock.conf` 套用。
+4. **IP slot 比 Grab 幀小**：`MrInfoEx 無效：slot_size=40800256 frame_cap=40960256`。`01323c4` 把 INI 路徑錨定修好後
+   INI 真的被讀到，而 `[Image] width` 還是舊測試圖的 8160 → slot 按 8160×5000 配。**INI 改 8192**
+   （width 只用於配緩衝，處理用實際影像尺寸；8160 舊圖照樣放得進）。
+5. 開機後 `rmem_max` 為 10485760（`90-cfaoi.conf` 在、systemd-sysctl 有跑，來源未查明）→ bootstrap 改為檔案對但
+   執行值不對時重新套用。**下次重開機需複查**。
+
+**37 台容量推估與當日修正（同日）**
+- 觸發落差：6 台實測首張到達離散 median 7.2ms（3.9–10.4），≈ 每台 1.45ms 序列化 → 37 台推估 ~50ms（≈5mm @96mm/s），對位可吸收。
+- Grab 端：6 台連續取像 0.175–0.185 核/台（只用大核亦 dropped=0）→ 37 台 ≈ 7 核。
+  **grab 新增 `--cpus`（預設 pcore = 只用大核 0-15）**；x86 送端 CRC 改 zlib（與 crc32_ieee 逐位元相同，40.96MB 11.5→5.8ms）。
+- IP 端瓶頸＝**overlay PNG 同步寫 ~1.05s/張**（Spark ARM，非文件記載的 410ms）。改 **OverlayWriter 背景寫**：
+  主迴圈只 move payload buffer（零拷貝），4 緒 nice 10，上限 6 幀 in-flight，滿了該張 overlay 略過（缺陷清單/小圖照寫）。
+  同時修 rdma-process **配方 MaxSaveDefectCount 未生效**（原本小圖無上限）。
+  **A/B 實測（6 台、連續 10s、約半數幀有缺陷）**：同步 → 只送出 64 幀（應 ~144，背壓拖慢）、GRAB_STOP 卡 10.3s；
+  背景 → **150 幀全收 recv 150/0、dropped=0、佇列峰值 3/8**、overlay 寫出 53／略過 11。
+
+**未完成**
+- spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
+  本機 ssh spark-3961 host key 驗證失敗，未處理。不影響 grab/IP。
+- 交換機 WGE1/0/33 description 仍為舊的 `CCD00-Camera-1G`。
+- Control 長期跑在哪台未定（本次在新機上跑；Mac 仍可用同一份 appsettings）。
+
+---
+
 ## 權威 Gap 表（2026-06-17）：舊版 Reference → 現狀 → gap#
 
 > 來源：2026-06-17 三套 Reference 逐功能考古（`Reference/PrjCfAoi`=legacy 單體、`Reference/Demo`=GPU 核心、
