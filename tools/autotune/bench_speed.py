@@ -55,8 +55,6 @@ def main():
                            imgs=[inj_imgs[s] for s in inj_sl])
     bt = [i for i, t in enumerate(truth) if t['pol'] == 'bright']
     rows = []
-    if len(sys.argv) > 1 and '--only' in sys.argv:
-        pass
     for name, mode, opt, extra in VARIANTS:
         work = os.path.join(a.out, 'run')
         curve = []
