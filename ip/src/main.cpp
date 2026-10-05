@@ -279,17 +279,15 @@ std::vector<IoiRect> ioi_for_slice(const std::vector<IoiRect>& in, const std::ve
 
 // 平移量自動對齊：整數 pitch × 3 與真實週期可能差 1 px 以上（T550 Y：3×18 = 54，真實 3×18.41 ≈ 55.2）
 // → 在 nominal ±3 內找與原圖最吻合（平均絕對差最小）的平移。axis 0 = 沿列（Y）、1 = 沿欄（X）。
-int best_shift(const cv::Mat& sub, int axis, int nominal, int L) {
+int best_shift(const cv::Mat& sub, int axis, bool from_end, int nominal, int L) {
+    // from_end：用尾端（下/右）那段比對——補下/右邊時，相位要對齊的是尾端，不是開頭
     int best = nominal; double bd = 1e18;
+    const int n = axis == 0 ? sub.rows : sub.cols;
     for (int s = std::max(1, nominal - 3); s <= nominal + 3; ++s) {
-        cv::Mat a, b;
-        if (axis == 0) {
-            if (sub.rows < s + L) continue;
-            a = sub.rowRange(0, L); b = sub.rowRange(s, s + L);
-        } else {
-            if (sub.cols < s + L) continue;
-            a = sub.colRange(0, L); b = sub.colRange(s, s + L);
-        }
+        if (n < s + L) continue;
+        const int a0 = from_end ? n - L : 0, b0 = from_end ? n - L - s : s;
+        cv::Mat a = axis == 0 ? sub.rowRange(a0, a0 + L) : sub.colRange(a0, a0 + L);
+        cv::Mat b = axis == 0 ? sub.rowRange(b0, b0 + L) : sub.colRange(b0, b0 + L);
         const double d = cv::norm(a, b, cv::NORM_L1) / (double)a.total();
         if (d < bd) { bd = d; best = s; }
     }
@@ -302,19 +300,19 @@ int best_shift(const cv::Mat& sub, int axis, int nominal, int L) {
 // 補的值 = 往內平移 shift 的像素（≈ 3 pitch，自動對齊）；先補左右（中段列），再補上下（含左右 → 四角也有值）。
 struct Pad { int l = 0, r = 0, t = 0, b = 0; };
 
-cv::Mat periodic_pad(const cv::Mat& sub, const Pad& p, int shift_x, int shift_y) {
+cv::Mat periodic_pad(const cv::Mat& sub, const Pad& p, int sl, int sr, int st, int sb) {
     const int W = sub.cols, H = sub.rows;
-    if (W < shift_x + std::max(p.l, p.r) || H < shift_y + std::max(p.t, p.b) ||
-        shift_x < std::max(p.l, p.r) || shift_y < std::max(p.t, p.b)) return cv::Mat();
+    if ((p.l && (sl < p.l || W < sl)) || (p.r && (sr < p.r || W < sr)) ||
+        (p.t && (st < p.t || H < st)) || (p.b && (sb < p.b || H < sb))) return cv::Mat();
     cv::Mat out(H + p.t + p.b, W + p.l + p.r, CV_8UC1);
     sub.copyTo(out(cv::Rect(p.l, p.t, W, H)));
     for (int r = p.t; r < p.t + H; ++r) {
         uint8_t* row = out.ptr<uint8_t>(r);
-        for (int j = 0; j < p.l; ++j) row[j] = row[j + shift_x];                          // 左：往內（右）平移
-        for (int j = 0; j < p.r; ++j) row[p.l + W + j] = row[p.l + W + j - shift_x];      // 右：往內（左）
+        for (int j = p.l - 1; j >= 0; --j) row[j] = row[j + sl];                          // 左：往內（右）平移
+        for (int j = 0; j < p.r; ++j) row[p.l + W + j] = row[p.l + W + j - sr];          // 右：往內（左）
     }
-    for (int i = p.t - 1; i >= 0; --i) out.row(i + shift_y).copyTo(out.row(i));            // 上：往內（下）
-    for (int i = 0; i < p.b; ++i) out.row(p.t + H + i - shift_y).copyTo(out.row(p.t + H + i)); // 下：往內（上）
+    for (int i = p.t - 1; i >= 0; --i) out.row(i + st).copyTo(out.row(i));                // 上：往內（下）
+    for (int i = 0; i < p.b; ++i) out.row(p.t + H + i - sb).copyTo(out.row(p.t + H + i)); // 下：往內（上）
     return out;
 }
 
@@ -549,9 +547,12 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
             want.r = r.x + r.width == gray.cols ? mx : 0;
             want.t = r.y == 0 ? my : 0;
             want.b = r.y + r.height == gray.rows ? my : 0;
-            const int sx = best_shift(sub_cont, 1, 3 * z.pitch_x, std::max(mx, 8));
-            const int sy = best_shift(sub_cont, 0, 3 * z.pitch_y, std::max(my, 8));
-            cv::Mat padded = periodic_pad(sub_cont, want, sx, sy);
+            // 每一邊各自對齊（真實週期非整數 → 開頭與尾端的最佳整數平移可能不同）
+            const int sl = best_shift(sub_cont, 1, false, 3 * z.pitch_x, std::max(mx, 8));
+            const int sr = best_shift(sub_cont, 1, true,  3 * z.pitch_x, std::max(mx, 8));
+            const int st = best_shift(sub_cont, 0, false, 3 * z.pitch_y, std::max(my, 8));
+            const int sb = best_shift(sub_cont, 0, true,  3 * z.pitch_y, std::max(my, 8));
+            cv::Mat padded = periodic_pad(sub_cont, want, sl, sr, st, sb);
             if (!padded.empty()) { pad = want; sub_cont = padded; }
         }
         const int pad_x = pad.l, pad_y = pad.t;
