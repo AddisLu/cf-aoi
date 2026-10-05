@@ -40,6 +40,7 @@
 - [x] Grab：`cfaoi-grab` systemd 服務開機自啟、Restart=always；台數在 `/etc/default/cfaoi-grab` — 2026-10-05
 - [x] 免密碼管理（polkit）、Control `CF_READY` 真檢查 Grab+IP 連線 — 2026-10-05
 - [x] 服務化後全鏈 `verify_step3_trigger` 7/7、Spark recv 60/0 — 2026-10-05
+- [x] Control 遠端管理（節點代理 + 系統狀態頁：重啟/切模式/看 log/診斷包/重開機）— 2026-10-05
 - [ ] 實測：三台**同時斷電再復電**，不碰任何鍵盤，Control 三顆燈自己變綠、上位機流程可跑
 
 ## E. 線材與標籤

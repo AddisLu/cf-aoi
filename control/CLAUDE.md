@@ -41,7 +41,8 @@ control/
     │   ├── CameraWorkbenchView.axaml(.cs)← 相機工作台：左欄槽位卡 + 五步驟（綁定/取像/對位/調參/套用）
     │   ├── Step1View.axaml(.cs)          ← 檢測複判（原離線分析；寬幅版面：影像全寬橫幅）
     │   ├── DefectSortView.axaml(.cs)     ← 缺陷遠端歸檔 + 小圖人工分類（frmSortDefect）
-    │   ├── SystemSettingsView.axaml(.cs) ← 系統設定（**僅剩連線設定 tab**；宣告陣列/相機參數已整併進工作台）
+    │   ├── SystemSettingsView.axaml(.cs) ← 系統設定（分頁：**系統狀態**〔NodeAgentsView〕/ 連線設定）
+    │   ├── NodeAgentsView.axaml(.cs)     ← 系統狀態：經節點代理（8300）管理 Grab/Spark（重啟/切模式/log/診斷包/重開機）
     │   ├── SingleCcdSetupView.axaml(.cs) ← 單 CCD 檢測工作台（內嵌於工作台 Step 4；寬幅：上全寬影像+下三欄）
     │   ├── ZoneParamEditorView.axaml(.cs)← 34 列表單獨立頁（**現無導覽入口**；表單邏輯由 SingleCcdSetupView 進階摺疊直接綁 ParamRows）
     │   ├── RemoteImageBrowserView.axaml(.cs) ← 「從 IP 載入」遠端影像瀏覽對話框
@@ -67,6 +68,7 @@ control/
     │   ├── UpstreamServer.cs          ← TCP ← 上位機（CF_ / 8787 / 9 參數，已 Start + 已接線）
     │   ├── UpstreamWiring.cs          ← CF_ 回呼接既有流程（LoadRecipe→IP+Grab 預熱、GRAB_START/STOP→Grab、GetResult→IP）
     │   ├── IpClient.cs                ← TCP → IP（含 UTF-8 整行解碼，見不變式）
+    │   ├── AgentClient.cs             ← TCP → 節點代理 8300（每命令一條短連線；STATUS/SERVICE/LOGS/DIAG/POWER）
     │   ├── GrabClient.cs              ← TCP → Grab（LIST_CAMERAS/SET_CAM_MAP/GRAB_ARM·START·STOP/曝光增益/TUNE_MEAN/GET_CAM_NODES）
     │   ├── IHeartbeatClient.cs        ← 心跳介面（IpClient/GrabClient 實作）
     │   └── ConnectionManager.cs       ← 定期 CHECK_HEALTH（5s 逾時×連續 2 次才斷）+ 自動重連 + SetUpstreamConnected

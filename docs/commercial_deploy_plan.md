@@ -34,8 +34,8 @@
 | Grab 啟動 | ✅ systemd 服務、開機自啟（2026-10-05） | — |
 | Spark 開機模式 | ✅ 開機自啟生產模式（2026-10-05） | — |
 | Control `CF_READY` | ✅ Grab+IP 皆連線才 OK，否則 ERR + 原因（2026-10-05） | 階段 2：加相機台數/故障相機判定 |
-| 卡死偵測 | 只有 Control 心跳燈（紅燈要人處理） | systemd watchdog 自動重啟 + 代理可遠端重啟 |
-| 遠端管理 | 無（要到機台前或 SSH） | Control「系統」頁 + 節點代理 |
+| 卡死偵測 | Control 心跳燈 + ✅ 代理可遠端重啟（2026-10-05） | 階段 3：systemd watchdog 自動重啟 |
+| 遠端管理 | ✅ 節點代理 + Control「系統設定 › 系統狀態」（2026-10-05） | — |
 | 時間同步 | ✅ Grab chrony 校時主機、Spark 已跟上（Windows 待設） | — |
 | 程式更新 | git pull（要網路） | USB 帶版本包，Control 顯示三台版本是否一致 |
 
@@ -48,7 +48,7 @@
 - `CF_READY` 改為真的檢查三節點
 - 驗收：三台同時斷電復電，不碰鍵盤，Control 燈自己全綠、上位機流程可跑
 
-**階段 2 — Control 單一入口**
+**階段 2 — Control 單一入口** — ✅ 2026-10-05 完成（見下方「階段 2 實作」）
 - 節點代理（Grab、Spark 各一）：狀態 / 重啟 / 切模式 / 收 log / 重開機，白名單命令
 - Control「系統」頁：三台狀態、版本、磁碟、按鈕；「一鍵全部重啟」
 - 收診斷包：一鍵把三台 log 打包存到 Windows（給工程師帶出 fab 分析）
@@ -64,3 +64,17 @@
 - Spark 桌面圖示「CF-AOI IP（生產）／（調參）」：切模式 + 即時 log
 - Windows 免安裝包：`Create-Desktop-Shortcut.cmd`、`Enable-Autostart.cmd`
 - 這些是**過渡期 / 工程用**；階段 1 完成後，線上人員就不需要碰 Grab/Spark 的圖示。
+
+## 6. 階段 2 實作（2026-10-05）
+
+- **節點代理** `tools/node_agent/cfaoi_agent.py`（Python 標準庫）：Grab、Spark 各一，`cfaoi-agent.service`，port **8300**。
+  命令白名單：CHECK_HEALTH / STATUS / SERVICE（只限本機 cfaoi-*，start/stop/restart）/ LOGS / DIAG / POWER（需 confirm）。
+  只收控制網、RDMA 網段、本機、開發期 Tailscale；以一般帳號執行，權限靠 polkit。
+- **Control「系統設定 › 系統狀態」**（第一個分頁）：每 5 秒更新；每個節點顯示主機、版本、時間差、校時、磁碟、開機時間；
+  每個服務可「重新啟動 / 看 log」，IP 可「切到此模式」（生產↔調參）；節點「重新開機」；全域「全部重新啟動」（先 IP 再 Grab）、
+  「收集診斷包」（各節點 + Control log → `輸出資料夾/diag/<時間>/`）。會中斷生產的動作都要先確認。
+  版本不一致（含 `-dirty`）或時間差 >1 秒會顯示警告。
+- 工程用：`CfAoiControl --page settings` 直接開到系統設定頁。
+- 驗證：`--selftest agents`（真代理：狀態/log/診斷包/白名單）兩台 PASS；經代理切調參↔生產、重啟 Grab、
+  重開機權限（pkcheck）皆通過；之後全鏈 7/7、Spark recv 60/0。畫面截圖：`docs/verification/control_system_status_20261005.png`。
+- **尚未實測**：真的按「重新開機」（只驗了權限）——建議跟階段 1 的斷電復電測試一起做。
