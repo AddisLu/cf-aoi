@@ -59,23 +59,33 @@ def plateau(curve, polarity, p):
     return curve[-1][0] if curve else None
 
 
-def crops(strip_paths, defs, out, half=48):
+def crops(strip_paths, defs, out, pitch_x=26, half=20, zoom=6):
+    """每個候選：[缺陷 40×40 放大 6 倍 | 隔一個 pitch 的正常格子]，方便人看「跟鄰居哪裡不一樣」。"""
     os.makedirs(out, exist_ok=True)
     tiles = []
     for i, d in enumerate(defs[:60]):
         im = E.load(strip_paths[d['slice']])
         x, y = int(d['x']), int(d['y'])
-        c = im[max(0, y - half):y + half, max(0, x - half):x + half]
-        c = cv2.resize(c, (192, 192), interpolation=cv2.INTER_NEAREST)
-        c = cv2.cvtColor(c, cv2.COLOR_GRAY2BGR)
-        cv2.circle(c, (96, 96), 14, (0, 0, 255) if d['type'] == 'PointDark' else (0, 200, 255), 1)
-        cv2.putText(c, f"#{d['slice']} {x},{y} s{d['size']}", (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-        cv2.imwrite(os.path.join(out, f"cand_{i:02d}_s{d['slice']}_x{x}_y{y}.png"), c)
-        tiles.append(c)
+        def cut(cx):
+            c = np.zeros((2 * half, 2 * half), np.uint8)
+            a = im[max(0, y - half):y + half, max(0, cx - half):cx + half]
+            c[:a.shape[0], :a.shape[1]] = a
+            return cv2.cvtColor(cv2.resize(c, (2 * half * zoom, 2 * half * zoom), interpolation=cv2.INTER_NEAREST),
+                                cv2.COLOR_GRAY2BGR)
+        ref_x = x + pitch_x if x + pitch_x + half < im.shape[1] else x - pitch_x
+        a, b = cut(x), cut(ref_x)
+        col = (0, 0, 255) if d['type'] == 'PointDark' else (0, 200, 255)
+        cv2.circle(a, (half * zoom, half * zoom), 4 * zoom, col, 1)
+        cv2.putText(a, f"#{d['slice']} ({x},{y}) {d['type'][5:]} s{d['size']}", (4, 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.putText(b, 'ref +1 pitch', (4, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        t = np.hstack([a, np.full((a.shape[0], 4, 3), 255, np.uint8), b])
+        cv2.imwrite(os.path.join(out, f"cand_{i:02d}_s{d['slice']}_x{x}_y{y}.png"), t)
+        tiles.append(t)
     if tiles:
-        while len(tiles) % 8:
+        while len(tiles) % 3:
             tiles.append(np.zeros_like(tiles[0]))
-        sheet = np.vstack([np.hstack(tiles[i:i + 8]) for i in range(0, len(tiles), 8)])
+        sheet = np.vstack([np.hstack(tiles[i:i + 3]) for i in range(0, len(tiles), 3)])
         cv2.imwrite(os.path.join(out, 'sheet.png'), sheet)
 
 
@@ -99,7 +109,7 @@ def one_ccd(args):
             masks.append(S.roi_mask(im.shape, rects))
     base = E.estimate_thresholds(imgs, pi[0], pi[1], 'div', masks, margin=0.0) if imgs else None
     del imgs, masks
-    res = {'ccd': name, 'pitch': [round(px, 2), round(py, 2)], 'pitch_int': pi, 'chips': r['chips'], 'ioi': r['dummy'],
+    res = {'glass_dir': os.path.dirname(ccd_dir.rstrip('/')), 'ccd': name, 'pitch': [round(px, 2), round(py, 2)], 'pitch_int': pi, 'chips': r['chips'], 'ioi': r['dummy'],
            'roi_frac': r['roi_frac'], 'pattern_frac': r['pattern_frac'], 'n_slices': len(paths)}
     if not r['chips'] or base is None:
         res['error'] = '找不到晶片（沒有 pattern？）'
@@ -113,7 +123,7 @@ def one_ccd(args):
     roi_a, eff_a = V.inspected_area(log)
     glass = r['width'] * (r['height'] - min([d['y0'] for d in r['dummy']] + [c['y0'] for c in r['chips']]))
     open(os.path.join(out, 'RecipeInfo.xml'), 'w').write(W.make_recipe(r['chips'], r['dummy'], pi, th, search))
-    crops(paths, defs, os.path.join(out, 'candidates'))
+    crops(paths, defs, os.path.join(out, 'candidates'), pi[0])
     res.update({'floor': base, 'curve_dark': cd, 'curve_bright': cb, 'plateau': [td, tb], 'th': th,
                 'candidates': defs, 'inspected_of_glass': round(eff_a / glass, 4) if glass else None,
                 'roi_of_glass': round(roi_a / glass, 4) if glass else None, 'sec': round(time.time() - t0)})
@@ -150,5 +160,19 @@ def main():
     json.dump(results, open(os.path.join(a.out, 'glass_summary.json'), 'w'), ensure_ascii=False, indent=1)
 
 
+def resheet(out_root):
+    """由既有 result.json 重做候選小圖（不重跑 IP）。"""
+    for f in sorted(glob.glob(os.path.join(out_root, 'IP*', 'result.json'))):
+        r = json.load(open(f))
+        if r.get('candidates') is None:
+            continue
+        paths = sorted(glob.glob(os.path.join(r['glass_dir'], r['ccd'], '*_Origin*.tif'))) if r.get('glass_dir') else None
+        if paths:
+            crops(paths, r['candidates'], os.path.join(os.path.dirname(f), 'candidates'), r['pitch_int'][0])
+
+
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == '--resheet':
+        resheet(sys.argv[2])
+    else:
+        main()
