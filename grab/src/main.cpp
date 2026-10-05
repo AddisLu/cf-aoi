@@ -671,6 +671,12 @@ int main(int argc, char** argv) {
                cam_cfg_path.c_str(), cfg.exposure_us, cfg.gain_raw);
     }
 
+    // ---- systemd watchdog（商業化階段 3）：8100 命令迴圈在、且單一命令不超過 120s ----
+    // ARM 37 台冷啟 ~20s、TUNE_MEAN 數秒 → 120s 已很寬；卡死（例：GRAB_STOP 被 RDMA 背壓卡住，
+    // code_review B5）或 accept 迴圈退出（B11）→ 停止回報 → systemd 於 WatchdogSec 後重啟。
+    // 手動執行（不在 systemd 下）時什麼都不做。
+    sdwd::Pinger watchdog([&] { return ctrl.liveness().check("Grab 8100", 120000); });
+
     // ---- 主迴圈：等信號 ----
     while (!g_shutdown) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));

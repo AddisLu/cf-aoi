@@ -64,6 +64,7 @@
 
 #include "image_source/image_source.h"  // FrameQueue, FrameHeader
 #include "config/recipe_saving_config.h"
+#include "../../shared/sd_watchdog.h"
 #include "config/share_flags.h"
 #include "config/zone_config_adapter.h"  // IoiRect（#23）
 #include "align_engine.h"               // AlignRoiConfig
@@ -128,9 +129,13 @@ public:
     // SEND_IMAGE_FOR_REVIEW，使結果經 TCP 回傳（跨機器不需共用檔案系統）。
     void deliver_result(const std::string& panel_id, const std::string& result_json);
 
+    // systemd watchdog 健康（main.cpp 的 sdwd::Pinger 讀）：accept 迴圈在、無單一命令卡太久
+    const sdwd::ServerLiveness& liveness() const { return live_; }
+
 private:
     void run();     // accept loop
     void handle_client(int fd);
+    sdwd::ServerLiveness live_;
 
     int port_;
     FrameQueue& queue_;

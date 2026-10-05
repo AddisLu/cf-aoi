@@ -158,7 +158,7 @@ def cmd_service(p):
 
 def cmd_logs(p):
     unit = p.get("unit", "")
-    if unit not in UNITS and unit != "cfaoi-agent":
+    if unit not in UNITS and unit not in ("cfaoi-agent", "cfaoi-cleanup"):
         raise ValueError(f"不允許的服務：{unit}")
     lines = max(1, min(int(p.get("lines", 300)), 5000))
     rc, out, err = run(["journalctl", "-u", unit, "-n", str(lines), "--no-pager", "-o", "short-iso"], 20)
@@ -182,7 +182,7 @@ def cmd_diag(_p):
 
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         add_text(tar, "status.json", json.dumps(status(), ensure_ascii=False, indent=2))
-        for unit in list(UNITS) + ["cfaoi-agent"]:
+        for unit in list(UNITS) + ["cfaoi-agent", "cfaoi-cleanup"]:
             _, out, _ = run(["journalctl", "-u", unit, "-n", "5000", "--no-pager", "-o", "short-iso"], 30)
             add_text(tar, f"journal_{unit}.log", out)
         sysinfo = [

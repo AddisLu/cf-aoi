@@ -26,6 +26,8 @@
 #include <string>
 #include <thread>
 
+#include "../../shared/sd_watchdog.h"
+
 class ControlServer {
 public:
     // frames_per_panel：每台收滿 N 張自動停（0 = 連續取像，legacy 行為）
@@ -80,9 +82,13 @@ public:
     bool start();   // 建立 listener，開接受 thread
     void stop();    // 關閉 listener，join thread
 
+    // systemd watchdog 健康（main.cpp 的 sdwd::Pinger 讀）：accept 迴圈在、無單一命令卡太久
+    const sdwd::ServerLiveness& liveness() const { return live_; }
+
 private:
     void run();
     void handle_client(int fd);
+    sdwd::ServerLiveness live_;
 
     int  port_;
     int  listen_fd_ = -1;

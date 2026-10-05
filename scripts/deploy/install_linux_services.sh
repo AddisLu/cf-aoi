@@ -76,6 +76,57 @@ WantedBy=multi-user.target"
     sudo systemctl enable cfaoi-agent >/dev/null 2>&1
     sudo systemctl restart cfaoi-agent
     echo "✓ cfaoi-agent 已啟用並啟動（port 8300，角色 $1）"
+    install_cleanup
+}
+
+# 磁碟自動清理（階段 3）：每天 03:30 + 開機 15 分鐘後；ROLE/OUTPUT_DIR 沿用 /etc/default/cfaoi-agent
+install_cleanup() {
+    if [ ! -f /etc/default/cfaoi-cleanup ]; then
+        sudo tee /etc/default/cfaoi-cleanup >/dev/null <<'EOF'
+# CF-AOI 磁碟自動清理（cfaoi-cleanup.timer；改完不必重啟，下次執行生效）
+# 檢測結果日期夾 / Grab log 保留天數
+RETAIN_DAYS=30
+# 原始影像（SaveSourceImage，每張 ~41MB）保留天數
+SOURCE_RETAIN_DAYS=7
+# 行車紀錄（_diag，很小）保留天數
+DIAG_RETAIN_DAYS=180
+# 水位保護：用量超過 MAX 就從最舊的刪到 TARGET（今天的資料永遠不刪）
+MAX_USED_PCT=85
+TARGET_USED_PCT=80
+EOF
+        echo "  已建立 /etc/default/cfaoi-cleanup（結果 30 天、原始影像 7 天、水位 85%→80%）"
+    fi
+    install_unit cfaoi-cleanup "[Unit]
+Description=CF-AOI 磁碟自動清理（結果/原始影像/log 依保留天數 + 水位保護）
+
+[Service]
+Type=oneshot
+User=$RUN_USER
+EnvironmentFile=/etc/default/cfaoi-agent
+EnvironmentFile=/etc/default/cfaoi-cleanup
+ExecStart=/usr/bin/python3 -u $REPO/tools/node_agent/cfaoi_cleanup.py
+Nice=19
+IOSchedulingClass=idle"
+    sudo tee /etc/systemd/system/cfaoi-cleanup.timer >/dev/null <<'EOF'
+[Unit]
+Description=CF-AOI 磁碟自動清理（每天 03:30、開機 15 分鐘後）
+
+[Timer]
+OnCalendar=*-*-* 03:30
+OnBootSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    # journald 上限：系統 log 最多 4GB（預設是磁碟 10%，Spark 3.7T = 370GB 太多）
+    sudo mkdir -p /etc/systemd/journald.conf.d
+    printf '[Journal]\n# CF-AOI：系統 log 上限（install_linux_services.sh 產生）\nSystemMaxUse=4G\n' \
+        | sudo tee /etc/systemd/journald.conf.d/50-cfaoi.conf >/dev/null
+    sudo systemctl restart systemd-journald
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now cfaoi-cleanup.timer >/dev/null 2>&1
+    echo "✓ cfaoi-cleanup.timer 已啟用（$(systemctl show cfaoi-cleanup.timer -p NextElapseUSecRealtime --value)）；journald 上限 4G"
 }
 
 if [ "$ROLE" = "ip" ]; then
@@ -90,6 +141,11 @@ Conflicts=cfaoi-ip-production.service
 User=$RUN_USER
 WorkingDirectory=$REPO/ip
 ExecStart=$REPO/ip/build/cfaoi_ip --mode offline-tcp --output $OUT
+# systemd watchdog（階段 3）：程式 30 秒內沒回報健康（命令迴圈卡死/單張處理卡住）→ 砍掉重啟；
+# 中止訊號 10 秒內沒結束就強制終止（卡到連結束都卡住時）
+WatchdogSec=30
+NotifyAccess=all
+TimeoutAbortSec=10s
 Restart=on-failure
 RestartSec=3
 
@@ -109,6 +165,11 @@ WorkingDirectory=$REPO/ip
 ExecStart=$REPO/ip/build/cfaoi_ip --mode rdma-process --recipe $REPO/recipes/DEFAULT/IP0/RecipeInfo.xml --output $OUT --rdma-port 18515
 # RDMA ring 要 ibv_reg_mr 鎖 155MB；systemd 預設 memlock 只有 8MB → 不設就 Cannot allocate memory 重啟迴圈
 LimitMEMLOCK=infinity
+# systemd watchdog（階段 3）：程式 30 秒內沒回報健康（命令迴圈卡死/單張處理卡住）→ 砍掉重啟；
+# 中止訊號 10 秒內沒結束就強制終止（卡到連結束都卡住時）
+WatchdogSec=30
+NotifyAccess=all
+TimeoutAbortSec=10s
 Restart=always
 RestartSec=2
 
@@ -121,6 +182,8 @@ WantedBy=multi-user.target"
     sudo systemctl disable cfaoi-ip-offline >/dev/null 2>&1 || true
     sudo systemctl enable cfaoi-ip-production
     systemctl is-active -q cfaoi-ip-offline || sudo systemctl start cfaoi-ip-production
+    # 已在跑的服務重啟一次，套用新的 unit 設定（watchdog 等）；沒在跑的不動
+    sudo systemctl try-restart cfaoi-ip-production cfaoi-ip-offline
     echo "✓ 開機自啟：cfaoi-ip-production（生產）；調參時手動 systemctl start cfaoi-ip-offline（會自動停生產）"
 
     # 校時：fab 內無 NTP → 跟 Grab 主機對時（Grab 跑 chrony，經 RDMA 直連網段 192.168.3.2）
@@ -167,6 +230,11 @@ ExecStart=/usr/bin/stdbuf -oL -eL $REPO/grab/build/cfaoi_grab --rdma-dest \${RDM
 SyslogIdentifier=cfaoi_grab
 # RDMA 發送緩衝要 ibv_reg_mr（systemd 預設 memlock 8MB 不夠）
 LimitMEMLOCK=infinity
+# systemd watchdog（階段 3）：程式 30 秒內沒回報健康（命令迴圈卡死/單張處理卡住）→ 砍掉重啟；
+# 中止訊號 10 秒內沒結束就強制終止（卡到連結束都卡住時）
+WatchdogSec=30
+NotifyAccess=all
+TimeoutAbortSec=10s
 # 任何原因結束都重啟（相機/RDMA 的恢復由 Control GRAB_ARM 處理；行程本身要一直在）
 Restart=always
 RestartSec=3
@@ -177,6 +245,7 @@ WantedBy=multi-user.target"
     install_polkit
     sudo systemctl daemon-reload
     sudo systemctl enable --now cfaoi-grab
+    sudo systemctl try-restart cfaoi-grab   # 已在跑 → 重啟套用新的 unit 設定（watchdog 等）
     echo "✓ cfaoi-grab 已啟用並啟動（開機自啟）；log：journalctl -u cfaoi-grab -f"
     mkdir -p "$HOME/cfaoi_logs"
     install_agent grab "$HOME/cfaoi_logs"

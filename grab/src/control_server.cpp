@@ -101,6 +101,7 @@ void ControlServer::stop() {
 }
 
 void ControlServer::run() {
+    live_.loop_alive = true;   // watchdog：迴圈退出（含 B11 accept 錯誤）→ 不再回報 → systemd 重啟
     while (running_) {
         sockaddr_in peer{};
         socklen_t plen = sizeof(peer);
@@ -118,6 +119,7 @@ void ControlServer::run() {
         ::close(fd);
         printf("[ctrl] Control 斷線\n");
     }
+    live_.loop_alive = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +138,7 @@ void ControlServer::handle_client(int fd) {
 
     while (running_ && reader.read_line(line)) {
         if (line.empty()) continue;
+        sdwd::BusyGuard busy(live_.busy_since_ms);   // watchdog：單一命令卡超過上限 → systemd 重啟
 
         json resp;
         try {

@@ -380,6 +380,7 @@ void ControlServer::deliver_result(const std::string& panel_id, const std::strin
 }
 
 void ControlServer::run() {
+    live_.loop_alive = true;   // watchdog：迴圈退出 → 不再回報 → systemd 重啟
     while (running_) {
         sockaddr_in cli{};
         socklen_t len = sizeof(cli);
@@ -393,6 +394,7 @@ void ControlServer::run() {
         ::close(fd);
         std::cout << "[ControlServer] client disconnected\n";
     }
+    live_.loop_alive = false;
 }
 
 void ControlServer::handle_client(int fd) {
@@ -400,6 +402,7 @@ void ControlServer::handle_client(int fd) {
     std::string line;
     while (running_ && rd.read_line(line)) {
         if (line.empty()) continue;
+        sdwd::BusyGuard busy(live_.busy_since_ms);   // watchdog：單一命令卡超過上限 → systemd 重啟
 
         json req, resp;
         std::string cmd;

@@ -277,6 +277,19 @@ std::string first_determinism_diff(const DetectionResult& a, const DetectionResu
 constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
 // 爆點門檻預設（配方/CLI 未設 MaxDefectCountPass 時，連續爆點停算用）。與 Control 配方預設一致。
 constexpr int kFloodThresholdDefault = 1000;
+
+// systemd watchdog 健康（商業化階段 3）：8200 命令迴圈 + 檢測主迴圈。
+//   - 8200 單一命令 >120s（LOAD_RECIPE/REVIEW 都是秒級）或 accept 迴圈退出
+//   - 單張影像處理 >60s（正常 ~9ms；overlay 已改背景寫）= GPU/存檔卡死
+// 等 Grab 連線（rdma init 阻塞）、佇列空等影像都不算 —— 那是正常閒置。
+static std::string ip_health(const ControlServer& srv, const std::atomic<int64_t>& frame_since_ms) {
+    std::string why = srv.liveness().check("IP 8200", 120000);
+    if (!why.empty()) return why;
+    const int64_t t = frame_since_ms.load();
+    if (t != 0 && sdwd::now_ms() - t > 60000)
+        return "單張影像處理已超過 " + std::to_string((sdwd::now_ms() - t) / 1000) + " 秒（GPU/存檔卡住？）";
+    return "";
+}
 void record_defect_flood(const std::string& panel_id, int zone_capped,
                          int zone_defects, long pre_filter_total) {
     std::string detail = "缺陷爆量 panel=" + panel_id +
@@ -806,11 +819,14 @@ int main(int argc, char** argv) {
         });
 
         if (!server.start()) return 3;
+        std::atomic<int64_t> frame_since_ms{0};
+        sdwd::Pinger watchdog([&] { return ip_health(server, frame_since_ms); });
 
         TcpImageSource src(queue);
         FrameHeader hdr;
         std::vector<uint8_t> payload;
         while (src.next_frame(hdr, payload)) {
+            sdwd::BusyGuard frame_busy(frame_since_ms);   // watchdog：單張處理計時
             cv::Mat gray(hdr.height, hdr.width, CV_8UC1, payload.data());
             std::string panel = src.current_panel_id();
             std::string name = panel.empty()
@@ -1170,6 +1186,9 @@ int main(int argc, char** argv) {
             return s.dump();
         });
         if (!ctrl_srv.start()) return 3;
+        // watchdog 在 rdma init 之前就起：init 會阻塞等 Grab 連線（正常閒置，健康）
+        std::atomic<int64_t> frame_since_ms{0};
+        sdwd::Pinger watchdog([&] { return ip_health(ctrl_srv, frame_since_ms); });
 
         if (!rdma_src.init(args.rdma_bind, args.rdma_port,
                            args.rdma_slots, max_payload, queue)) {
@@ -1198,6 +1217,7 @@ int main(int argc, char** argv) {
         auto t_start = std::chrono::steady_clock::now();
 
         while (rdma_src.next_frame(hdr, payload)) {
+            sdwd::BusyGuard frame_busy(frame_since_ms);   // watchdog：單張處理計時
             // ① 新的一片（slice0）→ 該台的遺失計數歸零
             // ⚠️ 已知限制（docs/code_review_20260802.md I7）：連續模式 grab 送 totalSlice=1 →
             //    此歸零條件永不成立，一次 CRC 失敗後該 cam 之後每幀都被標 panel_incomplete（誤報方向，保守）。
