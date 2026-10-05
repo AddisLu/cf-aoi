@@ -174,8 +174,8 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
     rowb = []
     bm = block_map(st, px, py, bright=rowb)
     rowb = np.concatenate(rowb)
-    on = np.nonzero(rowb > 0.3 * np.median(rowb))[0]                 # 玻璃範圍（亮度）：前後緣外是全黑
-    glass = (int(on[0]) * B, int(on[-1] + 1) * B) if len(on) else (0, st.H)
+    on = np.nonzero(rowb > 0.15 * np.median(rowb))[0]                # 玻璃範圍（亮度）：前後緣外是全黑
+    glass = (max(0, int(on[0] - 1) * B), min(st.H, int(on[-1] + 2) * B)) if len(on) else (0, st.H)  # 多留 1 格含玻璃邊（崩邊給 AI）
     hi_boxes, lo_boxes, thr, m = components(bm, px, py)
     chips, dummy = [], []
     for b, weak in [(b, False) for b in hi_boxes] + [(b, True) for b in lo_boxes]:
