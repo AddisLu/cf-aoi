@@ -72,14 +72,17 @@ def periodic_energy(img, px, py):
     return np.clip(np.abs(h) - np.maximum(res(px, 1), res(py, 0)), 0, None)
 
 
-def block_map(st, px, py, progress=None):
-    """整條的區塊週期能量圖（每 B×B 一格）。"""
+def block_map(st, px, py, progress=None, bright=None):
+    """整條的區塊週期能量圖（每 B×B 一格）。bright：給 list 則順便收每列區塊的亮度中位數（找玻璃範圍用）。"""
     out = []
     for i in range(len(st.paths)):
         y0 = i * st.h
         img, top = st.rows(y0 - CTX, y0 + st.h + CTX)
         e = periodic_energy(img, px, py)[y0 - top:y0 - top + st.h]
         hb, wb = st.h // B, st.w // B
+        if bright is not None:
+            core = img[y0 - top:y0 - top + st.h]
+            bright.append(np.median(core[:hb * B, :wb * B].reshape(hb, B, wb * B).mean(axis=1), axis=1))
         out.append(e[:hb * B, :wb * B].reshape(hb, B, wb, B).mean(axis=(1, 3)))
         if progress:
             progress(f'  slice {i:02d} 區塊圖完成')
@@ -168,7 +171,11 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
         p = E.estimate_pitch(mid)
         px, py = p['x'], p['y']
     progress(f'pitch {px:.2f} × {py:.2f}，{len(st.paths)} 張 → panel {st.w} × {st.H}')
-    bm = block_map(st, px, py)
+    rowb = []
+    bm = block_map(st, px, py, bright=rowb)
+    rowb = np.concatenate(rowb)
+    on = np.nonzero(rowb > 0.3 * np.median(rowb))[0]                 # 玻璃範圍（亮度）：前後緣外是全黑
+    glass = (int(on[0]) * B, int(on[-1] + 1) * B) if len(on) else (0, st.H)
     hi_boxes, lo_boxes, thr, m = components(bm, px, py)
     chips, dummy = [], []
     for b, weak in [(b, False) for b in hi_boxes] + [(b, True) for b in lo_boxes]:
@@ -193,11 +200,14 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
         if below:
             d['y1'] = min(below) + mg
     dummy = merge_bands(dummy, gap=0)
+    for d in dummy:                                                  # IOI 只留玻璃內
+        d['y0'], d['y1'] = max(d['y0'], glass[0]), min(d['y1'], glass[1])
+    dummy = [d for d in dummy if d['y1'] > d['y0']]
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)
     return {'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
-            'chips': chips, 'dummy': dummy, 'block_thr': thr,
+            'chips': chips, 'dummy': dummy, 'block_thr': thr, 'glass': glass,
             'pattern_frac': round(pat / area, 4), 'roi_frac': round(roi / area, 4), 'block_map': bm}
 
 
