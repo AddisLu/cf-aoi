@@ -12,6 +12,9 @@ if [ -z "$rid" ]; then
   esac
 fi
 out="$ROOT/control/publish/$rid"
+# 每次清空再發佈：對既有資料夾增量發佈時，appsettings.json（PreserveNewest）會消失且不補回
+# （2026-10-05 產生離線更新包時踩到 → 打包 cp 失敗）
+rm -rf "$out"
 echo "發佈 Control 自含單檔 → rid=$rid"
 cd "$ROOT/control/src"
 dotnet publish -c Release -r "$rid" --self-contained true \
