@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover
     cv2 = None
 
 
-DARK_ABS = 25        # 玻璃亮度中位數低於此值 = 偏暗，不調參（T550 正常 CCD 約 60–90）
+DARK_ABS = 15        # 玻璃亮度中位數低於此值 = 偏暗，不調參（T550 正常 CCD 55–75、IP06 9.1、IP08 24.6）
 DARK_REL = 0.5       # 低於全片中位數 × 此值 = 偏暗（相對其他 CCD）
 
 
@@ -41,26 +41,39 @@ def count(ip, r, pi, search, th, strip, out, extra):
     return V.collect(res), log
 
 
-def sweep(ip, r, pi, search, strip, out, extra, polarity, start, stop, step):
-    """回傳 [(門檻, 檢出數)]；暗：亮門檻關（9.0）、亮：暗門檻關（0.01）。"""
-    curve = []
+def per_chip(defs, chips, h):
+    n = [0] * len(chips)
+    for d in defs:
+        Y = d['slice'] * h + d['y']
+        for i, c in enumerate(chips):
+            if c['y0'] <= Y < c['y1'] and c['x0'] <= d['x'] < c['x1']:
+                n[i] += 1
+                break
+    return n
+
+
+def sweep(ip, r, pi, search, strip, out, extra, polarity, start, stop, step, p):
+    """每顆晶片各自的檢出數曲線：[(門檻, [n_chip...])]；所有晶片都 ≤ p 或到底就停。
+    暗：亮門檻關（9.0）、亮：暗門檻關（0.01）。"""
+    curve, h = [], r['slice_h']
     t = start
     while (t >= stop) if polarity == 'dark' else (t <= stop):
         th = {'dark': round(t, 4), 'bright': 9.0} if polarity == 'dark' else {'dark': 0.01, 'bright': round(t, 4)}
         d, _ = count(ip, r, pi, search, th, strip, out, extra)
-        curve.append((round(t, 4), len(d)))
-        if len(d) == 0:
+        n = per_chip(d, r['chips'], h)
+        curve.append((round(t, 4), n))
+        if all(v <= p for v in n):
             break
         t = t - step if polarity == 'dark' else t + step
     return curve
 
 
-def plateau(curve, polarity, p):
-    """第一個檢出數 ≤ p 的門檻（由敏感往鬆走）。"""
+def plateau(curve, i, p):
+    """第 i 顆晶片：第一個檢出數 ≤ p 的門檻（由敏感往鬆走）；到底都沒壓住 → (最後門檻, False)。"""
     for t, n in curve:
-        if n <= p:
-            return t
-    return curve[-1][0] if curve else None
+        if n[i] <= p:
+            return t, True
+    return curve[-1][0], False
 
 
 def crops(strip_paths, defs, out, pitch_x=26, half=20, zoom=6):
@@ -118,7 +131,7 @@ def one_ccd(args):
     res['glass_brightness'] = r.get('glass_brightness')
     if r.get('pitch_first'):
         res['pitch_first'] = r['pitch_first']
-    if (r.get('glass_brightness') or 0) < DARK_ABS:
+    if (r.get('glass_brightness') or 0) < DARK_ABS:   # 絕對偏暗才不調參；相對偏暗（比其他 CCD 暗一半）照調、告警
         # 偏暗（光源/相機/曝光異常）：不調參——門檻會被放到很鬆把問題蓋掉（實測 T550 IP06 → 0.47/1.59）
         res['warning'] = f'影像偏暗（玻璃亮度中位數 {r.get("glass_brightness")} < {DARK_ABS}）→ 先查光源/相機/曝光，不自動調參'
         return res
@@ -126,20 +139,36 @@ def one_ccd(args):
         res['error'] = '找不到晶片（沒有 pattern？）'
         return res
     work = os.path.join(out, 'run')
-    cd = sweep(ip, r, pi, search, ccd_dir, work, extra, 'dark', round(base['floor_dark'], 2), 0.40, 0.01)
-    cb = sweep(ip, r, pi, search, ccd_dir, work, extra, 'bright', round(base['floor_bright'], 2), 2.5, 0.01)
-    td, tb = plateau(cd, 'dark', p_dark), plateau(cb, 'bright', p_bright)
-    th = {'dark': round(td * (1 - safety), 3), 'bright': round(tb * (1 + safety), 3)}
+    cd = sweep(ip, r, pi, search, ccd_dir, work, extra, 'dark', round(base['floor_dark'], 2), 0.40, 0.01, p_dark)
+    cb = sweep(ip, r, pi, search, ccd_dir, work, extra, 'bright', round(base['floor_bright'], 2), 2.5, 0.01, p_bright)
+    # 每顆晶片各自的門檻：一塊區域出問題（外圍被當晶片、髒污、真缺陷群）不會把整片拖鬆
+    ths, plats, flags = [], [], []
+    for i in range(len(r['chips'])):
+        (td, okd), (tb, okb) = plateau(cd, i, p_dark), plateau(cb, i, p_bright)
+        plats.append([td, tb])
+        ths.append({'dark': round(td * (1 - safety), 3), 'bright': round(tb * (1 + safety), 3)})
+        flags.append([] if okd and okb else ['雜訊壓不住'])
+    md, mb = float(np.median([t[0] for t in plats])), float(np.median([t[1] for t in plats]))
+    for i, (td, tb) in enumerate(plats):
+        if td < md - 0.08 or tb > mb + 0.12:
+            flags[i].append(f'門檻明顯比其他晶片鬆（{td}/{tb} vs 中位數 {md:.2f}/{mb:.2f}）→ 檢查是否含外圍/髒污')
+    th = ths
     defs, log = count(ip, r, pi, search, th, ccd_dir, work, extra)
     roi_a, eff_a = V.inspected_area(log)
     glass = r['width'] * (r['height'] - min([d['y0'] for d in r['dummy']] + [c['y0'] for c in r['chips']]))
     open(os.path.join(out, 'RecipeInfo.xml'), 'w').write(W.make_recipe(r['chips'], r['dummy'], pi, th, search))
+    for c, f in zip(r['chips'], flags):
+        c['flags'] = f
     crops(paths, defs, os.path.join(out, 'candidates'), pi[0])
-    res.update({'floor': base, 'curve_dark': cd, 'curve_bright': cb, 'plateau': [td, tb], 'th': th,
+    res.update({'floor': base, 'curve_dark': cd, 'curve_bright': cb, 'plateau': plats, 'th': th, 'chips': r['chips'],
                 'candidates': defs, 'inspected_of_glass': round(eff_a / glass, 4) if glass else None,
                 'roi_of_glass': round(roi_a / glass, 4) if glass else None, 'sec': round(time.time() - t0)})
     json.dump(res, open(os.path.join(out, 'result.json'), 'w'), ensure_ascii=False, indent=1)
     return res
+
+
+def fmt_th(th):
+    return '、'.join(f'{t["dark"]:.3f}/{t["bright"]:.3f}' for t in (th if isinstance(th, list) else [th]))
 
 
 def main():
@@ -171,7 +200,8 @@ def main():
             print(f'{r["ccd"]:5s} 亮度 {r.get("glass_brightness")}  {r.get("error") or r.get("warning")}')
             continue
         print(f'{r["ccd"]:5s} {r["pitch"][0]:6.2f}×{r["pitch"][1]:5.2f} {len(r["chips"]):4d} {len(r["ioi"]):3d} '
-              f'{r["floor"]["floor_dark"]:.3f}/{r["floor"]["floor_bright"]:.3f} {r["th"]["dark"]:.3f}/{r["th"]["bright"]:.3f} '
+              f'{r["floor"]["floor_dark"]:.3f}/{r["floor"]["floor_bright"]:.3f} '
+              f'{fmt_th(r["th"])} '
               f'{len(r["candidates"]):4d} {r["inspected_of_glass"]:7.2%}  亮度 {r.get("glass_brightness")}  ({r["sec"]}s)'
               + (f'  ⚠ {r["warning"]}' if r.get('warning') else ''))
     json.dump(results, open(os.path.join(a.out, 'glass_summary.json'), 'w'), ensure_ascii=False, indent=1)

@@ -82,7 +82,7 @@ def block_map(st, px, py, progress=None, bright=None):
         hb, wb = st.h // B, st.w // B
         if bright is not None:
             core = img[y0 - top:y0 - top + st.h]
-            bright.append(np.median(core[:hb * B, :wb * B].reshape(hb, B, wb * B).mean(axis=1), axis=1))
+            bright.append(core[:hb * B, :wb * B].reshape(hb, B, wb, B).mean(axis=(1, 3)))   # 區塊亮度
         out.append(e[:hb * B, :wb * B].reshape(hb, B, wb, B).mean(axis=(1, 3)))
         if progress:
             progress(f'  slice {i:02d} 區塊圖完成')
@@ -205,46 +205,82 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
 
 def _regions(st, px, py, dummy_max_pitches, progress):
     progress(f'pitch {px:.2f} × {py:.2f}，{len(st.paths)} 張 → panel {st.w} × {st.H}')
-    rowb = []
-    bm = block_map(st, px, py, bright=rowb)
-    rowb = np.concatenate(rowb)
+    bl = []
+    bm = block_map(st, px, py, bright=bl)
+    bmb = np.vstack(bl)                                              # 區塊亮度圖
+    rowb = np.median(bmb, axis=1)
     on = np.nonzero(rowb > 0.15 * np.median(rowb))[0]                # 玻璃範圍（亮度）：前後緣外是全黑
-    glass = (max(0, int(on[0] - 1) * B), min(st.H, int(on[-1] + 2) * B)) if len(on) else (0, st.H)  # 多留 1 格含玻璃邊（崩邊給 AI）
+    gy = (max(0, int(on[0] - 1) * B), min(st.H, int(on[-1] + 2) * B)) if len(on) else (0, st.H)  # 多留 1 格含玻璃邊
+    colb = np.median(bmb[gy[0] // B:max(gy[0] // B + 1, gy[1] // B)], axis=0)
+    onx = np.nonzero(colb > 0.15 * np.median(colb))[0]               # 玻璃左右（角落 CCD 會看到長邊/倒角）
+    gx = (max(0, int(onx[0] - 1) * B), min(st.w, int(onx[-1] + 2) * B)) if len(onx) else (0, st.w)
     hi_boxes, lo_boxes, thr, m = components(bm, px, py)
-    chips, dummy = [], []
-    for b, weak in [(b, False) for b in hi_boxes] + [(b, True) for b in lo_boxes]:
+    # 晶片 = 框內幾乎全是強週期（填滿率 ≥ 0.8）且能量 ≥ 最強區域的一半。
+    # 實測 T550 IP01（角落）：晶片 fill 0.99、能量中位數 16–17；外圍條紋/標記 fill 0.02–0.7、能量 ≤ 6
+    #   → 舊版把前緣外圍（1632–7424）當晶片 → 第 0 張 2,843 顆假點、整片門檻被拖到 0.40 / 2.41。
+    for b in hi_boxes:
+        b['energy'] = float(np.median(bm[b['by']:b['by'] + b['bh'], b['bx']:b['bx'] + b['bw']]))
+    big = [b for b in hi_boxes if b['bh'] * B >= dummy_max_pitches * py]
+    emax = max([b['energy'] for b in big], default=0.0)
+    chips = []
+    for b in hi_boxes:
+        if b['fill'] < 0.8 or b['energy'] < 0.5 * emax:
+            continue
         r = refine_box(st, b, px, py, bm.shape[0], bm.shape[1])
         hgt, wid = r['y1'] - r['y0'], r['x1'] - r['x0']
-        thin_y = hgt < dummy_max_pitches * py and r['y0'] > 0 and r['y1'] < st.H
-        thin_x = wid < dummy_max_pitches * px and r['x0'] > 0 and r['x1'] < st.w
-        r['fill'] = b['fill']
-        (dummy if (weak or thin_y or thin_x) else chips).append(r)
+        if hgt < dummy_max_pitches * py and r['y0'] > 0 and r['y1'] < st.H:
+            continue                                                 # 細條（dummy 帶）→ IOI 幾何規則涵蓋
+        if wid < dummy_max_pitches * px and r['x0'] > 0 and r['x1'] < st.w:
+            continue
+        r['fill'], r['energy'] = b['fill'], round(b['energy'], 2)
+        chips.append(r)
     chips.sort(key=lambda r: (r['y0'], r['x0']))
-    dummy = merge_bands([d for d in dummy if not any(_overlap(d, c) for c in chips) and d['y1'] > d['y0']],
-                        gap=int(16 * py))
-    # IOI 撐滿到上下相鄰晶片的邊：間隙裡的 dummy/外圍整段給 AI，不依賴弱週期門檻剛好切在哪
-    # （實測只用 2 張時弱門檻變高，dummy 帶只抓到 4429–4832，真實到 4996）
-    for d in dummy:
-        above = [c['y1'] for c in chips if c['y1'] <= d['y0'] and c['x0'] < d['x1'] and d['x0'] < c['x1']]
-        below = [c['y0'] for c in chips if c['y0'] >= d['y1'] and c['x0'] < d['x1'] and d['x0'] < c['x1']]
-        # 再往晶片內多包 kernel 死區（2 pitch + search）：晶片真正的邊不補邊（補了會誤判），那一圈交給 AI
-        mg = 2 * int(round(py)) + 2
-        if above:
-            d['y0'] = max(above) - mg
-        if below:
-            d['y1'] = min(below) + mg
-    dummy = merge_bands(dummy, gap=0)
-    for d in dummy:                                                  # IOI 只留玻璃內
-        d['y0'], d['y1'] = max(d['y0'], glass[0]), min(d['y1'], glass[1])
-    dummy = [d for d in dummy if d['y1'] > d['y0']]
+    ioi = ioi_rects(chips, gx, gy, 2 * int(round(py)) + 2, 2 * int(round(px)) + 2)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)
-    bb = rowb[glass[0] // B:glass[1] // B] if glass[1] > glass[0] else rowb
-    return {'glass_brightness': round(float(np.median(bb)), 1) if len(bb) else 0.0,
+    bb = bmb[gy[0] // B:gy[1] // B, gx[0] // B:gx[1] // B]
+    return {'glass_brightness': round(float(np.median(bb)), 1) if bb.size else 0.0,
             'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
-            'chips': chips, 'dummy': dummy, 'block_thr': thr, 'glass': glass,
+            'chips': chips, 'dummy': ioi, 'block_thr': thr, 'glass': list(gy), 'glass_x': list(gx),
             'pattern_frac': round(pat / area, 4), 'roi_frac': round(roi / area, 4), 'block_map': bm}
+
+
+def ioi_rects(chips, gx, gy, mgy, mgx):
+    """玻璃內、晶片以外 = IOI（給 AI）：前緣、後緣、晶片列之間、晶片左右外圍、同列晶片之間。
+    每塊都往晶片內多包 kernel 死區（mgy / mgx = 2 pitch + 2）——晶片真正的邊不補邊，那一圈交給 AI。
+    幾何規則不靠弱週期門檻：dummy 帶、pad、標記、玻璃邊（崩邊）都在裡面。"""
+    out = []
+    def add(x0, y0, x1, y1):
+        x0, y0, x1, y1 = max(x0, gx[0]), max(y0, gy[0]), min(x1, gx[1]), min(y1, gy[1])
+        if x1 - x0 > 2 * mgx and y1 - y0 > 2 * mgy:
+            out.append({'x0': int(x0), 'y0': int(y0), 'x1': int(x1), 'y1': int(y1)})
+    if not chips:
+        add(gx[0], gy[0], gx[1], gy[1])
+        return out
+    rows = []                                                        # 依 Y 重疊分列
+    for c in sorted(chips, key=lambda r: r['y0']):
+        if rows and c['y0'] < rows[-1]['y1']:
+            rows[-1]['cs'].append(c)
+            rows[-1]['y1'] = max(rows[-1]['y1'], c['y1'])
+            rows[-1]['y0'] = min(rows[-1]['y0'], c['y0'])
+        else:
+            rows.append({'y0': c['y0'], 'y1': c['y1'], 'cs': [c]})
+    if rows[0]['y0'] - gy[0] > mgy:
+        add(gx[0], gy[0], gx[1], rows[0]['y0'] + mgy)                # 前緣外圍
+    for a, b in zip(rows, rows[1:]):
+        add(gx[0], a['y1'] - mgy, gx[1], b['y0'] + mgy)              # 晶片列之間
+    if gy[1] - rows[-1]['y1'] > mgy:
+        add(gx[0], rows[-1]['y1'] - mgy, gx[1], gy[1])               # 後緣外圍
+    for r in rows:
+        cs = sorted(r['cs'], key=lambda c: c['x0'])
+        if cs[0]['x0'] - gx[0] > mgx:
+            add(gx[0], r['y0'], cs[0]['x0'] + mgx, r['y1'])          # 左側外圍
+        for a, b in zip(cs, cs[1:]):
+            add(a['x1'] - mgx, r['y0'], b['x0'] + mgx, r['y1'])      # 同列晶片之間
+        if gx[1] - cs[-1]['x1'] > mgx:
+            add(cs[-1]['x1'] - mgx, r['y0'], gx[1], r['y1'])         # 右側外圍
+    return out
 
 
 def _overlap(a, b):
