@@ -1,0 +1,35 @@
+CF-AOI Control（Windows 免安裝版）
+================================
+版本：@VERSION@。不需安裝 .NET。
+
+一、放置位置（重要）
+  把整個「cf-aoi」資料夾解壓到「使用者資料夾」，例如：
+      C:\Users\<你的帳號>\cf-aoi\
+  完成後應長這樣：
+      C:\Users\<你的帳號>\cf-aoi\control\CfAoiControl.exe
+      C:\Users\<你的帳號>\cf-aoi\recipes\DEFAULT\IP0\RecipeInfo.xml
+  （Control 預設從 ~/cf-aoi/recipes 讀配方、結果寫到 ~/cf-aoi/output，放對位置就不用改設定。）
+
+二、網路（用「系統管理員」身分開命令提示字元）
+  網路線：Windows ↔ Grab 主機板載網口（enp3s0）。
+  1) 固定 IP（"乙太網路" 換成實際網卡名稱，可用 ipconfig 查）：
+       netsh interface ipv4 set address name="乙太網路" static 192.168.10.1 255.255.255.0
+  2) 到 Spark 的路由（經 Grab 轉送；-p = 重開機保留，不影響其他網卡）：
+       route -p add 192.168.3.0 mask 255.255.255.0 192.168.10.21
+  3) 確認：
+       ping 192.168.10.21      （Grab）
+       ping 192.168.3.1        （Spark）
+
+三、桌面圖示與開機自動啟動（雙擊即可，不需系統管理員）
+  Create-Desktop-Shortcut.cmd   → 桌面出現「CF-AOI Control」
+  Enable-Autostart.cmd          → Windows 登入後自動開 Control（取消：刪除 shell:startup 裡的捷徑）
+
+四、啟動
+  雙擊桌面「CF-AOI Control」（或 control\CfAoiControl.exe）。
+  第一次啟動 Windows 防火牆會詢問 → 允許（Control 監聽 8787 給上位機程式連線）。
+  連線設定在 control\appsettings.json：
+      GrabA   = 192.168.10.21:8100
+      IpSpark = 192.168.3.1:8200（ActiveIpNode）
+
+五、上位機程式
+  連 127.0.0.1:8787（同一台 Windows），CF_ 指令，'|' 分隔，\r\n 結尾。

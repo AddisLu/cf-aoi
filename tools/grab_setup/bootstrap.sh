@@ -241,6 +241,8 @@ EOF
     fi
   fi
   note "桌面捷徑已寫入 $DESK"
+  # 一鍵啟動 Grab（工程/維護用；線上人員只操作 Windows 上的 Control）
+  [ "$DRY" = 1 ] || "$REPO/scripts/deploy/install_desktop_launchers.sh" grab | sed 's/^/   /'
 fi
 
 # ── 7. 建置 grab + 離線測試 ────────────────────────────────────────────────
