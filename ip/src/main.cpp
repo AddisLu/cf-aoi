@@ -229,16 +229,45 @@ bool parse_args(int argc, char** argv, Args& a) {
 }
 
 // 計算 zone 在影像內的有效 ROI rect（對位後用 eff_*，全幅或夾在影像範圍內）。
-// ⚠️ 已知限制（docs/code_review_20260802.md I8）：legacy 全 panel 拼接座標 recipe（ROI Y 可達 146k）
-//    餵給 rdma-process 逐 slice 影像時，超出本 slice 的 zone 會被 clamp 塌成 1px 長條照跑
-//    → 恆 0 缺陷、無錯誤 = 該區實際未檢測；正解需依 sliceIndex 平移座標並 skip 不相交 zone。
-cv::Rect zone_rect(const ZoneConfig& z, int w, int h) {
+// I8（docs/code_review_20260802.md）修正：配方可用**整片 panel 座標**（legacy：ROI Y 可達 146k；
+// 自動調參輸出亦同——晶片間隙只出現在某幾張 slice，bypass 必須以 panel 座標表達）。
+// y_off = 本張 slice 在 panel 的起始列（sliceIndex × 張高）；與本張不相交的 zone 回空 rect（呼叫端略過），
+// 不再 clamp 成 1px 長條照跑（舊行為 = 恆 0 缺陷、該區實際未檢）。
+cv::Rect zone_rect(const ZoneConfig& z, int w, int h, long y_off = 0) {
     if (z.is_full_frame()) return cv::Rect(0, 0, w, h);
+    const long ys = (long)z.eff_start_y() - y_off, ye = (long)z.eff_end_y() - y_off;
+    if (ye < 0 || ys >= h) return cv::Rect();               // 不在本張
     int x1 = std::clamp(z.eff_start_x(), 0, w - 1);
-    int y1 = std::clamp(z.eff_start_y(), 0, h - 1);
+    int y1 = (int)std::clamp(ys, 0L, (long)h - 1);
     int x2 = std::clamp(z.eff_end_x(), x1 + 1, w);
-    int y2 = std::clamp(z.eff_end_y(), y1 + 1, h);
+    int y2 = (int)std::clamp(ye, (long)y1 + 1, (long)h);
     return cv::Rect(x1, y1, x2 - x1, y2 - y1);
+}
+
+// 配方是否為 panel 座標：任一非全幅 zone 的 EndY 超出單張高 → 整份配方視為 panel 座標
+// （單張座標配方 EndY ≤ 張高；panel 座標配方必有晶片在後面的 slice）。向下相容：舊單張配方行為不變。
+bool recipe_is_panel_coords(const std::vector<ZoneConfig>& zones, int h) {
+    for (const auto& z : zones)
+        if (!z.is_full_frame() && z.eff_end_y() > h) return true;
+    return false;
+}
+
+// IOI（#23）同 I8：panel 座標時依 slice 平移、只留與本張相交的部分（夾在本張內）。單張座標配方原樣回傳。
+std::vector<IoiRect> ioi_for_slice(const std::vector<IoiRect>& in, const std::vector<ZoneConfig>& zones,
+                                   int h, int slice_index) {
+    bool panel = recipe_is_panel_coords(zones, h);
+    for (const auto& io : in) panel = panel || std::max(io.start_y, io.end_y) > h;
+    if (!panel) return in;
+    const int off = slice_index * h;
+    std::vector<IoiRect> out;
+    for (auto io : in) {
+        const int a = std::min(io.start_y, io.end_y) - off, b = std::max(io.start_y, io.end_y) - off;
+        if (b <= 0 || a >= h) continue;
+        io.start_y = std::max(a, 0);
+        io.end_y = std::min(b, h);
+        out.push_back(io);
+    }
+    return out;
 }
 
 // 比對兩次 process_frame 結果是否 bit-exact。一致回傳空字串；否則回傳第一個差異點描述。
@@ -422,7 +451,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
                                const cv::Mat& gray, const std::string& panel_id,
                                bool verify, bool& verify_failed,
                                const RecipeSavingConfig& saving_cfg = {},
-                               const OpticalParams& optical = {}) {
+                               const OpticalParams& optical = {},
+                               int slice_index = 0) {
     InspectionResult agg;
     agg.panel_id = panel_id;
     agg.image_width = gray.cols;
@@ -436,8 +466,10 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
     int total_defects_so_far = 0;
     int  flood_zone = -1, flood_zone_n = 0;   // defect_flood：GPU 過濾前訊號
     long pre_filter_total = 0;
+    const long y_off = recipe_is_panel_coords(zones, gray.rows) ? (long)slice_index * gray.rows : 0;
     for (const auto& z : zones) {
-        cv::Rect r = zone_rect(z, gray.cols, gray.rows);
+        cv::Rect r = zone_rect(z, gray.cols, gray.rows, y_off);
+        if (r.empty()) continue;                           // panel 座標：此 zone 不在本張
         cv::Mat sub = gray(r);
         cv::Mat sub_cont = sub.isContinuous() ? sub : sub.clone();
 
@@ -714,8 +746,8 @@ int main(int argc, char** argv) {
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
             InspectionResult res = process_image(pipe, zones, gray, name,
                                                  args.verify_deterministic, verify_failed,
-                                                 cli_saving_cfg, machine_optical);
-            res.ioi_list = file_ioi;   // #23 興趣區
+                                                 cli_saving_cfg, machine_optical, hdr.sliceIndex);
+            res.ioi_list = ioi_for_slice(file_ioi, zones, gray.rows, hdr.sliceIndex);   // #23 興趣區
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果（timed region 外）
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
@@ -845,8 +877,9 @@ int main(int argc, char** argv) {
             diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
             scene.queue_depth = (int64_t)queue.size();  // 水位快照（進 ring，incident 時可查）
             diag::FlightRecorder::instance().set_scene(scene);  // process 前：抓參數現場
-            InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg, machine_optical);
-            res.ioi_list = server.ioi_list();   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
+            InspectionResult res = process_image(pipe, z_snapshot, gray, name, false, vf, saving_cfg, machine_optical,
+                                                 hdr.sliceIndex);
+            res.ioi_list = ioi_for_slice(server.ioi_list(), z_snapshot, gray.rows, hdr.sliceIndex);   // #23 興趣區（LOAD_RECIPE 解析）→ 存圖時裁切
             fill_scene_results(scene, res);
             diag::FlightRecorder::instance().record_frame(scene);  // process 後：補結果
             diag::FlightRecorder::instance().tick_stats(scene.gpu_ms, scene.num_defects,
@@ -1306,7 +1339,7 @@ int main(int argc, char** argv) {
             } else {
                 res = process_image(pipe, z_snapshot, gray, name,
                                     /*verify*/false, verify_failed,
-                                    frame_saving_cfg, machine_optical);
+                                    frame_saving_cfg, machine_optical, hdr.sliceIndex);
                 if (args.flood_skip_after > 0) {
                     if (res.total_defects() >= flood_thr) {
                         if (++fst.consecutive >= args.flood_skip_after) {
@@ -1324,7 +1357,8 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            res.ioi_list = recipe_loaded.load() ? ctrl_srv.ioi_list() : file_ioi;
+            res.ioi_list = ioi_for_slice(recipe_loaded.load() ? ctrl_srv.ioi_list() : file_ioi,
+                                         z_snapshot, (int)hdr.height, hdr.sliceIndex);
             double proc_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - t0).count();
             sum_proc_ms += proc_ms;

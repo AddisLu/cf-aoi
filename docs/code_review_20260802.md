@@ -24,7 +24,7 @@
 | **K4** | control | 工作台 Step5「套用到其他相機」**複製磁碟舊檔**：`ApplyToTargets` 前無 `Store.Save()`，`CopyParamsToIps` 讀磁碟 → 未存檔的 Step4 調參不會被複製、卻回報「✓ 參數 N 分區」。selftest 自己先 Save 把坑遮住。同族：切槽時 dirty 調參默默丟棄 | CameraWorkbenchViewModel.cs:297-336→RecipeService.cs:120-138 | 五步驟標準動線（調完 Step4 直接按 Step5）|
 | **K2** | control | 觸發鏈命令**全無逾時** + `IsBusy` 心跳跳過 → 對端 wedge 時 `_lock` 永不釋放、心跳恆判存活**假綠燈**、後續 CF_ 全卡死只能重啟 Control（對照組：工作台相機操作都有 CTS）| IpClient.cs:222-237；ConnectionManager.cs:73-77；UpstreamWiring.cs 全部預設 CT | 上位機聯調日 GRAB_ARM/START 重活時 |
 | **K3** | control | 上位機 `CF_LOAD_RECIPE` 配方名拼錯 → `EnsureRecipeExists` **自動生成預設 DIV 配方**照送 IP → 回上位機 OK = 假成功進生產（教材 P0-4 已標、程式未加閘）。另 recipe 名未消毒可 `../` 逃逸 | UpstreamWiring.cs:31→RecipeService.cs:174-192 | 上位機與 Control 配方名不同步時 |
-| **I8** | ip | **拼接座標 recipe × rdma-process 逐 slice 無座標換算**：zone（StartY 可達 146k）超出 slice 範圍被 clamp 塌成 1px 條照跑 → 恆 0 缺陷 = **該 zone 靜默零覆蓋**。生產 recipe（T550QVN10 全 24 CCD = SUB+拼接座標）直接踩 | main.cpp:189-196 | 相機到貨後把生產 recipe 餵 rdma-process |
+| **I8** ✅ 2026-10-05 已修（feat/panel-roi，見 verification/autotune_ip_validation_20261005.md）| ip | **拼接座標 recipe × rdma-process 逐 slice 無座標換算**：zone（StartY 可達 146k）超出 slice 範圍被 clamp 塌成 1px 條照跑 → 恆 0 缺陷 = **該 zone 靜默零覆蓋**。生產 recipe（T550QVN10 全 24 CCD = SUB+拼接座標）直接踩 | main.cpp:189-196 | 相機到貨後把生產 recipe 餵 rdma-process |
 | **I7** | ip | 連續模式（totalSlice≤1）`loss_by_cam` **永不歸零**：一次 CRC 失敗後該 cam 每幀都標 `panel_incomplete` + 每幀 incident（30s 節流擋洪水）。`fpp=0` 是 appsettings 無 Grab 節點時的預設 = 8/M 大機率第一次上線就是連續模式 | main.cpp:1110（唯一歸零點）,1189-1197 | 8/M 連續模式 + 任一次傳輸損壞 |
 | **I5**=G5 | ip+契約 | **守門路由語意待裁示**：legacy enum 值全為 `Awc_*_Way_*_Div`（皆含 "Way"、無 `Awc_8_Way_Star_Div`）→ 任何帶 awc 的 legacy DIV recipe 命中 `is_fused` **路由 mode2（非已驗 mode0）**，且 mode2 連帶吃 `EnableMultiscale` ini 預設 1、`MeanLowThreshold` 預設 40。純 mode0 幾乎只剩「無 awc + stale `AlgorithmCompare="DIV"`」可達。Control enum 又開放 `Awc_4_Way_Arrow_Div` 等看似幾何模式實則全進 mode2 | zone_config_adapter.cpp:131-135；ZoneSettingModel.cs:12-14 | 載入任何 legacy DIV recipe 即發生。**裁示選項**：(a) `is_fused` 收緊（star+div 同現才算），legacy `*_Div` 走 mode0；(b) 維持路由但文件全改 + record_recipe 明示 + multiscale 預設 0 |
 
@@ -38,7 +38,7 @@
 | **B2** | grab | RDMA 送失敗後**全相機幀進黑洞**：`connected_=false` 後每幀靜默蒸發、`dropped` 仍 0、CHECK_HEALTH 無 rdma/error 欄位、無重連（檔頭自承 P0-7「上線前必修」，未修）| rdma_sender.cpp:91,100-107,123-129 |
 | **K1** | control | `CF_GET_RESULT` 假 OK：`OnGetResult` catch 吞例外回 `("","0")`、UpstreamServer 無 ERR 路徑恆 `Resp(true)` → IP 斷線被上位機讀成「0 個結果夾」（★A 誠實失敗原則的漏網；`OnStop` catch 也無 log = ★6 同型殘留）| UpstreamWiring.cs:99-115；UpstreamServer.cs:171-176 |
 | **I3** | ip | GPU 收集階段**硬編碼過濾**（wrapper 傳 `1, 300, 5.0`）：>300px 大缺陷、aspect>8 線狀刮傷**靜默丟**；recipe `BlobMaxSize` 形同虛設；mode2 多尺度大缺陷補強被自我抵銷。兩跑一致地錯 → `--verify-deterministic` 抓不到。修 wrapper 參數化即可，不觸 kernel 禁改 | cuda_kernels.cu:1554-1562（wrapper）,789-831（kernel 本體）|
-| **I4** | ip | `bindTextureObject` 只比指標不比尺寸：重配同址 → stale texture 幾何**決定性地錯**（錯位/越界讀）。觸發：mode0 寬≥8000 多尺寸切換 | cuda_kernels.cu:915-919；gpu_pipeline.cpp:77-79 |
+| **I4** ✅ 2026-10-05 已修（快取鍵加寬高；實測 T550 每張 y≈1914 整列 1,774 顆假暗點 → 0）| ip | `bindTextureObject` 只比指標不比尺寸：重配同址 → stale texture 幾何**決定性地錯**（錯位/越界讀）。觸發：mode0 寬≥8000 多尺寸切換 | cuda_kernels.cu:915-919；gpu_pipeline.cpp:77-79 |
 | **B18** | grab | `LOAD_RECIPE`/`GRAB_STOP` 無 handler 時仍回 OK（其他命令回 ERR）——靜默成功反模式 | control_server.cpp:140-146,183-186 |
 
 ## P2 — 穩定性／資源／操作正確性
