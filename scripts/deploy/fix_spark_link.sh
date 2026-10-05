@@ -31,6 +31,14 @@ echo "  $IF177 / $IF178 上其他設定（例 DHCP「Wired connection」）→ �
 [ "$APPLY" = 1 ] || { echo "（未套用；確認無誤後加 --apply）"; exit 0; }
 read -r -p "套用？[y/N] " a; [ "$a" = y ] || exit 0
 
+# 先停掉原本設在沒接線 port 上的 177.12 / 178.12（避免同一 IP 短暫掛在兩個網口）
+nmcli -t -f NAME con show | while IFS= read -r c; do           # 名稱可能有空白（Wired connection 1）
+  case "$c" in spark-link-177|spark-link-178) continue;; esac
+  if nmcli -g ipv4.addresses con show "$c" 2>/dev/null | grep -qE '192\.168\.17[78]\.12'; then
+    sudo nmcli con mod "$c" connection.autoconnect no; sudo nmcli con down "$c" || true
+    echo "  已停用舊設定 $c（含 177/178.12）"
+  fi
+done
 for pair in "177:$IF177" "178:$IF178"; do
   net=${pair%%:*}; dev=${pair#*:}; name="spark-link-$net"
   # 同一網口上的其他設定取消自動連線（不刪，要回復可 nmcli con mod <名稱> connection.autoconnect yes）
@@ -41,14 +49,6 @@ for pair in "177:$IF177" "178:$IF178"; do
   sudo nmcli con add type ethernet ifname "$dev" con-name "$name" ipv4.method manual \
        ipv4.addresses "192.168.$net.12/24" ipv4.never-default yes ipv6.method disabled 802-3-ethernet.mtu 9000
   sudo nmcli con up "$name"
-done
-# 原本設在沒接線 port 上的 177.12 / 178.12（名稱不同的舊設定）
-nmcli -t -f NAME con show | while IFS= read -r c; do           # 名稱可能有空白（Wired connection 1）
-  case "$c" in spark-link-177|spark-link-178) continue;; esac
-  if nmcli -g ipv4.addresses con show "$c" 2>/dev/null | grep -qE '192\.168\.17[78]\.12'; then
-    sudo nmcli con mod "$c" connection.autoconnect no; sudo nmcli con down "$c" || true
-    echo "  已停用舊設定 $c（含 177/178.12）"
-  fi
 done
 sleep 2
 ping -c2 -W1 192.168.177.11 && echo "✓ 主 Spark 177.11 通" || echo "⚠ 177.11 不通（確認主 Spark 那端是 port1 + 線材）"
