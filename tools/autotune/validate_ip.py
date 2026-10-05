@@ -48,7 +48,7 @@ def collect(res):
         d = json.load(open(f))
         for roi in d.get('RoiInfoList', []):
             for df in roi.get('DefectInfoList', []):
-                out.append({'slice': s, 'x': df['GC_X'], 'y': df['GC_Y'], 'type': df.get('Type'),
+                out.append({'slice': s, 'x': df['GlobalPosX'], 'y': df['GlobalPosY'], 'type': df.get('Type'),
                             'size': df.get('Size'), 'gl': df.get('GL_Mean')})
     return out
 
@@ -76,6 +76,8 @@ def main():
     ap.add_argument('--out', default='/tmp/at_val')
     ap.add_argument('--margins', default='0,0.05,0.10,0.15,0.20,0.30')
     ap.add_argument('--search', default='1,1')
+    ap.add_argument('--pitch', default='', help='覆寫整數 pitch，如 26,19（預設 = 自動量測四捨五入）')
+    ap.add_argument('--manual', default='0.60,1.40', help='對照組人工門檻 暗,亮')
     a = ap.parse_args()
     truth = [tuple(int(v) for v in t.split(':')) for t in a.truth]
     search = tuple(int(v) for v in a.search.split(','))
@@ -85,7 +87,7 @@ def main():
     t0 = time.time()
     r = S.analyze_strip(paths, progress=lambda s: None)
     px, py = r['pitch']
-    pi = (int(round(px)), int(round(py)))
+    pi = tuple(int(v) for v in a.pitch.split(',')) if a.pitch else (int(round(px)), int(round(py)))
     h = r['slice_h']
     print(f'[區域] pitch {px:.2f}×{py:.2f} → {pi}；晶片 {len(r["chips"])}：{[(c["y0"], c["y1"]) for c in r["chips"]]}；'
           f'IOI {len(r["dummy"])}：{[(d["y0"], d["y1"]) for d in r["dummy"]]}（{time.time() - t0:.0f}s）')
@@ -105,10 +107,11 @@ def main():
     print(f'[門檻] 雜訊底線 暗 {base["floor_dark"]} / 亮 {base["floor_bright"]}（{base["n_images"]} 張，{time.time() - t0:.0f}s）')
 
     rows = []
-    cases = [('auto', m) for m in (float(v) for v in a.margins.split(','))] + [('manual', None)]
+    cases = [('auto', m) for m in (float(v) for v in a.margins.split(',') if v)] + [('manual', None)]
+    md, mb = (float(v) for v in a.manual.split(','))
     for kind, m in cases:
         th = ({'dark': round(base['floor_dark'] * (1 - m), 3), 'bright': round(base['floor_bright'] * (1 + m), 3)}
-              if kind == 'auto' else {'dark': 0.60, 'bright': 1.40})
+              if kind == 'auto' else {'dark': md, 'bright': mb})
         xml = W.make_recipe(r['chips'], r['dummy'], pi, th, search)
         tag = f'{kind}_{m:.2f}' if m is not None else kind
         res, sec, _ = run_ip(a.ip, xml, a.strip, os.path.join(a.out, tag))
