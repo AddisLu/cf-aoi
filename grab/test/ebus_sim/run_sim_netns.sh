@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 在獨立網路命名空間跑 ebus_sim（軟體假扮的 L803K/iPORT），讓本機 grab 用 --camera ebus 測取像。
-# 為何要命名空間：eBUS 連不到「同一台主機自己跑的」軟體裝置（實測 NETWORK_ERROR）→ 用 veth 隔成兩台。
+# 可選：同一台主機其實就能測（ebus_sim 綁網卡 MAC 即可，見 ebus_sim.cpp 檔頭）。命名空間只在想把模擬
+# 裝置隔離成「另一台機器」時用（2026-10-05 原以為同主機連不到，實為 Start() 要 MAC 不吃網卡名的 bug）。
 #
 #   sudo grab/test/ebus_sim/run_sim_netns.sh start [寬=8160] [高=5000] [fps=2.4]
 #   sudo grab/test/ebus_sim/run_sim_netns.sh stop

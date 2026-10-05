@@ -210,6 +210,7 @@ CAM_COUNT=6
 # Spark IP 端 RDMA（rdma-process 監聽）
 RDMA_DEST=192.168.3.1:18515
 # 其他 cfaoi_grab 參數（例：--cpus all）
+# 下方陣列（L803K 經 Pleora iPORT）的 Grab：GRAB_EXTRA=--camera ebus（寬自動 8160；曝光/行速率走 CL 序列埠）
 GRAB_EXTRA=
 EOF
         echo "  已建立 /etc/default/cfaoi-grab（CAM_COUNT=6）"

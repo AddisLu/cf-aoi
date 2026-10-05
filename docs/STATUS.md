@@ -1191,6 +1191,14 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   觸發 10 次（5 台 × 2 片）、換片後恢復檢測、150/150 全收；改門檻值後複測停算 67 幀 DefectCnt 全 = 門檻、
   pass 全 false、全部幀 DefectCnt ≥ 0。
 
+**下方 L803K：Grab eBUS 後端（2026-10-05，L2 — 軟體模擬裝置驗通，實體待接）**
+- `--camera ebus`：L803K 經 Pleora iPORT（eBUS SDK 7.0.1）；相機抽象層 `ICamera`，pylon 路徑行為不變
+  （3 組離線測試 + 6 台全鏈 7/7）。eBUS 做成 dlopen 外掛（直接連結會因 GenICam 環境檢查連 pylon 模式都起不來，
+  實測生產服務停約 1 分鐘後回復）。L803K 曝光/增益/行速率走 iPORT UART 的 L800 協定（移植自調機工具）。
+- 模擬實測（`PvSoftDeviceGEV` 假扮 L803K，8160×5000）：Grab eBUS → RDMA → Spark **recv 10/0、影像 8160×5000**；
+  `ebus_frame_check` 20 張逐行內容 0 錯、無錯位/混幀/重複，跳號皆計入 dropped。模擬器整張瞬間送出 → 同主機偶有
+  不完整幀（整張作廢，防呆有效）；**實際掉幀率、UART 控制、iPORT CCD 命名都待實體 iPORT + L803K 接上**。
+
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
   本機 ssh spark-3961 host key 驗證失敗，未處理。不影響 grab/IP。

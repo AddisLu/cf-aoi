@@ -2,9 +2,15 @@
 // --camera ebus 取像路徑（沒有實體 iPORT 時用）。2026-10-05。
 //
 //   ebus_sim <網卡名或 MAC> [寬=8160] [高=5000] [fps=2.4] [序號=SIM0038]
+//   例（同一台主機即可，裝置 IP = 該網卡的 IP）：
+//     source /opt/pleora/ebus/*/bin/set_puregev_env.sh; grab/build/ebus_sim enp1s0f0np0
+//     CFAOI_EBUS_NO_SERIAL=1 grab/build/ebus_frame_check 192.168.3.2 20      （逐張驗內容）
+//     CFAOI_EBUS_NO_SERIAL=1 grab/build/cfaoi_grab --camera ebus --line-rate keep --serial 192.168.3.2 …
 //
 // 每幀內容 = 逐行遞增灰階 + 幀序號寫在第 0 行前 8 bytes（收端可驗證沒錯位、沒重複）。
 // ⚠️ 沒有 Camera Link 序列埠 → grab 端要設 CFAOI_EBUS_NO_SERIAL=1 且 --line-rate keep。
+// ⚠️ 模擬器整張 40MB 瞬間送出（實體 iPORT 依行頻持續送）→ 同主機時偶有 TOO_MANY_CONSECUTIVE_RESENDS
+//    不完整幀（grab 會整張作廢計 dropped）——是模擬器特性，實際掉幀率以實體 iPORT 為準。
 #include <PvBuffer.h>
 #include <PvFPSStabilizer.h>
 #include <PvSoftDeviceGEV.h>
@@ -16,6 +22,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <string>
 #include <thread>
 
 static std::atomic<bool> g_stop{false};
@@ -71,12 +79,18 @@ int main(int argc, char** argv) {
     info->SetManufacturerName("Pleora Technologies Inc.");
     info->SetModelName("L803K-SIM (iPORT CL-GigE sim)");
     info->SetSerialNumber(serial);
-    PvResult r = dev.Start(argv[1]);
+    // Start() 要的是網卡 **MAC**（給網卡名稱它照樣回 OK 但沒綁上，GVCP 完全不回應——2026-10-05 實測）
+    std::string mac = argv[1];
+    if (mac.find(':') == std::string::npos) {
+        std::ifstream f("/sys/class/net/" + mac + "/address");
+        if (!(f >> mac)) { std::fprintf(stderr, "找不到網卡 %s\n", argv[1]); return 1; }
+    }
+    PvResult r = dev.Start(mac.c_str());
     if (!r.IsOK()) {
         std::fprintf(stderr, "啟動失敗：%s %s\n", r.GetCodeString().GetAscii(), r.GetDescription().GetAscii());
         return 1;
     }
-    std::printf("[ebus_sim] 已啟動：%s  %ux%u Mono8  %.1f fps  序號 %s（Ctrl+C 結束）\n", argv[1], w, h, fps, serial);
+    std::printf("[ebus_sim] 已啟動：%s（%s）  %ux%u Mono8  %.1f fps  序號 %s（Ctrl+C 結束）\n", argv[1], mac.c_str(), w, h, fps, serial);
     std::fflush(stdout);
     while (!g_stop) std::this_thread::sleep_for(std::chrono::milliseconds(200));
     dev.Stop();

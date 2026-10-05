@@ -146,6 +146,20 @@ if(EBUS_ROOT)
   target_link_libraries(ebus_sim PRIVATE PvSoftDeviceGEV PvVirtualDevice PvBuffer PvBase PvGenICam pthread)
   target_link_options(ebus_sim PRIVATE
       "-Wl,--disable-new-dtags,-rpath,${EBUS_ROOT}/lib:${EBUS_ROOT}/lib/genicam/bin/Linux64_x64")
+  # 內容驗證：經 CamManager 的 eBUS 外掛收 ebus_sim 影像，逐張驗行內容 + 序號（與 cfaoi_grab 同一路徑）
+  add_executable(ebus_frame_check test/ebus_sim/ebus_frame_check.cpp src/cam_manager.cpp src/cam_pylon.cpp)
+  target_compile_definitions(ebus_frame_check PRIVATE CFAOI_EBUS_ROOT="${EBUS_ROOT}")
+  target_link_libraries(ebus_frame_check PRIVATE ${CMAKE_DL_LIBS} pthread)
+  if(pylon_FOUND)
+    target_link_libraries(ebus_frame_check PRIVATE pylon::pylon)
+  elseif(DEFINED PYLON_LINK_FLAGS)
+    separate_arguments(PYLON_LINK_LIST_E NATIVE_COMMAND "${PYLON_LINK_FLAGS}")
+    target_link_options(ebus_frame_check PRIVATE ${PYLON_LINK_LIST_E})
+  endif()
+  if(nlohmann_json_FOUND)
+    target_link_libraries(ebus_frame_check PRIVATE nlohmann_json::nlohmann_json)
+  endif()
+  add_dependencies(ebus_frame_check cfaoi_cam_ebus)
 endif()
 
 # RDMA + pthread

@@ -155,8 +155,10 @@ grab/
 ├── cam_map.example.json          MAC↔cam_id 綁定模板（Gap #21；本機副本 cam_map.json 不版控）
 └── src/
     ├── main.cpp                  ← ✅ 進入點/狀態機（IDLE⇄ARMED⇄GRABBING）、frame_cb、11 個 8100 回呼接線
-    ├── cam_manager.h/.cpp        ← ✅ 多相機陣列 + cam_map MAC 綁定（原規劃「統一管理 pylon/eBUS」，現僅 pylon）
+    ├── camera.h                  ← ✅ 相機抽象層 ICamera + 共用型別（2026-10-05；--camera pylon|ebus）
+    ├── cam_manager.h/.cpp        ← ✅ 多相機陣列 + CCD 身分綁定；依後端建相機，eBUS 以 dlopen 載外掛
     ├── cam_pylon.h/.cpp          ← ✅ 升級自 t31_pylon_grab（grab thread、曝光/增益、enumerate、grab_one_mean）
+    ├── cam_ebus.h/.cpp           ← ✅ L803K 經 Pleora iPORT（eBUS）；建成外掛 libcfaoi_cam_ebus.so（見不變式 12）
     ├── rdma_sender.h/.cpp        ← ✅ 升級自 t40_e2e_client（N-buffer SEND pipeline，見 §5）
     ├── rdma_common.h             ← ✅ 沿用 phase1 RcConn + MrInfoEx（⚠️ 與 ip/src/image_source/ 有同源副本，
     │                                 post_recv 等 wire 相關改動必須兩份同步，見不變式 7 配套註記）
@@ -168,7 +170,7 @@ grab/
     └── cam_mean_gray_test.cpp    ← 曝光/增益→mean gray 單調性驗證（Gap #2 Stage 2+3）
 ```
 
-> **規劃未建（保留考古脈絡）**：`cam_ebus.h/.cpp`（eBUS 路徑，L0）；`mac_ip_binder.h/.cpp`（來源 t01 懸空，
+> **規劃未建（保留考古脈絡）**：~~`cam_ebus.h/.cpp`~~（2026-10-05 已建）；`mac_ip_binder.h/.cpp`（來源 t01 懸空，
 > 能力由 cam_map.json 取代）；`frame_assembler.h/.cpp`（內聯於 main.cpp frame_cb）；
 > `control_client.h/.cpp`（反轉為 control_server）。
 
@@ -198,6 +200,8 @@ grab/
 | `--width N` | 8192 | 相機 ROI 寬；0 = 不動相機現值。設不進 → 開相機失敗 |
 | `--height N` | 5000 | **送出**的每幀行數。超過相機單幀上限（raL8192@寬 8192 = 3573）→ 相機 Height 設 N/k、每 k 張拼成一張（5000 = 2×2500）；0 = 不動、不拼接 |
 | `--ctrl-port N` | 8100 | 等 Control 連入的 TCP port |
+| `--camera pylon\|ebus` | pylon | 相機後端：pylon = raL8192-12gm；ebus = L803K 經 iPORT（`--width` 預設改 8160；參數走 CL 序列埠）|
+| `--cpus pcore\|all\|LIST` | pcore | 行程 CPU 親和性（Intel 混合架構只用大核）|
 | `--cam-config PATH` | exe 上一層/cam_config.json | 曝光/增益 JSON（路徑錨定 grab/，不隨 CWD 漂移）|
 | `--cam-map PATH` | exe 上一層/cam_map.json | MAC↔cam_id **備援**映射（CCD 身分以相機 DeviceUserID 為準；同上錨定）|
 
@@ -307,3 +311,19 @@ grab/
      要更快只能放寬 Y 解析度。
    - 實機（2026-09-21，damac 4 台）：四台齊一 12,195.1 Hz，80 幀 dropped=0、IP 端 recv ok=80 err=0，
      合計 8.87 fps / 347 MB/s（修正前 8.0 fps / 328 MB/s，**+11%**）。
+
+12. **eBUS 後端是 dlopen 外掛，不可直接連進 cfaoi_grab（2026-10-05）**：eBUS 函式庫**載入當下**就檢查
+   `GENICAM_ROOT_V3_4`，沒設直接 `exit` —— 直接連結時 pylon 模式也起不來（實測 systemd 重啟迴圈）。
+   `cam_ebus.cpp` 建成 `libcfaoi_cam_ebus.so`（與 cfaoi_grab 同目錄、舊式 RPATH 指向 eBUS 與 GenICam 函式庫），
+   `CamManager` 只在 `--camera ebus` 時先 `setenv` GenICam 變數再 `dlopen`；pylon 模式完全不載 eBUS
+   （也避免兩套 GenICam 同行程）。外掛載不進來 → `make_camera()` 回 nullptr 報錯，**不可退回 pylon 物件**（會開錯相機）。
+   - **L803K 參數走 iPORT Bulk0 UART 的 Basler L800 二進位協定**（9600 8N1；曝光 0x1501 f32 µs、行週期 0x1601、
+     增益 raw 0x0E0D u16）：移植自 `tools/cam_align/l800_serial.py`（調機工具實機驗過）。
+     指定行速率但序列埠打不開 → **open 失敗**（行速率 = 影像比例尺，不可默默沿用相機值；
+     `CFAOI_EBUS_NO_SERIAL=1` 僅供軟體模擬裝置測試）。
+   - **不完整幀（封包缺失）整張作廢計 dropped**：Camera Link 資料腳接觸不良的症狀就是隨機缺行，不可照送。
+   - 只列舉 Pleora 裝置（eBUS 也看得到 Basler 原生相機）並依 MAC 去重；**`FindDevice` 會重新探索使先前
+     `PvDeviceInfo*` 失效**（實測 segfault）→ 找到即轉 CamInfo。`--serial` 可給序號/MAC/IP；
+     `CFAOI_EBUS_DEVICES=ip,…` 列舉時單播補找。
+   - 測試（無實體 iPORT）：`grab/test/ebus_sim/`（`PvSoftDeviceGEV` 假扮 L803K；`Start()` 要網卡 **MAC**）、
+     `ebus_frame_check` 逐張驗內容。**未驗**：實體 iPORT + L803K 的取像與序列埠控制、iPORT 的 CCD 命名工具。
