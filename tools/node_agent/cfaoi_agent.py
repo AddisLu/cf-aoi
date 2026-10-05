@@ -193,17 +193,19 @@ def loop_status():
     service = out.strip() or "unknown"
     model = {"status": "idle", "loaded": None, "wanted": None, "error": None, "since": None}
     if service == "active":
-        code, d = _loop_http("GET", "/api/local/models", timeout=2.0)
+        code, d = _loop_http("GET", "/api/local/models", timeout=5.0)
         if code == 200 and isinstance(d.get("state"), dict):
             model.update({k: d["state"].get(k) for k in model})
         elif code == 0:
-            model["status"] = "starting"            # 服務剛起、API 還沒聽
+            # 讀不到（剛啟動、或忙著做知識庫收錄 → API 逾時；2026-10-05 實測收錄時曾誤報成載入中）
+            model["status"] = "unknown"
     tok = _loop_token()
     url = (LOOP_PUBLIC_URL + "/" + (f"?token={tok}" if tok else "")) if LOOP_PUBLIC_URL else ""
     return {"enabled": True, "service": service, "model": model, "model_id": LOOP_MODEL, "url": url,
             # 診斷模式 = 大模型載入中或已載入（佔 Spark ~80% 記憶體）→ Control 據此擋 CF_READY。
             # Loop 服務本身很輕（實驗室開發時常駐），只有它在跑不算。
-            "active": model["status"] in ("starting", "ready")}
+            # 讀不到狀態但 Loop 服務在跑 → 保守視為診斷模式（不讓上位機在可能佔著記憶體時送料）
+            "active": model["status"] in ("starting", "ready") or (model["status"] == "unknown" and service == "active")}
 
 
 def _allowed(addr):

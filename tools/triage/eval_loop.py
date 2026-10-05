@@ -33,13 +33,17 @@ KNOWLEDGE_QS = {
 
 
 def loop_url():
-    with socket.create_connection(AGENT, timeout=10) as s:
-        s.sendall(b'{"cmd":"STATUS","seq":1}\n')
-        buf = b''
-        while not buf.endswith(b'\n'):
-            buf += s.recv(65536)
-    d = json.loads(buf)['data']['loop']
-    if d.get('model', {}).get('status') != 'ready':
+    for _ in range(12):                         # Loop 忙（收錄中）時狀態可能暫時讀不到 → 重試 1 分鐘
+        with socket.create_connection(AGENT, timeout=10) as s:
+            s.sendall(b'{"cmd":"STATUS","seq":1}\n')
+            buf = b''
+            while not buf.endswith(b'\n'):
+                buf += s.recv(65536)
+        d = json.loads(buf)['data']['loop']
+        if d.get('model', {}).get('status') == 'ready':
+            break
+        time.sleep(5)
+    else:
         sys.exit(f'大模型未就緒（{d.get("model")}）→ 先開機況助手')
     url = d['url']
     base, _, tok = url.partition('/?token=')

@@ -150,6 +150,7 @@ public sealed partial class NodeAgentsViewModel : ObservableObject
             "ready" => "● 就緒：大模型已載入，可開啟畫面",
             "starting" => $"◐ 載入大模型中…{Elapsed(n.LoopSince)}（約 5–10 分鐘）",
             "error" => $"⚠ 大模型載入失敗：{n.LoopError}",
+            "unknown" => "◐ Loop 忙碌中（例如知識庫收錄），狀態暫時讀不到",
             _ when n.LoopService == "active" => "◐ Loop 已啟動，大模型未載入",
             _ => "○ 關閉（生產模式）",
         };
