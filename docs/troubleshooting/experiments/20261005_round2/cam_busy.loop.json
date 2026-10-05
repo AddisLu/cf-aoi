@@ -1,0 +1,34 @@
+{
+ "scenario": "cam_busy",
+ "symptom": "按開始取像之後 CCD02 一直失敗，其他台都正常；早上工程師有來看過相機。",
+ "A": {
+  "answer": "**結論：CCD02 取像失敗，最可能原因是早上工程師調過 CCD02 的相機參數後沒有還原。**\n\n根據知識庫，這與「CCD02 相機參數和設定不同」的案例症狀吻合——有人調過相機後參數偏離設定值，導致取像異常 [1]。\n\n---\n\n### 可能原因\n1. **CCD02 的曝光／增益被工程師改過未還原** — 用相機工具或 pylon Viewer 調整後沒有載入配方，導致參數與生產設定不同 [1]\n2. **其他相機參數（如觸發模式、頻率）被改動** — 也可能造成取像失敗\n\n---\n\n### 🔧 現場照做（線上人員可先做）\n\n| 誰可以做 | 步驟 |\n|---------|------|\n| **線上人員（先做）** | 到 **Control 畫面重新載入配方**——Grab ARM 會自動把 CCD02 的參數套回設定值 [1] |\n| 線上人員（接續） | 載入後再按一次開始取像，確認 CCD02 是否恢復正常 |\n\n如果載入配方後仍然失敗，請通知設備工程檢查 CCD02 的線材連接與交換機埠設定 [1]。\n\n---\n\n### ✅ 如何確認修好\n\n- CCD02 取像成功，不再跳出失敗訊息\n- 影像平均亮度回到正常範圍（60–180 之間）[1]\n- 若執行完整健檢，CCD02 的所有檢查項目應為 ✅",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_camera_param_drift.md",
+   "docs/troubleshooting/cases/20261005_camera_param_drift.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/param_drift.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/param_drift.json",
+   "docs/troubleshooting/experiments/20261005_fault_injection/param_drift.md",
+   "docs/troubleshooting/cases/20261005_camera_param_drift.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/param_drift_v2.loop.json",
+   "docs/troubleshooting/cases/20261005_camera_param_drift.md"
+  ],
+  "sec": 37.0
+ },
+ "B": {
+  "answer": "## 結論\n\n**CCD02 取像失敗，原因是該相機被其他程式占用了**（控制權 CCP 被別的程式拿著），所以產線 Grab 取不到它的影像。\n\n---\n\n### 可能原因\n\n1. **有人開著 pylon Viewer / 相機工具 / eBUS Player 沒關** — 早上工程師來看過相機，可能用這些軟體調機後沒有關掉，導致 CCD02 的 CCP（控制權）還被該軟體拿著 [4][5]\n2. **相機程式異常退出後資源沒釋放** — 即使關掉軟體，程式崩潰時也可能卡住控制權 [4]\n3. **少見但可能：CL 線或交換機問題** — 但其他 5 台都正常，且健檢交換機設定正常，機率較低\n\n---\n\n### 🔧 現場照做步驟\n\n| 誰可以做 | 步驟 |\n|---------|------|\n| **線上人員（先做）** | 檢查 Grab 主機上是否還有 **pylon Viewer、相機工具、eBUS Player** 開著 → 全部關閉，再按一次「一鍵健檢」 |\n| 線上人員（接續） | 如果 Grab 主機上沒有，也檢查 **其他連到同一台交換機的電腦** 有沒有開上述軟體（工程師的筆電可能還連著） |\n| 若上述都無法解決 → **設備工程** | 將 **CCD02 斷電重開**（拔掉相機電源線再插回），等相機重啟後再按健檢 |\n\n---\n\n### ✅ 如何確認修好\n\n1. 再次按「一鍵健檢」— CCD02 的取像項目應顯示 **✅ 正常**（不再出現「相機被其他程式占用」）[7]\n2. Control 畫面恢復顯示 CCD01–CCD06 的即時影像 [7]\n3. Grab 燈號維持綠色（表示與交換機連線正常）[7]",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/cam_align/README.md",
+   "tools/cam_align/README.md",
+   "tools/triage/cfaoi_triage.py",
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/param_drift_v2.loop.json",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_camera_param_drift.md"
+  ],
+  "sec": 19.6
+ }
+}

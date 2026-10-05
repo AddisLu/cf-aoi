@@ -1244,6 +1244,9 @@ Grab 代理 TRIAGE）。實機注入 7 種故障（相機斷線/掉封包/參數
 實驗中修掉 9 個問題（RDMA CM 誤報、console 雜訊誤報、MAC 連號錯配、5945 不支援入方向限速…）。
 報告 `docs/verification/machine_assistant_eval_20261005.md`；案例 `docs/troubleshooting/cases/`；
 知識 `docs/troubleshooting_線上異常處理.md`。交換機部分只驗證借用的 5945，正式 SN2201 待補。
+- **第二輪（同日）再驗 9 個問題點**（相機 IP 被改、撞名、被占用、行速率、Grab 停、IP 調參模式、IP 參數檔被改、
+  Grab 網卡 MTU、ip_forward）：**健檢 9/9**；助手只給症狀 **3/18**（新問題幾乎全錯）、先健檢再問 **17/18**。
+  兩輪合計健檢 16/16、助手 12/38 → 36/38。新增「主機」檢查類；工具 `write_cases.py`（實驗/現場 → 案例庫）。
 
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；

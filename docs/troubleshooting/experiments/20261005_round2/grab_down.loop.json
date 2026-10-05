@@ -1,0 +1,34 @@
+{
+ "scenario": "grab_down",
+ "symptom": "Control 上 Grab 的燈是紅的，按什麼都沒反應，相機看起來都有開。",
+ "A": {
+  "answer": "**結論：Control 上的 Grab 燈紅燈，代表 `cfaoi_grab` 程式沒有正常連線到 Control，問題出在 Grab 程式本身沒起來或 TCP 連線 8100 埠不通。**\n\n---\n\n### 可能原因\n\n1. **`cfaoi_grab` 程式未啟動或崩潰** – 程式沒跑起來，Control 收不到心跳。\n2. **Grab 主機本身當機或網路斷線** – 主機沒開機、網路線鬆脫，或交換機埠燈號異常。\n3. **Control 端防火牆阻擋 8100 TCP 連線** – 防火牆規則擋掉了 Grab 的連線請求。\n\n---\n\n### 現場照做步驟（誰可以做）\n\n**現場人員（可操作）：**\n\n1. **先確認 Grab 主機（damac）有沒有開機** – 看主機電源燈是否亮著、風扇有沒有轉。\n\n2. **檢查 Grab 主機的網路線** – 確認主機到交換機的網路線兩端燈號都亮（沒有亮＝斷線）。\n\n3. **重新啟動 Grab 程式** – 在 Grab（damac）主機上：\n   ```bash\n   # 先看 cfaoi_grab 是否在運作\n   ps aux | grep cfaoi_grab\n   \n   # 如果沒找到，重新啟動 Grab 程式（按下對應的啟動腳本或執行指令）\n   ```\n\n4. **如果程式有跑但燈還是紅的** – 在 Grab 主機上試著 ping Control 主機的 IP，確認兩邊網路有沒有通。不通的話要檢查交換機埠設定。\n\n---\n\n### 怎麼確認修好\n\n- Control 主視窗 **Status 區的 Grab 燈號轉為綠色**。\n- 畫面重新出現即時影像，Grab 能正常回傳資料。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down.loop.json",
+   "docs/troubleshooting/experiments/20261005_fault_injection/uplink_down.loop.json",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/uplink_down_v2.loop.json",
+   "docs/troubleshooting/cases/20261005_camera_cam_missing.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/uplink_down.json"
+  ],
+  "sec": 15.9
+ },
+ "B": {
+  "answer": "**結論：Grab 燈號紅、健檢報告說「Grab 程式沒有回應（8100）」，問題出在 Grab 服務本身（已停止或當掉），不是相機端或線路。**\n\n---\n\n## 可能原因\n\n| 原因 | 說明 |\n|------|------|\n| 1️⃣ **Grab 服務當掉或停止** | 健檢報告確認「Grab 程式沒有回應（8100）」，但相機 6 台都列舉到（CCD01–CCD06）[報告] |\n| 2️⃣ **Grab 服務被前一輪異常影響** | 最近 7 天 GPU 有 105 筆程式錯誤紀錄（Xid 13/31/43），可能 GPU 相關錯誤導致 Grab 掛掉 [3] |\n| 3️⃣ **Control ↔ Grab 的 8100 TCP 連線中斷** | Grab 燈號紅代表 Control 收不到 Grab 心跳，但相機本身正常（6 台都有）[報告] |\n\n---\n\n## 👷 現場照做步驟（線上人員可操作）\n\n### Step 1：重新啟動 Grab 服務\n在 Control 主畫面 →「系統狀態」→ Grab 取像 → 按「**重新啟動**」[8]\n\n### Step 2：等 10–30 秒，看 Grab 燈號是否轉綠\n重新啟動後，Control 會在幾秒內自動重連，上方 Grab 燈號應轉為綠色 [8]\n\n### Step 3：若 Grab 燈號恢復綠色但還是沒影像\n依參考資料 [4] 的順序檢查：\n- 確認 CCD 是否已綁定（SystemSettings → 相機 tab，看實體陣列一欄是否綠色）[4]\n- 從 Control 發 **GRAB_ARM** → 再發 **GRAB_START** [1][4]\n\n---\n\n## ✅ 怎麼確認修好\n\n- **Grab 燈號轉為綠色**（Control 恢復收到 Grab 心跳）[5]\n- **Control 畫面恢復顯示 CCD01–CCD06 的即時影像** [5]\n- 再次按「一鍵健檢」，相機那一項應顯示 ✅ [5]\n\n> ⚠️ 如果重新啟動後又馬上掛掉（反覆當掉），請收 log 和診斷包交給設備工程，因為健檢也發現最近 7 天有 105 筆 GPU 程式錯誤紀錄（Xid 13/31/43），可能跟 GPU 那邊有關 [3]。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/uplink_down.loop.json",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down.loop.json",
+   "control/src/ViewModels/NodeAgentsViewModel.cs"
+  ],
+  "sec": 19.3
+ }
+}

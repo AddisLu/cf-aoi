@@ -88,6 +88,7 @@ def main():
     ap.add_argument('--exp', default=os.path.expanduser('~/cfaoi_logs/fault_exp'))
     ap.add_argument('--only', choices=['A', 'B'])
     ap.add_argument('--tag', default='', help='輸出檔名後綴（例 _v2 = 補強後重考）')
+    ap.add_argument('--no-knowledge', action='store_true', help='不考固定知識題（只考故障情境）')
     a = ap.parse_args()
     base, tok = loop_url()
     items = []
@@ -99,7 +100,7 @@ def main():
             continue
         rep = sc.get('fault', {}).get('report')
         items.append((sc['scenario'], sc['symptom'], rep if rep and os.path.exists(rep) else None))
-    for k, (q, rep_name) in KNOWLEDGE_QS.items():
+    for k, (q, rep_name) in ({} if a.no_knowledge else KNOWLEDGE_QS).items():
         rep = os.path.join(a.exp, f'{rep_name}.md') if rep_name else None
         items.append((k, q, rep if rep and os.path.exists(rep) else None))
     for name, symptom, rep in items:

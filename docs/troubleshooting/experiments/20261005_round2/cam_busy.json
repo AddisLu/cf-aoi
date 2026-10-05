@@ -1,0 +1,20 @@
+{
+ "scenario": "cam_busy",
+ "symptom": "按開始取像之後 CCD02 一直失敗，其他台都正常；早上工程師有來看過相機。",
+ "injected": {},
+ "fault": {
+  "exit": 1,
+  "sec": 110.5,
+  "report": "/home/user/cfaoi_logs/fault_exp2/cam_busy.md",
+  "problems": [
+   "WARN [取像] 相機被其他程式占用：CCD02（產線 Grab 沒在用它）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 118.5,
+  "report": "/home/user/cfaoi_logs/fault_exp2/cam_busy.after.md",
+  "problems": []
+ }
+}

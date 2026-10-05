@@ -1,0 +1,20 @@
+{
+ "scenario": "ip_offline_mode",
+ "symptom": "昨天工程師在調參數，今天開線送料後一直沒有結果，Control 的 IP 燈是綠的。",
+ "injected": {},
+ "fault": {
+  "exit": 2,
+  "sec": 118.6,
+  "report": "/home/user/cfaoi_logs/fault_exp2/ip_offline_mode.md",
+  "problems": [
+   "FAIL [RDMA] Spark 上的 IP 停在「調參模式」，生產用的收圖沒開（不是線的問題）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 118.4,
+  "report": "/home/user/cfaoi_logs/fault_exp2/ip_offline_mode.after.md",
+  "problems": []
+ }
+}

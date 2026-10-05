@@ -116,7 +116,76 @@ check('IP 服務停 → 判「機器/程式，不是線」', '不是線' in r['t
 r = rdma_case(True, True, True, ok_sp)
 check('全部正常 → OK', r['level'] == 'OK', r)
 
-print('4. 報告輸出')
+print('4. 主機檢查')
+
+
+def host_case(mtu='9000', fwd='1', route='192.168.10.1 via 192.168.3.2 dev enp1s0f0np0', disk='29', skew=0.0):
+    import builtins, io
+    rep = T.Report()
+    T.nic_with_ip = lambda prefix: 'eth0'
+    T.sysfs = lambda nic, name, default=None: mtu if name == 'mtu' else default
+    real_open = builtins.open
+    builtins.open = lambda f, *a, **k: io.StringIO(fwd) if f == '/proc/sys/net/ipv4/ip_forward' else real_open(f, *a, **k)
+    T.ssh_spark = lambda script, timeout=25: (0, f'route={route}\ndisk={disk}\nnow={T.time.time() + skew}\n', '')
+    try:
+        T.check_host(rep, None, {}, None)
+    finally:
+        builtins.open = real_open
+    return [(i['level'], i['title']) for i in rep.items]
+
+
+r = host_case()
+check('主機全正常 → OK', r and r[-1][0] == 'OK', r)
+r = host_case(mtu='1500')
+check('網卡 MTU 1500 → FAIL', any(l == 'FAIL' and 'MTU 1500' in t for l, t in r), r)
+r = host_case(fwd='0')
+check('ip_forward=0 → FAIL（Control 連不到 Spark）', any(l == 'FAIL' and 'ip_forward=0' in t for l, t in r), r)
+r = host_case(route='192.168.10.1 via 100.64.0.1 dev tailscale0')
+check('Spark 沒有回程路由 → FAIL', any(l == 'FAIL' and '回 Control 的路由' in t for l, t in r), r)
+r = host_case(disk='96')
+check('Spark 磁碟 96% → FAIL', any(l == 'FAIL' and '96%' in t for l, t in r), r)
+r = host_case(disk='88')
+check('Spark 磁碟 88% → WARN', any(l == 'WARN' and '88%' in t for l, t in r), r)
+r = host_case(skew=5.0)
+check('時間差 5 秒 → WARN', any(l == 'WARN' and '時間差' in t for l, t in r), r)
+
+print('5. 取像：多台掉封包收斂成共用根因')
+import threading, types
+
+
+def capture_case(stats_by_ccd, mtu='9000'):
+    class Cam:
+        def __init__(self, st):
+            self.stats, self.lock = st, threading.Lock()
+        def ready(self):
+            return True
+        def list_features(self):
+            return [{'key': 'expo', 'value': 70.0}, {'key': 'gain', 'value': 256}, {'key': 'lrate', 'value': 12004.8}]
+    ca = types.SimpleNamespace(MAX_CAMS=6, STATE_LOCK=threading.Lock(), CAMS={}, start_cams=lambda ips: ips, stop_cams=lambda: None)
+    devs = []
+    for i, (ccd, st) in enumerate(sorted(stats_by_ccd.items())):
+        ip = f'192.168.5.{int(ccd[3:])}'
+        ca.CAMS[ip] = Cam(st)
+        devs.append({'ip': ip, 'mac': f'00:00:00:00:00:{i:02x}', 'user_id': ccd, 'kind': 'basler', 'busy': False})
+    sys.modules['cam_align'] = ca
+    T.nic_with_ip = lambda prefix: 'eth1'
+    T.sysfs = lambda nic, name, default=None: mtu if name == 'mtu' else default
+    T.nic_stats = lambda nic: {}
+    rep = T.Report()
+    rep.facts.update(_devs=devs, grab_health={})
+    T.check_capture(rep, None, {}, types.SimpleNamespace(capture_sec=0))
+    return [(i['level'], i['title']) for i in rep.items if i['area'] == '取像']
+
+
+bad = {'frames': 4, 'complete': 60.0, 'lost': 1, 'mean': 2.8, 'err': ''}
+good = {'frames': 4, 'complete': 100.0, 'lost': 0, 'mean': 2.8, 'err': ''}
+r = capture_case({f'CCD0{i}': dict(bad) for i in range(1, 7)}, mtu='1500')
+check('6 台掉封包 + MTU 1500 → 收斂成 1 條共用根因', len([t for l, t in r if '掉封包' in t]) == 1 and any('6 台相機同時掉封包' in t for l, t in r), r)
+r = capture_case({'CCD01': dict(bad), **{f'CCD0{i}': dict(good) for i in range(2, 7)}})
+check('只有 CCD01 掉封包 → 仍逐台報（不收斂）', [t for l, t in r if '掉封包' in t] == ['CCD01 掉封包（影像不完整）'], r)
+sys.modules.pop('cam_align', None)
+
+print('6. 報告輸出')
 rep = T.Report()
 rep.add('相機', 'OK', '相機 6 台都在')
 rep.add('RDMA', 'WARN', '某注意事項', cause='c', action='a')

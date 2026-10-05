@@ -1,0 +1,34 @@
+{
+ "scenario": "ini_changed",
+ "symptom": "重開機之後，暗的缺陷好像都抓不到了，以前會抓到的點現在都沒有；最近有人動過 Spark。",
+ "A": {
+  "answer": "根據參考資料，這個問題與 Spark 相關，我來查詢相關資訊。\n\n這看起來是 CF-AOI 機台的 issue，我先用知識庫查到的資料來回答。\n\n---\n\n**結論：問題可能出在 Spark 的重開機或最近有人動過之後，RDMA 直連線或網卡狀態異常，導致 Control/Grab 無法正常送圖給 Spark 運算，所以暗缺陷都抓不到。**\n\n雖然你提到的是「暗缺陷抓不到」，但根據知識庫中一份 RDMA 連線異常的案例 [1][2]，Spark 重開機或有人動過之後，最容易出現的狀況是 **Grab ↔ Spark 之間的直連線（RDMA 線）沒有 link** — 這會導致 Control 無法對 Spark 送圖取回結果（DefectCnt 不會正常回傳）[1][6]，表現上就像缺陷都抓不到。\n\n### 可能原因（依機率）\n\n1. **Grab↔Spark 直連線鬆脫或光模組沒插緊** — 最近有人動過 Spark，可能去動到線 [2][5]\n2. **線材或光模組損壞** [5]\n3. **Spark 上 rdma-process 服務沒有自動重啟** — 重開機後服務未正常啟動，導致 Grab 端連不上 [6]\n4. **Spark 的 RDMA 網卡驅動或設定跑掉** — 有人動過 Spark 時可能改到設定 [5]\n\n### 請「現場人員」照以下步驟做\n\n1. **先確認 Spark 電源燈亮、風扇有轉**（確定有正常開機）[2]\n2. **檢查 Grab 與 Spark 之間的直連線兩端是否插緊**（線材上有 CCD 標示，注意不要只看交換機埠）[2]\n3. **在 Grab 端確認網路狀態**：看 `enp1s0f0np0` 是否有 link（IP 燈是否轉綠）[1][5]\n4. **檢查 Spark 上 rdma-process 服務是否正常運作**：`sudo systemctl status rdma-process` [6]\n5. **如果以上都正常，嘗試換一條備用線** → 換線後有 link = 原本線壞；換線仍無 link = 網卡或機器問題，需通知設備工程 [2]\n\n### 怎麼確認修好\n\n1. IP 燈轉綠，且 log 不再出現「連線中斷/已重新連線」[1]\n2. Control 能對 Spark 送圖取回結果（`DefectCnt` 正常回傳）[1]\n3. 上位機重新送料後能正常收到結果回傳 [1]\n\n如果上面步驟都試過還是抓不到，可能需要進一步檢查 Spark 上的 GPU 驅動或暗缺陷檢測的參數設定（BTH/DTH 門檻等）是否被改過 [7]，但知識庫中沒有更詳細的資料了。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/verification/verification_report_arm_20260615.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/rdma_cable.md",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "scripts/deploy/README.md",
+   "scripts/collect_false_positives.py",
+   "docs/verification/verification_report_arm_20260615.md"
+  ],
+  "sec": 23.8
+ },
+ "B": {
+  "answer": "**結論：問題出在 Spark 上的預設參數檔被改過（`ip/config/default_zone.ini`），導致 GPU 參考圖測圖結果不符（該抓到 1 顆 PointDark 但實得 0 顆），暗的缺陷因此抓不到。**[7]\n\n---\n\n## 可能原因\n\n1. **有人手動改了 Spark 上的 `ip/config/default_zone.ini`**（健檢報告指出該檔與 Git 版本不同，且有人最近動過 Spark）[7]\n2. 參數檔內的 Filter、Threshold 等設定被調過，導致暗缺陷被濾掉或偵測不到 [1]\n\n---\n\n## 現場照做步驟（誰可以做）\n\n1. **在 Spark 上還原 `default_zone.ini` 到 Git 版本**（軟體工程）\n   - 登入 Spark，進 `~/cf-aoi` 目錄，執行：\n     ```bash\n     git checkout -- ip/config/default_zone.ini\n     ```\n   - 這會把該檔還原回最新的提交版本。[7]\n\n2. **重新啟動 IP/Spark，再跑一次檢測**（產線人員）\n   - 先關閉 AOI 軟體，重新啟動 Spark 服務，再跑一次檢測。\n   - 如果恢復正常 → 就是參數檔被誤改導致的。 [1]\n\n3. **如果重啟後還是抓不到暗缺陷**（軟體工程）\n   - 收 log 和診斷包交給設備工程，因為近 7 天有 105 筆 GPU 程式錯誤（Xid 13/31/43），可能 GPU 也有問題。[1][2]\n\n---\n\n## 怎麼確認修好？\n\n- 重新跑一次一鍵健檢：GPU 那一項從 **「❌ 參考圖測圖結果與標準答案不同」** 變成 **「✅ 參考圖測圖正確」**（應抓到 `[(5894, 725, 'PointDark')]`）。[1][4][7]\n- 用同一片已知良品板子測試，暗缺陷應該要能正常抓到。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_gpu_q_gpu_ok.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/SETUP.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/gpu_deep.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "tools/triage/cfaoi_triage.py",
+   "20260806.jsonl"
+  ],
+  "sec": 16.7
+ }
+}

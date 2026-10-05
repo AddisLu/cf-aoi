@@ -1,0 +1,34 @@
+{
+ "scenario": "dup_name",
+ "symptom": "剛換了一台相機（CCD06 的位置），換完之後 CCD06 沒有影像，而且 CCD03 的影像好像怪怪的。",
+ "A": {
+  "answer": "**結論：CCD06 沒有影像、CCD03 影像異常。CCD06 的問題可能是新相機的線路沒插好或設定不對；CCD03 的問題是取像不完全（封包遺失或相機異常）。**\n\n---\n\n### 🔴 CCD06 沒有影像\n\n**可能原因 [1][2][6]**：\n- 新相機 CCD06 的網路線/光纖或交換機那端的模組鬆脫、損壞\n- 新相機 CCD06 沒電（電源線/電源供應器）\n- 交換機埠設定和基準不同（例如少了 speed 1000）\n- 交換機有埠被手動關閉（shutdown）\n\n**現場照做（設備工程）**：\n1. 看 CCD06 相機背面燈號是否亮（不亮 = 沒電，查電源線）\n2. 重插 CCD06 這條線兩端（相機端、交換機端模組）\n3. 換一條線或交換機換一個空埠（埠位不必固定）\n4. 若以上無效，請工程人員檢查交換機上 CCD06 插的埠設定（需 speed 1000、無 shutdown）\n\n---\n\n### 🔴 CCD03 影像「怪怪的」\n\n從參考資料的紀錄來看，CCD03 在抓圖時出現了 **complete = 0.0%** 的狀況（即完全沒取到完整畫面），而其他相機正常 [8]。這表示 CCD03 的傳輸可能有問題。\n\n**可能原因 [8]**：\n- CCD03 的網路線/光纖鬆脫或損壞\n- CCD03 相機本身故障或設定異常\n- 交換機上 CCD03 的埠有異常\n\n**現場照做（設備工程）**：\n1. 重插 CCD03 的線（相機端、交換機端）\n2. 換一條線或交換機換一個空埠\n3. 檢查交換機上 CCD03 的埠設定（speed 1000）\n\n---\n\n### ✅ 確認修好\n\n- Control 主畫面 CCD06 的影像恢復正常（預覽畫面出現、幀數 >0、無 dropped 幀數）[4]\n- Control 主畫面 CCD03 的影像恢復正常（預覽畫面出現、幀數 >0、complete = 100%）\n- 產線可繼續取像 [4]",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/experiments/20261005_fault_injection/switch_reset.md",
+   "docs/troubleshooting/cases/20261005_switch_switch_reset.md",
+   "docs/troubleshooting/cases/20261005_switch_switch_reset.md",
+   "docs/troubleshooting/cases/20261005_camera_cam_missing.md",
+   "docs/troubleshooting/cases/20261005_switch_q_switch_replace.md",
+   "docs/troubleshooting/cases/20261005_camera_cam_missing.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/cam_missing.triage.json",
+   "docs/troubleshooting/experiments/20261005_fault_injection/packet_loss.triage.json"
+  ],
+  "sec": 17.2
+ },
+ "B": {
+  "answer": "## 結論\n\n**CCD06 那台剛換上的相機，被設成和 CCD03 一樣的名稱（DeviceUserID 都為 CCD03），導致兩台相機身分衝突，grab 綁錯，CCD06 沒有影像、CCD03 影像異常。**\n\n## 原因\n\n健檢報告顯示：**兩台相機都叫 CCD03**【1】\n\n| IP | MAC | 應為 |\n|---|---|---|\n| 192.168.5.3（MAC 00:30:53:54:e3:2b） | CCD03（正牌） |\n| 192.168.5.6（MAC 00:30:53:54:e3:15） | 也被設成 CCD03，但它應該是 **CCD06** |\n\n這表示換相機時，新相機的 **Device User ID** 被誤設為 `CCD03`（可能複製到舊 CCD03 的設定或打錯字），兩台同名 → Grab 拒開失敗或綁錯，CCD06 那台等於被「蓋掉」看不到【1】【6】。\n\n## 現場照做（設備工程可做）\n\n1. **先確認 grab 已停機**：在觸控螢幕或主機執行 `GRAB_STOP`，或先讓機台停機（不然 `cam_provision set` 會被擋）【6】。\n2. **找出序號對應**：在 damac 主機（主電腦）執行：\n   ```\n   grab/build/cam_provision list\n   ```\n   找到 MAC `00:30:53:54:e3:15` 那一台的序號（SN）。\n3. **把那台改回 CCD06**（一次設好名稱和 IP）：\n   ```\n   grab/build/cam_provision set <序號> CCD06\n   ```\n   工具會自動設 `DeviceUserID = CCD06` 和 `IP = 192.168.5.6`，如果名稱或 IP 撞到會拒絕【6】。\n4. **ping 確認通**：\n   ```\n   ping 192.168.5.6\n   ```\n   確定有回應。\n5. **重新開啟 grab**：`GRAB_START` 或重新開機台。\n\n## 怎麼確認修好\n\n- 再按一次「一鍵健檢」，**相機衝突項目應消失**。\n- `LIST_CAMERAS` 應看到 **CCD03（MAC e3:2b）** 和 **CCD06（MAC e3:15）** 各自綁定正確【1】。\n- CCD06 和 CCD03 的取像畫面都正常顯示。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "docs/verification/verification_report_step2_20260615.md",
+   "docs/verification/verification_report_step2_20260615.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/switch_reset.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "cf-aoi-git-history.md"
+  ],
+  "sec": 22.4
+ }
+}

@@ -1,0 +1,47 @@
+{
+ "time": "2026-10-05T20:25:52",
+ "machine": "user-IMB-M47",
+ "items": [
+  {
+   "area": "RDMA",
+   "level": "OK",
+   "title": "Grab ↔ Spark RDMA 正常（線、兩端網卡、IP 程式都正常）",
+   "evidence": "Grab enp1s0f0np0：link 有、100000Mb/s、MTU 9000、RoCE ACTIVE；ping Spark 通、大封包 通；Spark 端：link 有、MTU 9000、RoCE ACTIVE、IP 生產服務 active、調參服務 inactive、RDMA 埠 18515 有在聽；IP 控制埠 有回應",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "主機",
+   "level": "FAIL",
+   "title": "Grab 的轉送功能關閉（ip_forward=0）→ Control 連不到 Spark 的 IP",
+   "evidence": "",
+   "cause": "Grab 系統設定被改或重灌後沒設（Control 到 Spark 要經過 Grab 轉送）",
+   "action": "找工程開啟（/etc/sysctl.d 的 net.ipv4.ip_forward=1）；暫時可重開 Grab",
+   "who": "設備工程"
+  }
+ ],
+ "facts": {
+  "rdma": {
+   "grab_nic": "enp1s0f0np0",
+   "carrier": true,
+   "speed": "100000",
+   "mtu": "9000",
+   "roce": "ACTIVE",
+   "ping": true,
+   "jumbo": true,
+   "spark": {
+    "carrier": "1",
+    "speed": "100000",
+    "mtu": "9000",
+    "ip": "192.168.3.1/24",
+    "rdma": "state ACTIVE",
+    "svc": "active",
+    "svc_off": "inactive",
+    "listen": "4"
+   },
+   "ip_health": true
+  },
+  "spark_time_offset_s": 0.161
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "scenario": "grab_down",
+ "symptom": "Control 上 Grab 的燈是紅的，按什麼都沒反應，相機看起來都有開。",
+ "injected": {},
+ "fault": {
+  "exit": 2,
+  "sec": 118.5,
+  "report": "/home/user/cfaoi_logs/fault_exp2/grab_down.md",
+  "problems": [
+   "FAIL [相機] Grab 程式沒有回應（8100）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 118.4,
+  "report": "/home/user/cfaoi_logs/fault_exp2/grab_down.after.md",
+  "problems": []
+ }
+}

@@ -1,0 +1,34 @@
+{
+ "scenario": "ip_forward_off",
+ "symptom": "Control 上 IP 的燈一直是紅的，Grab 的燈是綠的；Spark 有開機，重開 Control 也一樣。",
+ "A": {
+  "answer": "**結論：問題不是硬體線路，是 Spark 上的 IP 生產服務（cfaoi-ip-production）沒有在跑。**  \nControl IP 燈紅 + Grab 燈綠 + Spark 有開機、重開 Control 無效，代表實體線路和 Grab 程式都正常，但 Spark 端的 IP 服務未啟動，導致 Control 收不到 IP 心跳 [2][6]。\n\n---\n\n### 可能原因\n1. **cfaoi-ip-production 服務未啟動（inactive）** — 這是健檢報告指出的直接原因 [6]。\n2. 服務因某種原因崩潰或被手動停止，沒有自動重啟。\n\n---\n\n### 現場照做步驟（線上人員可操作）\n\n1. **到 Control 系統狀態 → Spark → 找到「IP 生產」服務。**\n2. **按「重新啟動」，啟動 cfaoi-ip-production 服務。** [2]\n3. **等約 10–20 秒。**\n\n---\n\n### 怎麼確認修好\n- Control 主視窗 **Status 區的 IP 燈轉為綠色**，log 出現「IP 已連線」 [6]。\n- 重新送料後，上位機能正常收到結果回來 [6]。\n\n---\n\n若上述步驟做完 IP 燈仍紅，請通知工程師進一步檢查 Spark 端的程式與 ControlServer Listen 狀態 [4]。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md"
+  ],
+  "sec": 10.6
+ },
+ "B": {
+  "answer": "**結論：問題出在 Grab 主機，不是 Spark 也不是線路。** 健檢報告說 Grab 的 `ip_forward` 被關掉了（`ip_forward=0`），所以 Control（Windows）送給 Spark 的 IP 封包無法經由 Grab 轉送過去，Control 就收不到 Spark 的心跳，因此 IP 燈恆紅 [1]。\n\n---\n\n### 可能原因\n\n1. **Grab 系統設定被改或重灌後沒設** — `ip_forward` 原本應為 `1`，但可能因為更新、重整或被其他程式改回 `0` [1]。\n2. **臨時性的核心參數失效** — 重開機後沒套用到 `/etc/sysctl.d` 的設定檔。\n3. **Control 重開無效是正常的** — 因為問題在 Grab 端，Control 重開不會影響 Grab 的轉送功能。\n\n---\n\n### 現場照做步驟（誰可以做）\n\n**設備工程（可操作）：**\n\n1. **暫時解法：重開 Grab 主機** — 重開後 `ip_forward` 會從設定檔重新套用，暫時恢復轉送 [1]。\n2. **永久解法：確認 `/etc/sysctl.d` 裡有 `net.ipv4.ip_forward=1`** — 若沒有，請系統/軟體工程補上並執行 `sudo sysctl -p` 套用 [1][7]。\n\n---\n\n### 怎麼確認修好\n\n- Control 上 **IP 燈轉為綠色**。\n- 健檢報告第 1 項從 ❌ 變成 ✅（`ip_forward` 顯示 `1`）。\n- 上位機重新送料後，結果正常回來 [1]。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down.loop.json",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down_v2.loop.json",
+   "docs/troubleshooting/experiments/20261005_fault_injection/rdma_cable_v2.loop.json",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "tools/grab_setup/bootstrap.sh",
+   "tools/grab_setup/bootstrap.sh"
+  ],
+  "sec": 16.8
+ }
+}

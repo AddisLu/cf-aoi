@@ -1,0 +1,22 @@
+{
+ "scenario": "cam_ip_changed",
+ "symptom": "CCD04 沒有影像，可是交換機燈有亮、相機燈也有亮，線也重插過了。",
+ "injected": {
+  "mac": "00:30:53:54:e6:bd"
+ },
+ "fault": {
+  "exit": 2,
+  "sec": 110.4,
+  "report": "/home/user/cfaoi_logs/fault_exp2/cam_ip_changed.md",
+  "problems": [
+   "FAIL [相機] CCD04 的 IP 被改成 192.168.6.4（不在相機網段 192.168.5.x）→ Grab 連不到"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 110.5,
+  "report": "/home/user/cfaoi_logs/fault_exp2/cam_ip_changed.after.md",
+  "problems": []
+ }
+}

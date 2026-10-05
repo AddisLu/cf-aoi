@@ -36,6 +36,11 @@
 | 同上 | ❌ CCDnn 偏暗：參數正常，問題在光學 | 光源沒亮/老化/角度偏、鏡頭光圈被轉、鏡頭髒污或遮擋 | 檢查該 CCD 的光源、鏡頭、光圈環 |
 | 全部都很暗 | ℹ️ 全部相機畫面都很暗 | 光源沒開或沒有玻璃 | 開光源（實驗室沒光源時屬正常）|
 | 新換的相機 | ⚠️ 有一台沒命名的相機 / IP 不符規則 | 新相機還沒設 CCD 編號 | 桌面「相機工具」→ 🛠 裝置設定：填 CCD 編號 → 寫入（IP 自動 = 192.168.5.nn）|
+| 某台沒影像，但交換機燈、相機燈都亮、線也重插過 | ❌ CCDnn 的 IP 被改成 x.x.x.x（不在 192.168.5.x）→ Grab 連不到 | 有人用工具改了相機 IP | ① 該相機斷電 10 秒再上電（暫時改的 IP 會回設定值）② 仍不對 → 相機工具「裝置設定」寫入 |
+| 換了相機後該 CCD 沒影像、另一台怪怪的 | ❌ 有 2 台相機都叫 CCDxx（身分衝突）——證據會指出「MAC 對照基準，它應該是 CCDyy」| 新相機名稱寫錯（撞名）| 相機工具「裝置設定」把多出來那台改回正確編號 |
+| 開始取像時某台一直失敗、其他正常 | ⚠️ 相機被其他程式占用（產線 Grab 沒在用它）| 有人開著 pylon Viewer / 相機工具 / eBUS Player 沒關 | 關掉那些程式（Grab 或其他電腦）；仍占用 → 該相機斷電重開 |
+| 某台影像被壓扁/拉長、接不起來、缺陷位置對不上 | ⚠️ CCDnn 行速率 11001 Hz（應 12000）→ 影像比例尺不對 | 相機行速率被改（UserSet 鎖住舊值；歷史事故 CCD01/02 差 11%）| Control 重新載入配方（Grab ARM 設回行速率）；仍不對 → 工程查 UserSet |
+| **所有**相機影像都有缺、相機/交換機燈都正常 | ❌ N 台相機同時掉封包 → 共用原因（Grab 相機網卡 MTU）| Grab 換網卡/重灌後 MTU 沒設 9000 | 工程把 Grab 相機網卡 MTU 設回 9000；不要逐台換相機線 |
 
 補充：
 - 相機身分存在相機裡（DeviceUserID = CCDnn、IP 尾碼 = 編號），**換交換機埠不影響**；換相機要重新命名。
@@ -77,9 +82,20 @@
 | ❌ 大封包不通（MTU 不一致）| 兩端 MTU 應 9000 | 找工程設回 9000 |
 | ❌ 線和網路都正常，是 Spark 上的 IP 程式沒在跑（**機器/程式問題，不是線**）| IP 服務停止或反覆當掉 | Control 系統狀態 → Spark →「IP 生產」重新啟動；反覆失敗收診斷包 |
 | ⚠️ IP 生產在跑但 RDMA 埠還沒在聽 | IP 正在重啟/初始化 | 等 30 秒重跑；仍沒在聽 → 重啟 IP 生產 |
+| ❌ Spark 上的 IP 停在「調參模式」（不是線的問題）| 調機/調參後沒切回生產（IP 燈可能是**綠**的，因為調參模式也回應控制命令）| Control 系統狀態 → Spark →「IP 生產」切到此模式 |
 | ❌ RoCE 狀態不是 ACTIVE | 網卡驅動/韌體 | 重開 Grab 與 Spark |
 
 > 註：IP 的 RDMA 監聽（18515）是 RDMA CM，不是 TCP，`ss -ltn` 看不到；要用 `rdma resource show cm_id`。
+
+## 3b. 主機（Grab / Spark 系統層）
+
+| 症狀 | 健檢 | 原因 | 處理 |
+|---|---|---|---|
+| Control 的 **Grab 燈紅**、按什麼都沒反應 | ❌ Grab 程式沒有回應（8100）| Grab 服務停止或當掉 | Control 系統狀態 → Grab →「重新啟動」|
+| Control 的 **IP 燈紅**、Grab 綠、Spark 有開、重開 Control 也一樣 | ❌ Grab 的轉送功能關閉（ip_forward=0）| Control → Spark 要經 Grab 轉送；Grab 設定被改/重灌 | 找工程開啟 net.ipv4.ip_forward=1 |
+| 同上 | ❌ Spark 沒有回 Control 的路由 | Spark cf-rdma 的 192.168.10.0/24 via 192.168.3.2 被改 | 找工程補路由；暫時可重開 Spark |
+| 影像常缺、log 寫不進去 | ❌/⚠️ 磁碟已用 ≥ 85%（Grab 或 Spark）| 自動清理沒跑或保留太久 | 確認 cfaoi-cleanup / cfaoi-archive 有跑；工程調保留天數 |
+| 結果日期、log 時間對不上 | ⚠️ Spark 和 Grab 時間差 > 1 秒 | 校時沒同步 | 工程查 Spark timesyncd（NTP=192.168.3.2）|
 
 ## 4. GPU / IP 運算
 
@@ -89,6 +105,7 @@
 | 系統 log 很多「Xid」 | 健檢會分類：**硬體類**（48 DBE、63/64 頁退役、79 掉匯流排、92/94/95 ECC、119/120 GSP…）vs **程式類**（13 非法指令、31 非法記憶體、43 被停止）並列出是哪支程式 | 硬體類 → 重開觀察、重複則送修；程式類且不是 cfaoi_ip → 不影響生產（例：2026-09-29 的 105 筆來自開發測試程式 ccl_bench/dbg）|
 | 缺陷數突然爆多、整片 NG | 爆點停算（同台連續 N 張 ≥ 門檻 1000）會寫 DefectCnt=門檻、JSON `flood_skip`；先看是否某台參數被改/偏暗/對焦跑掉 | 跑一鍵健檢看相機參數與取像；確認配方沒換錯 |
 | 參考圖結果和標準答案不同 | 先確認 `ip/config/default_zone.ini` 沒被改（標準答案是用 ini 預設參數跑的，不載配方）| 還原 ini；重開 Spark 重測；仍不同找軟體工程 |
+| 重開機後暗缺陷都抓不到/缺陷數大變 | ⚠️ Spark 上的 IP 參數檔被改過（和版本不同）+ `--gpu` 參考圖結果不同 —「參數檔被改過，很可能就是原因」| 有人手動改了 default_zone.ini / 預設配方（IP 重啟才生效，所以「重開機後」才出現）| 工程確認；誤改 → `git checkout` 還原後重啟 IP |
 
 ## 5. 機況助手（大模型）相關
 
@@ -106,6 +123,15 @@
 | [20261005_switch_switch_reset](troubleshooting/cases/20261005_switch_switch_reset.md) | 換交換機後 CCD05、06 連不上、換線也沒用 | 相機埠少 speed 1000（port-group）|
 | [20261005_rdma_ip_down](troubleshooting/cases/20261005_rdma_ip_down.md) | IP 燈紅、是不是線壞了 | 不是線：Spark IP 程式沒在跑 |
 | [20261005_rdma_rdma_cable](troubleshooting/cases/20261005_rdma_rdma_cable.md) | IP 燈紅、Spark 燈亮，線還是 Spark？ | Grab↔Spark 直連線沒 link |
+| [20261005_camera_cam_ip_changed](troubleshooting/cases/20261005_camera_cam_ip_changed.md) | CCD04 沒影像，燈都亮、線也重插過 | 相機 IP 被改到相機網段外 |
+| [20261005_camera_dup_name](troubleshooting/cases/20261005_camera_dup_name.md) | 換相機後 CCD06 沒影像、CCD03 怪怪的 | 新相機被命名成 CCD03（撞名）|
+| [20261005_camera_cam_busy](troubleshooting/cases/20261005_camera_cam_busy.md) | 開始取像時 CCD02 一直失敗 | pylon Viewer 等程式占用控制權 |
+| [20261005_camera_line_rate](troubleshooting/cases/20261005_camera_line_rate.md) | CCD01 影像被壓扁/拉長 | 行速率 11001 Hz（應 12000）|
+| [20261005_host_grab_down](troubleshooting/cases/20261005_host_grab_down.md) | Grab 燈紅、按什麼都沒反應 | Grab 程式停止 |
+| [20261005_ip_ip_offline_mode](troubleshooting/cases/20261005_ip_ip_offline_mode.md) | 調參後隔天送料沒結果、IP 燈綠 | IP 停在調參模式 |
+| [20261005_ip_ini_changed](troubleshooting/cases/20261005_ip_ini_changed.md) | 重開機後暗缺陷抓不到 | IP 預設參數檔被改 |
+| [20261005_host_grab_mtu](troubleshooting/cases/20261005_host_grab_mtu.md) | 換網卡後所有相機影像都有缺 | Grab 相機網卡 MTU 1500 |
+| [20261005_host_ip_forward_off](troubleshooting/cases/20261005_host_ip_forward_off.md) | IP 燈紅、Grab 綠、重開 Control 也一樣 | Grab 轉送被關 |
 
-原始資料（健檢報告、注入紀錄、助手回答）：`docs/troubleshooting/experiments/20261005_fault_injection/`；
+原始資料（健檢報告、注入紀錄、助手回答）：`docs/troubleshooting/experiments/20261005_fault_injection/`、`…/20261005_round2/`；
 評估報告：`docs/verification/machine_assistant_eval_20261005.md`。

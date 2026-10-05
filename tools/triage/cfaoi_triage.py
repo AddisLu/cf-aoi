@@ -12,13 +12,14 @@ cfaoi_triage — CF-AOI 一鍵健檢（在 Grab 上跑；線上人員不懂硬�
             Grab 網卡丟包、MTU、埠速率、交換機限速設定；亮度偏暗時對照曝光/增益是否被改
   3 交換機  console、上行（→Grab 100G）、相機埠、設定與基準差異、時鐘
   4 RDMA    Grab↔Spark 直連線：兩端 link、ping、大封包、RoCE 狀態、IP 服務與 18515 → 分辨「線」還是「機器/程式」
-  5 GPU/IP  Spark GPU 狀態、Xid 錯誤分類（硬體 vs 程式）、IP 服務；--gpu 另跑離線單元測試 + 參考圖測圖比對
+  4b 主機   Grab 網卡 MTU、轉送（Control→Spark 經 Grab）、Spark 回程路由、兩台磁碟、Grab↔Spark 時間差
+  5 GPU/IP  Spark GPU 狀態、Xid 錯誤分類（硬體 vs 程式）、IP 服務、IP 參數檔是否被改；--gpu 另跑離線單元測試 + 參考圖測圖比對
 
 用法
   cfaoi_triage.py                 全部（取像檢查約 10 秒；產線在跑時自動略過取像）
   cfaoi_triage.py --gpu           另跑 GPU 深度檢查（單元測試 + 參考圖，約 1–2 分鐘；不影響生產 IP）
   cfaoi_triage.py --save-baseline 目前狀態正常時存基準（各 CCD 相機的 MAC、交換機設定）；換相機後重存
-  cfaoi_triage.py --only rdma,gpu 只跑指定項目（camera,capture,switch,rdma,gpu）
+  cfaoi_triage.py --only rdma,gpu 只跑指定項目（camera,capture,switch,rdma,host,gpu）
 結束碼：0 全正常、1 有注意事項、2 有異常
 """
 import argparse
@@ -141,6 +142,17 @@ def nic_stats(nic):
     return out
 
 
+def expected_line_rate():
+    """Grab 啟動參數的 --line-rate（/etc/default/cfaoi-grab GRAB_EXTRA）；預設 12000；keep/max → 不檢查。"""
+    m = re.search(r'--line-rate\s+(\S+)', env_file('/etc/default/cfaoi-grab').get('GRAB_EXTRA', ''))
+    if not m:
+        return 12000.0
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
+
+
 def state_dir():
     d = os.path.join(ARCHIVE, '60_config', 'current') if os.path.isdir(os.path.join(ARCHIVE, '60_config')) \
         else os.path.expanduser('~/cfaoi_logs/triage')
@@ -187,10 +199,32 @@ def check_cameras(rep, sw, base, args):
     rep.facts['cam_expected'] = expected
     ca.do_discover()
     devs = list(ca.INVENTORY.values())
-    named = {}
+    named, dups = {}, {}
     for d in devs:
         if re.fullmatch(r'CCD\d{2}', d.get('user_id') or ''):
+            dups.setdefault(d['user_id'], []).append(d)
             named[d['user_id']] = d
+    base_macs = base.get('macs', {})
+    from switch_console import norm_mac as _nm
+    for name, ds in dups.items():
+        if len(ds) < 2:
+            continue
+        # 用基準 MAC 找出「真的 CCDxx」與「被誤命名的那台原本是誰」
+        real = [d for d in ds if _nm(d['mac']) == base_macs.get(name)]
+        named[name] = real[0] if real else ds[0]
+        who = []
+        for d in ds:
+            orig = next((k for k, v in base_macs.items() if v == _nm(d['mac'])), None)
+            who.append(f'{d["ip"]}（MAC {_nm(d["mac"])}' + (f'，基準是 {orig}' if orig else '，基準沒有這台') + '）')
+        wrong = [next((k for k, v in base_macs.items() if v == _nm(d['mac'])), None) for d in ds if d not in real]
+        rep.add('相機', 'FAIL', f'有 {len(ds)} 台相機都叫 {name}（身分衝突）', '；'.join(who),
+                '換相機/設定時名稱寫錯，或複製了別台的設定 → Grab 會綁錯相機、另一個 CCD 變成「不見」',
+                f'用相機工具「裝置設定」把多出來的那台改回正確編號' +
+                (f'（MAC 對照基準，它應該是 {"、".join(w for w in wrong if w)}）' if any(wrong) else '（看線材標示）'),
+                '設備工程')
+        for w in wrong:
+            if w and w not in named:
+                rep.facts.setdefault('cam_renamed', []).append(w)
     rep.facts['cam_found'] = sorted(named)
     rep.facts['_devs'] = devs
 
@@ -205,8 +239,18 @@ def check_cameras(rep, sw, base, args):
     base['macs'] = cam_macs
     base.pop('ports', None)
 
-    missing = [c for c in expected if c not in named]
+    renamed = set(rep.facts.get('cam_renamed', []))
+    missing = [c for c in expected if c not in named and c not in renamed]
     rep.facts['cam_missing'] = missing
+    # 名稱在、但 IP 被改到相機網段以外（ForceIP / 設定錯）→ Grab 連不到
+    for name, d in sorted(named.items()):
+        if name in expected and d.get('kind') == 'basler' and not d['ip'].startswith('192.168.5.'):
+            rep.add('相機', 'FAIL', f'{name} 的 IP 被改成 {d["ip"]}（不在相機網段 192.168.5.x）→ Grab 連不到',
+                    f'MAC {_nm(d["mac"])}；主機在該網段{"有" if d.get("reachable") else "沒有"}位址',
+                    '有人用工具改了相機 IP（暫時或永久）',
+                    f'① {name} 斷電 10 秒再上電（暫時改的 IP 會回到設定值）② 仍不對 → 相機工具「裝置設定」寫入 {name}（IP 自動 = 192.168.5.{int(name[3:])}）',
+                    '線上人員可先做')
+            rep.facts.setdefault('cam_bad_ip', []).append(name)
     if missing and len(missing) == len(expected) and len(expected) > 1:
         grab_nic = nic_with_ip('192.168.5.200')
         car = sysfs(grab_nic, 'carrier', '0') == '1' if grab_nic else False
@@ -239,7 +283,7 @@ def check_cameras(rep, sw, base, args):
                     f'{c} 的網路線/光纖或交換機那端的模組鬆脫、損壞；或 {c} 相機沒電（電源線/電源供應器）',
                     f'{label}：① 看 {c} 相機背面燈號是否亮（不亮 = 沒電，查電源線）② 重插這條線兩端（相機端、交換機端模組）'
                     f' ③ 換一條線或交換機換一個空埠（埠位不必固定）', '設備工程')
-    if not missing and expected:
+    if not missing and expected and not rep.facts.get('cam_bad_ip') and not renamed:
         rep.add('相機', 'OK', f'相機 {len(expected)} 台都在（{expected[0]}–{expected[-1]}）')
 
     for name, d in sorted(named.items()):
@@ -274,12 +318,13 @@ def check_capture(rep, sw, base, args):
     if gh.get('armed') or gh.get('grabbing'):
         rep.add('取像', 'INFO', '產線 Grab 正在取像，略過取像檢查（不打擾生產）')
         return
-    devs = [d for d in rep.facts.get('_devs', []) if d.get('kind') == 'basler']
+    devs = [d for d in rep.facts.get('_devs', []) if d.get('kind') == 'basler' and d['ip'].startswith('192.168.5.')]
     busy = [d['user_id'] or d['ip'] for d in devs if d.get('busy')]
     devs = [d for d in devs if not d.get('busy')]
     if busy:
-        rep.add('取像', 'INFO', f'這些相機被其他程式占用，略過：{", ".join(busy)}', '', '',
-                '關閉 pylon Viewer / 相機工具後重跑')
+        rep.add('取像', 'WARN', f'相機被其他程式占用：{", ".join(busy)}（產線 Grab 沒在用它）',
+                '相機的控制權（CCP）被別的程式拿著', '有人開著 pylon Viewer / 相機工具 / eBUS Player 沒關 → 產線開始取像時這台會失敗',
+                '關閉 Grab 主機或其他電腦上的 pylon Viewer、相機工具；仍占用 → 該相機斷電重開', '線上人員可先做')
     if not devs:
         return
     nic = nic_with_ip('192.168.5.200')
@@ -343,15 +388,22 @@ def check_capture(rep, sw, base, args):
 
     means = sorted(r['stats'].get('mean') or 0 for r in results.values() if (r['stats'].get('frames') or 0) > 0)
     median = means[len(means) // 2] if means else 0
-    bad_pkt = []
+    bad_pkt, pkt_items = [], []
+    n_items_before = len(rep.items)
     for ip, r in sorted(results.items(), key=lambda x: x[1]['dev'].get('user_id') or ''):
         name = r['dev'].get('user_id') or ip
         s = r['stats']
         frames, comp, lost, mean, err = s.get('frames') or 0, s.get('complete'), s.get('lost') or 0, s.get('mean'), s.get('err')
         port = live_port.get(name)
         if err or frames == 0:
+            if mtu and mtu < 9000:
+                cause = f'Grab 相機網卡 MTU={mtu}（應 9000）→ 相機的 jumbo 封包全部被丟（見「主機」項目）'
+            elif port and r['sw1'] and r['sw1'].get('frame_len', 9416) < 9000:
+                cause = f'交換機上 {name} 所插的埠最大框長只有 {r["sw1"]["frame_len"]} → 大封包全被丟'
+            else:
+                cause = '相機被占用、網路封包全被擋（MTU/交換機）、或相機異常'
             rep.add('取像', 'FAIL', f'{name} 取不到影像', f'錯誤：{err or "（無）"}；{args.capture_sec} 秒內 0 張',
-                    '相機被占用、網路封包全被擋（MTU/交換機）、或相機異常', f'重跑健檢；仍失敗就 {name} 斷電重開', '設備工程')
+                    cause, f'依原因處理；重跑健檢仍失敗就 {name} 斷電重開', '設備工程')
             continue
         if (comp is not None and comp < 99.5) or lost > 0:
             ev = [f'完整度 {comp}%、遺失 {lost} 張（{frames} 張中）']
@@ -385,6 +437,7 @@ def check_capture(rep, sw, base, args):
             if not causes:
                 causes.append('交換機與 Grab 網卡都沒記錄到錯誤 → 相機封包大小/間隔設定、或多台同時傳輸塞車')
             bad_pkt.append(name)
+            pkt_items.append((name, ev, causes))
             rep.add('取像', 'FAIL' if (comp or 0) < 95 else 'WARN', f'{name} 掉封包（影像不完整）', '；'.join(ev),
                     '；'.join(causes),
                     f'依原因處理：線材/模組問題 → 換標示「{name}」的線或換交換機埠；限速/MTU 設定 → 找工程依基準設定還原；'
@@ -402,6 +455,14 @@ def check_capture(rep, sw, base, args):
             rep.add('取像', 'WARN', f'{name} 相機參數和設定不同：{"、".join(drift)}', f'亮度平均 {mean}',
                     '有人調過這台相機沒還原（相機工具 / pylon Viewer），影像會偏暗或偏亮、缺陷數異常',
                     'Control 重新載入配方（Grab ARM 會套回設定值）；或用相機工具設回設定值', '線上人員可先做')
+        # 行速率：決定影像比例尺（96mm/s ÷ 8µm/line = 12000 Hz）；各台不同 → 同一片玻璃尺寸/位置不一致
+        lr = r['feats'].get('lrate')
+        want_lr = expected_line_rate()
+        if lr is not None and want_lr and abs(float(lr) - want_lr) / want_lr > 0.01:
+            rep.add('取像', 'WARN', f'{name} 行速率 {float(lr):.0f} Hz（應 {want_lr:.0f}）→ 影像比例尺不對',
+                    f'相機目前 {lr} Hz；Grab 設定 {want_lr:.0f} Hz（產線 96mm/s ÷ 8µm/line）',
+                    '相機行速率被改過（UserSet 鎖住舊值、相機工具調過）；歷史事故：CCD01/02 鎖在 11001 Hz 與其他台差 11%',
+                    'Control 重新載入配方（Grab ARM 會把行速率設回）；仍不對 → 工程檢查相機 UserSet', '線上人員可先做')
         # 亮度：和同批其他相機比（實驗室沒光源時全部都暗 → 只提示）
         if mean is not None and median >= 8 and mean < 0.5 * median:
             cam_id = int(name[3:]) if re.fullmatch(r'CCD\d{2}', name) else None
@@ -418,6 +479,17 @@ def check_capture(rep, sw, base, args):
                 rep.add('取像', 'FAIL', f'{name} 影像偏暗：參數正常，問題在光學', ev,
                         '光源老化/沒亮/角度偏、鏡頭光圈被轉動、鏡頭髒污或被遮擋',
                         f'檢查 {name} 對應的光源是否亮、鏡頭有無遮擋/髒污、光圈環是否被動過', '設備工程')
+    # 多台同時掉封包 → 共用段的根因（Grab 網卡 MTU / 上行 / 交換機），收斂成一條，不逐台列（線上人員看得懂）
+    if len(bad_pkt) >= 2 and (mtu and mtu < 9000 or len(bad_pkt) == len(results)):
+        rep.items[n_items_before:] = [i for i in rep.items[n_items_before:]
+                                      if not (i['area'] == '取像' and i['title'].endswith('掉封包（影像不完整）'))]
+        shared = (f'Grab 相機網卡 MTU={mtu}（應 9000）→ 所有相機的 jumbo 封包被丟' if mtu and mtu < 9000 else
+                  '多台同時掉封包 → 問題在共用的一段：Grab ↔ 交換機上行、交換機本身、或 Grab 相機網卡')
+        rep.add('取像', 'FAIL', f'{len(bad_pkt)} 台相機同時掉封包（{"、".join(bad_pkt)}）→ 共用原因，不是個別相機', 
+                '\n'.join(f'{n}：' + '；'.join(ev) for n, ev, _ in pkt_items), shared,
+                ('找工程把 Grab 相機網卡 MTU 設回 9000（換網卡/重灌後常見）' if mtu and mtu < 9000 else
+                 '檢查 Grab ↔ 交換機 100G 線與交換機設定（見交換機、主機項目）；不要逐台換相機線') +
+                '；修好後重跑健檢確認完整度 100%', '設備工程')
     if median < 8 and means:
         rep.add('取像', 'INFO', f'全部相機畫面都很暗（亮度中位數 {median:.1f}）',
                 '', '光源沒開，或沒有玻璃/背景（實驗室無光源時屬正常）', '量產前確認光源已開')
@@ -549,6 +621,10 @@ def check_rdma(rep, sw, base, args):
     elif not sp:
         rep.add('RDMA', 'WARN', '網路通，但無法登入 Spark 查服務狀態', ev, 'Spark SSH 服務異常或金鑰變更',
                 '從 Control 系統狀態看 Spark 節點；仍異常重開 Spark', '設備工程')
+    elif sp.get('svc') != 'active' and sp.get('svc_off') == 'active':
+        rep.add('RDMA', 'FAIL', 'Spark 上的 IP 停在「調參模式」，生產用的收圖沒開（不是線的問題）', ev,
+                '調機/調參後沒切回生產模式（生產與調參互斥）',
+                'Control 系統狀態 → Spark →「IP 生產」按「切到此模式」', '線上人員可先做')
     elif sp.get('svc') != 'active' and sp.get('svc_off') != 'active':
         rep.add('RDMA', 'FAIL', '線和網路都正常，是 Spark 上的 IP 程式沒在跑（機器/程式問題，不是線）', ev,
                 'IP 服務停止或反覆當掉', 'Control 系統狀態 → Spark →「IP 生產」重新啟動；反覆失敗看 log／收診斷包', '線上人員可先做')
@@ -564,6 +640,74 @@ def check_rdma(rep, sw, base, args):
         rep.add('RDMA', 'OK', 'Grab ↔ Spark RDMA 正常（線、兩端網卡、IP 程式都正常）', ev)
 
 
+# ───────────────────────── 4b. 主機（Grab / Spark 系統層）─────────────────────────
+HOST_PROBE = r'''
+echo "route=$(ip route get 192.168.10.1 2>/dev/null | head -1)"
+echo "disk=$(df -P {out} 2>/dev/null | awk 'NR==2{{print $5}}' | tr -d %)"
+echo "now=$(date +%s.%N)"
+'''
+
+
+def check_host(rep, sw, base, args):
+    # MTU（相機網卡、RDMA 網卡都要 9000）
+    for prefix, what in (('192.168.5.200', '相機網卡'), ('192.168.3.2', 'RDMA 網卡')):
+        nic = nic_with_ip(prefix)
+        mtu = int(sysfs(nic, 'mtu', '0') or 0) if nic else 0
+        if nic and mtu < 9000:
+            rep.add('主機', 'FAIL', f'Grab {what} {nic} MTU {mtu}（應 9000）',
+                    '', '網路設定被改（或重灌後沒設 jumbo）→ 相機大封包/影像傳輸會被丟',
+                    '找工程把 MTU 設回 9000（nmcli 該連線 802-3-ethernet.mtu 9000）', '設備工程')
+    # Grab 兼路由：Control（192.168.10.x）→ Spark 要靠 ip_forward
+    try:
+        fwd = open('/proc/sys/net/ipv4/ip_forward').read().strip()
+    except OSError:
+        fwd = '?'
+    if fwd != '1':
+        rep.add('主機', 'FAIL', 'Grab 的轉送功能關閉（ip_forward=0）→ Control 連不到 Spark 的 IP',
+                '', 'Grab 系統設定被改或重灌後沒設（Control 到 Spark 要經過 Grab 轉送）',
+                '找工程開啟（/etc/sysctl.d 的 net.ipv4.ip_forward=1）；暫時可重開 Grab', '設備工程')
+    # 磁碟（Grab）
+    for path in ('/', ARCHIVE):
+        if os.path.isdir(path):
+            import shutil
+            du = shutil.disk_usage(path)
+            pct = du.used * 100 / du.total
+            if pct >= 85:
+                rep.add('主機', 'FAIL' if pct >= 95 else 'WARN', f'Grab 磁碟 {path} 已用 {pct:.0f}%',
+                        f'剩 {du.free / 1e9:.0f} GB', '原始圖/結果累積太多（自動清理沒跑或保留天數太長）',
+                        '確認 cfaoi-cleanup / cfaoi-archive 有在跑；找工程調保留天數', '設備工程')
+    # Spark：回程路由、磁碟、時間差
+    t0 = time.time()
+    rc, out, _ = ssh_spark(HOST_PROBE.replace('{out}', '/home/auo001/cfaoi_output'), timeout=15)
+    t1 = time.time()
+    if rc != 0:
+        return                                            # Spark 連不上 → RDMA 項目會說明
+    sp = dict(l.split('=', 1) for l in out.splitlines() if '=' in l)
+    if 'via 192.168.3.2' not in sp.get('route', ''):
+        rep.add('主機', 'FAIL', 'Spark 沒有回 Control 的路由 → Control 的 IP 燈會紅（Grab 正常）',
+                sp.get('route', ''), 'Spark 網路設定（cf-rdma 的 192.168.10.0/24 via 192.168.3.2）被改或沒套用',
+                '找工程補回 Spark cf-rdma 連線的路由；暫時可重開 Spark', '設備工程')
+    try:
+        pct = int(sp.get('disk') or 0)
+        if pct >= 85:
+            rep.add('主機', 'FAIL' if pct >= 95 else 'WARN', f'Spark 檢測結果磁碟已用 {pct}%', '',
+                    '結果/原始圖累積太多', '確認 Spark 的 cfaoi-cleanup 有在跑', '設備工程')
+    except ValueError:
+        pass
+    try:
+        off = float(sp['now']) - (t0 + t1) / 2
+        rep.facts['spark_time_offset_s'] = round(off, 3)
+        if abs(off) > 1.0:
+            rep.add('主機', 'WARN', f'Spark 和 Grab 時間差 {off:+.1f} 秒', '',
+                    '校時沒同步（Spark 應跟 Grab 對時）→ 結果日期、log 會對不上',
+                    '找工程檢查 Spark timesyncd（NTP=192.168.3.2）', '設備工程')
+    except (KeyError, ValueError):
+        pass
+    if not [i for i in rep.items if i['area'] == '主機']:
+        rep.add('主機', 'OK', '主機設定正常（MTU 9000、轉送、Spark 回程路由、磁碟、時間）',
+                f'Spark 時間差 {rep.facts.get("spark_time_offset_s")} 秒')
+
+
 # ───────────────────────── 5. GPU / IP（Spark）─────────────────────────
 GPU_PROBE = r'''
 nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,clocks.sm,power.draw --format=csv,noheader 2>&1 | head -1
@@ -575,6 +719,9 @@ echo "---vllm"
 docker ps --format '{{.Names}}' 2>/dev/null | grep -c vllm
 echo "---restarts"
 systemctl show cfaoi-ip-production -p NRestarts -p ActiveState --value | tr '\n' ' '
+echo
+echo "---cfgdiff"
+git -C {repo} status --porcelain -- ip/config recipes/DEFAULT 2>/dev/null
 '''
 
 
@@ -589,7 +736,7 @@ def parse_xid(lines):
 
 
 def check_gpu(rep, sw, base, args):
-    rc, out, err = ssh_spark(GPU_PROBE, timeout=25)
+    rc, out, err = ssh_spark(GPU_PROBE.replace('{repo}', SPARK_REPO), timeout=25)
     if rc != 0:
         rep.add('GPU', 'WARN', '無法登入 Spark 查 GPU', (err or out)[-200:], '見 RDMA 項目', '')
         return
@@ -606,6 +753,12 @@ def check_gpu(rep, sw, base, args):
     vllm = int((sec.get('vllm') or ['0'])[0] or 0)
     rs = (sec.get('restarts') or [''])[0].split()
     rep.facts['gpu'] = dict(smi=smi, xid=[x[:2] for x in xids], mem_avail_mb=mem, vllm=vllm, ip_restarts=rs)
+    cfgdiff = [l.strip() for l in sec.get('cfgdiff', []) if l.strip()]
+    rep.facts['ip_cfg_modified'] = cfgdiff
+    if cfgdiff:
+        rep.add('GPU', 'WARN', f'Spark 上的 IP 參數檔被改過（和版本不同）：{", ".join(c.split()[-1] for c in cfgdiff)}',
+                '\n'.join(cfgdiff), '有人手動改了預設參數/預設配方（下次 IP 重啟就會生效，影響檢測結果）',
+                '工程確認是否有意修改；誤改 → 在 Spark 上 git checkout 該檔還原，再重啟 IP', '軟體工程')
     if 'NVIDIA' not in smi and 'GB10' not in smi:
         rep.add('GPU', 'FAIL', 'Spark 讀不到 GPU（nvidia-smi 失敗）', smi, 'GPU 驅動載入失敗或 GPU 掉線',
                 '重開 Spark；仍失敗找工程（驅動/硬體）', '設備工程')
@@ -621,7 +774,8 @@ def check_gpu(rep, sw, base, args):
         ip_related = any(p.startswith('cfaoi') for p in procs)
         days = sorted({t[:10] for _, _, t in app})
         rep.add('GPU', 'WARN' if ip_related else 'INFO',
-                f'GPU 程式錯誤紀錄（最近 7 天 {len(app)} 筆，來自 {", ".join(procs) or "未知程式"}；日期 {", ".join(days)}）',
+                f'GPU 程式錯誤紀錄（最近 7 天 {len(app)} 筆，來自 {", ".join(procs) or "未知程式"}；日期 {", ".join(days)}）' +
+                ('' if ip_related else '——不是 CF-AOI 程式，與目前的問題無關、GPU 沒壞'),
                 '；'.join(sorted({f'Xid {c}：{XID_APP.get(c, "程式層錯誤")}' for c, _, _ in app})),
                 '應用程式自己的錯（非 GPU 硬體壞）' + ('；含 IP 程式 → 看 IP log/行車紀錄' if ip_related else '；不是 IP 程式（開發/測試程式）'),
                 '若為 cfaoi_ip：Control 收診斷包給工程' if ip_related else '不影響生產，可忽略')
@@ -704,8 +858,11 @@ def gpu_deep(rep, mem):
         rep.add('GPU', 'OK', f'參考圖測圖正確：{len(got)} 顆缺陷、類型與位置相符，兩次結果一致（{ms:.0f} ms，含讀檔）',
                 f'IP04_Origin000027：標準 {want}；實得 {got}' + ('' if exact else '（座標差 ≤2 px：6/15 後演算法有修改，屬預期）'))
     else:
-        rep.add('GPU', 'FAIL', '參考圖測圖結果與標準答案不同', f'應為 {want}；實得 {got[:10]}',
-                'GPU 計算錯誤、或 IP 演算法/預設參數（ini）被改', '確認 ip/config/default_zone.ini 未被改；重開 Spark 重測；仍不同找工程', '軟體工程')
+        modified = rep.facts.get('ip_cfg_modified')
+        rep.add('GPU', 'FAIL', '參考圖測圖結果與標準答案不同' + ('—IP 參數檔被改過，很可能就是原因' if modified else ''),
+                f'應為 {want}；實得 {got[:10]}',
+                ('IP 預設參數檔和版本不同（見上一項）' if modified else 'GPU 計算錯誤、或 IP 演算法/預設參數被改'),
+                '確認 ip/config/default_zone.ini 未被改（誤改 → git checkout 還原）；重開 Spark 重測；仍不同找工程', '軟體工程')
 
 
 # ───────────────────────── 輸出 ─────────────────────────
@@ -730,7 +887,7 @@ def render(rep, machine):
         if i['action']:
             L.append(f'   - 請這樣做：{i["action"]}' + (f'（{i["who"]}）' if i['who'] else ''))
     L += ['', '## 各項明細（給工程師）', '']
-    for area in ['相機', '取像', '交換機', 'RDMA', 'GPU']:
+    for area in ['相機', '取像', '交換機', 'RDMA', '主機', 'GPU']:
         its = sorted([i for i in rep.items if i['area'] == area], key=lambda x: RANK[x['level']])
         if not its:
             continue
@@ -760,7 +917,7 @@ def main():
     sw = open_switch(rep) if (want('camera') or want('capture') or want('switch')) else None
     try:
         for key, fn in [('camera', check_cameras), ('capture', check_capture), ('switch', check_switch),
-                        ('rdma', check_rdma), ('gpu', check_gpu)]:
+                        ('rdma', check_rdma), ('host', check_host), ('gpu', check_gpu)]:
             if not want(key):
                 continue
             if key == 'capture' and 'camera' not in only and only and '_devs' not in rep.facts:
@@ -768,7 +925,7 @@ def main():
             try:
                 fn(rep, sw, base, args)
             except Exception as e:  # noqa: BLE001 — 一項壞不影響其他項
-                rep.add({'camera': '相機', 'capture': '取像', 'switch': '交換機', 'rdma': 'RDMA', 'gpu': 'GPU'}[key],
+                rep.add({'camera': '相機', 'capture': '取像', 'switch': '交換機', 'rdma': 'RDMA', 'host': '主機', 'gpu': 'GPU'}[key],
                         'WARN', f'這一項檢查本身出錯：{e.__class__.__name__}', str(e)[:300], '', '回報工程（附這份報告）')
     finally:
         if sw:

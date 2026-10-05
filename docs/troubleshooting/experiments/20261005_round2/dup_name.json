@@ -1,0 +1,22 @@
+{
+ "scenario": "dup_name",
+ "symptom": "剛換了一台相機（CCD06 的位置），換完之後 CCD06 沒有影像，而且 CCD03 的影像好像怪怪的。",
+ "injected": {
+  "mac": "00:30:53:54:e3:15"
+ },
+ "fault": {
+  "exit": 2,
+  "sec": 118.5,
+  "report": "/home/user/cfaoi_logs/fault_exp2/dup_name.md",
+  "problems": [
+   "FAIL [相機] 有 2 台相機都叫 CCD03（身分衝突）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 118.6,
+  "report": "/home/user/cfaoi_logs/fault_exp2/dup_name.after.md",
+  "problems": []
+ }
+}

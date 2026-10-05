@@ -1,0 +1,34 @@
+{
+ "scenario": "grab_mtu",
+ "symptom": "Grab 主機換過網卡（或重灌）之後，所有相機的影像都有缺、常常 NG，相機和交換機燈都正常。",
+ "A": {
+  "answer": "## 結論\n\n這不是相機或交換機硬體問題，而是 **Grab 主機換網卡（或重灌）後，RDMA 線路或設定沒有對應回來**，導致影像傳輸不完整。\n\n---\n\n## 可能原因\n\n1. **RDMA 線沒接或沒插好** — Grab ↔ Spark（IP 機）之間的 RDMA 線若沒接，影像資料會走一般網路，頻寬不足造成缺幀 [7]\n2. **網卡 IP / RDMA 設定沒還原** — 換網卡或重灌後，網卡的 IP、RDMA over Converged Ethernet（RoCE）設定可能與原本不同，影響資料傳輸\n3. **Grab ↔ Spark 的 RDMA link 沒起來** — 即使線有插，若 link 沒建立，也無法走 RDMA 傳送完整影像\n\n---\n\n## 現場照做步驟（誰可以做）\n\n**現場人員（可操作）：**\n\n1. **檢查 Grab 主機後面**有沒有接到 Spark（IP 機）的網線/光纖（通常是獨立一條，不是接交換機的那條），兩端是否插緊、燈號是否亮\n2. **重插 Grab ↔ Spark 線兩端**，確認燈號正常 [7]\n3. **重新啟動 Grab 主機**（關機重開），讓網卡重新初始化\n4. **若持續有缺幀/NG**：請通知工程師檢查 RDMA 網卡的 IP 設定與 RoCE 狀態\n\n---\n\n## 怎麼確認修好\n\n- **Control 畫面恢復顯示 CCD01–CCD06 的完整即時影像**，不再出現缺塊或 NG\n- **按「一鍵健檢」**，檢查相機與交換機項目皆為 ✅ 正常 [7]\n- **Grab 燈號維持綠色**，表示 Grab 程式正常連線 [2]",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/experiments/20261005_fault_injection/uplink_down.triage.json",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md"
+  ],
+  "sec": 15.5
+ },
+ "B": {
+  "answer": "**結論：問題出在 Grab 主機的相機網卡，不是相機也不是交換機。** 健檢報告明確指出 **Grab 的相機網卡 `enp1s0f1np1` MTU 只有 1500**，應為 9000 [報告第7項]。因為所有 6 台 CCD（CCD01～CCD06）完整度都是 0%、交換機埠都沒有錯誤封包，但 Grab 網卡 `rx_errors` 高達 67186，代表相機送出的 jumbo 大封包（約 8KB）全部在 Grab 這端被網卡丟掉 [參考資料][3]。\n\n---\n\n### 可能原因\n\n- **Grab 重灌或換網卡後，相機網卡 MTU 沒設回 9000**（重灌預設 MTU 通常是 1500），相機送 jumbo 封包 → 網卡收不進來就全部丟棄 [參考資料][7][報告第7項]。\n\n---\n\n### 現場照做步驟（設備工程）\n\n1. **確認問題元件**：登入 Grab 主機，檢查 `enp1s0f1np1` 的 MTU：\n   ```\n   ip link show enp1s0f1np1\n   ```\n   如果顯示 `mtu 1500`，就表示是這個問題。\n\n2. **把 MTU 改回 9000**（需 root 權限）[參考資料][7]：\n   ```bash\n   nmcli conn mod enp1s0f1np1 802-3-ethernet.mtu 9000\n   nmcli conn up enp1s0f1np1\n   ```\n\n3. **順便確認另一張 RDMA 網卡 `enp1s0f0np0` 的 MTU 也要是 9000** [參考資料][7]：\n   ```bash\n   nmcli conn mod enp1s0f0np0 802-3-ethernet.mtu 9000\n   nmcli conn up enp1s0f0np0\n   ```\n\n---\n\n### 怎麼確認修好\n\n- 再跑一次一鍵健檢，確認以下項目：\n  - 第7項 **Grab 相機網卡 enp1s0f1np1 MTU** 變成 ✅ 正常（顯示 9000）\n  - CCD01～CCD06 的完整度都從 0.0% 變成 **100%**\n  - `rx_errors` 不再增加",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/experiments/20261005_fault_injection/packet_loss.md",
+   "docs/troubleshooting/cases/20261005_switch_packet_loss.md",
+   "tools/triage/cfaoi_triage.py",
+   "docs/troubleshooting/experiments/20261005_fault_injection/cam_missing.md",
+   "docs/troubleshooting/cases/20261005_switch_packet_loss.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/packet_loss.triage.json",
+   "docs/troubleshooting/cases/20261005_switch_q_switch_replace.md",
+   "tools/triage/fault_inject.py"
+  ],
+  "sec": 21.1
+ }
+}

@@ -1,0 +1,21 @@
+{
+ "scenario": "ini_changed",
+ "symptom": "重開機之後，暗的缺陷好像都抓不到了，以前會抓到的點現在都沒有；最近有人動過 Spark。",
+ "injected": {},
+ "fault": {
+  "exit": 2,
+  "sec": 125.3,
+  "report": "/home/user/cfaoi_logs/fault_exp2/ini_changed.md",
+  "problems": [
+   "WARN [GPU] Spark 上的 IP 參數檔被改過（和版本不同）：ip/config/default_zone.ini",
+   "FAIL [GPU] 參考圖測圖結果與標準答案不同—IP 參數檔被改過，很可能就是原因"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 118.5,
+  "report": "/home/user/cfaoi_logs/fault_exp2/ini_changed.after.md",
+  "problems": []
+ }
+}

@@ -1,0 +1,127 @@
+{
+ "time": "2026-10-05T20:24:35",
+ "machine": "user-IMB-M47",
+ "items": [
+  {
+   "area": "相機",
+   "level": "OK",
+   "title": "相機 6 台都在（CCD01–CCD06）",
+   "evidence": "",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "取像",
+   "level": "INFO",
+   "title": "全部相機畫面都很暗（亮度中位數 2.8）",
+   "evidence": "",
+   "cause": "光源沒開，或沒有玻璃/背景（實驗室無光源時屬正常）",
+   "action": "量產前確認光源已開",
+   "who": ""
+  },
+  {
+   "area": "取像",
+   "level": "OK",
+   "title": "取像測試 6 台：影像完整、無掉封包",
+   "evidence": "每台 5.0 秒；CCD01 4張、CCD02 4張、CCD03 4張、CCD04 4張、CCD05 4張、CCD06 4張",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "主機",
+   "level": "OK",
+   "title": "主機設定正常（MTU 9000、轉送、Spark 回程路由、磁碟、時間）",
+   "evidence": "Spark 時間差 0.241 秒",
+   "cause": "",
+   "action": "",
+   "who": ""
+  }
+ ],
+ "facts": {
+  "cam_expected": [
+   "CCD01",
+   "CCD02",
+   "CCD03",
+   "CCD04",
+   "CCD05",
+   "CCD06"
+  ],
+  "cam_found": [
+   "CCD01",
+   "CCD02",
+   "CCD03",
+   "CCD04",
+   "CCD05",
+   "CCD06"
+  ],
+  "cam_missing": [],
+  "grab_health": {
+   "armed": false,
+   "cams": 0,
+   "dropped": 0,
+   "faulted": 0,
+   "faulted_cams": [],
+   "frames_per_panel": 0,
+   "grabbed": 0,
+   "grabbing": false,
+   "running": 0,
+   "sent_bytes": 0,
+   "sent_frames": 0
+  },
+  "nic_delta": {
+   "rx_dropped": 0,
+   "rx_errors": 0,
+   "rx_missed_errors": 0,
+   "rx_crc_errors": 0,
+   "rx_over_errors": 0,
+   "rx_fifo_errors": 0
+  },
+  "capture": {
+   "CCD01": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   },
+   "CCD02": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   },
+   "CCD05": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.7,
+    "err": ""
+   },
+   "CCD04": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.7,
+    "err": ""
+   },
+   "CCD03": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   },
+   "CCD06": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   }
+  },
+  "spark_time_offset_s": 0.241
+ }
+}

@@ -1,0 +1,169 @@
+{
+ "cam_ip_changed": {
+  "cat": "camera",
+  "title": "CCD04 沒影像、燈都亮、線也重插過 → 相機 IP 被改到 192.168.6.4",
+  "cause": "相機 IP 被工具改到相機網段以外（ForceIP 暫時改；現場也可能是永久寫錯），Grab 連不到",
+  "actions": [
+   "CCD04 斷電 10 秒再上電（暫時改的 IP 會回設定值）",
+   "仍不對 → 相機工具「裝置設定」寫入 CCD04（IP 自動 192.168.5.4）",
+   "重跑健檢"
+  ],
+  "learn": "「燈都亮、線也重插」= 實體層正常 → 往設定找；健檢用 GVCP 廣播掃描（跨網段也收得到）直接看出 IP",
+  "A": [
+   0,
+   "往交換機設定/相機硬體猜（錯）"
+  ],
+  "B": [
+   2,
+   "正確指出 IP 被改，斷電重開或相機工具寫回"
+  ]
+ },
+ "dup_name": {
+  "cat": "camera",
+  "title": "換相機後 CCD06 沒影像、CCD03 怪怪的 → 新相機被命名成 CCD03（撞名）",
+  "cause": "兩台相機 DeviceUserID 都是 CCD03 → Grab 身分衝突、CCD06 等於消失",
+  "actions": [
+   "相機工具「裝置設定」把 MAC …e3:15 那台（基準是 CCD06）改回 CCD06",
+   "重跑健檢；換相機後執行 --save-baseline"
+  ],
+  "learn": "健檢用 CCD↔MAC 基準反查「多出來那台原本是誰」，能直接說出該改回哪個編號",
+  "A": [
+   0,
+   "當成線路/掉封包（錯）"
+  ],
+  "B": [
+   2,
+   "正確（改名用 cam_provision 指令且寫 damac，偏工程；相機工具更適合）"
+  ]
+ },
+ "cam_busy": {
+  "cat": "camera",
+  "title": "開始取像時 CCD02 一直失敗 → 相機控制權被別的程式拿著（pylon Viewer 沒關）",
+  "cause": "另一個程式持有相機 CCP（控制權）並持續心跳 → 產線 Grab 開不了這台",
+  "actions": [
+   "關閉 Grab 或其他電腦上的 pylon Viewer / 相機工具 / eBUS Player",
+   "仍占用 → 該相機斷電重開",
+   "重跑健檢"
+  ],
+  "learn": "健檢掃描時讀每台的 CCP：產線 Grab 沒在用卻被占用 = 有程式沒關",
+  "A": [
+   0,
+   "說成參數被改、重載配方（不會修好）"
+  ],
+  "B": [
+   2,
+   "正確，含檢查其他電腦"
+  ]
+ },
+ "line_rate": {
+  "cat": "camera",
+  "title": "CCD01 影像被壓扁/拉長、接不起來 → 行速率 11001 Hz（應 12000）",
+  "cause": "相機行速率被改（UserSet 鎖住舊值；歷史事故 CCD01/02 鎖在 11001 Hz 差 11%）→ 影像比例尺不同",
+  "actions": [
+   "Control 重新載入配方（Grab ARM 設回 12000 Hz）",
+   "仍不對 → 工程檢查相機 UserSet（改回 Default）",
+   "重跑健檢"
+  ],
+  "learn": "行速率決定比例尺（96mm/s ÷ 8µm/line），健檢逐台比對；看起來像「影像變形」其實是參數",
+  "A": [
+   1,
+   "不確定，建議 pylon Viewer 比參數、重載配方（後者有效，但叫線上人員開 pylon Viewer 會造成占用）"
+  ],
+  "B": [
+   2,
+   "正確，含歷史事故背景"
+  ]
+ },
+ "grab_down": {
+  "cat": "host",
+  "title": "Grab 燈紅、按什麼都沒反應 → Grab 程式停止",
+  "cause": "cfaoi-grab 服務停止/當掉（相機都在）",
+  "actions": [
+   "Control 系統狀態 → Grab →「重新啟動」",
+   "燈轉綠後重新開始"
+  ],
+  "learn": "健檢第一步就問 Grab 8100；Grab 不用 GPU，GPU 的 Xid 與此無關（助手曾誤扯）",
+  "A": [
+   1,
+   "原因對，但叫人 ps/手動啟動、寫 damac（不是線上人員能做）"
+  ],
+  "B": [
+   1,
+   "處置正確，但把無關的 GPU Xid 說成可能原因（已在報告標註「與目前問題無關」）"
+  ]
+ },
+ "ip_offline_mode": {
+  "cat": "ip",
+  "title": "調參後隔天送料沒結果、IP 燈是綠的 → IP 停在調參模式",
+  "cause": "Spark 的 IP 在 cfaoi-ip-offline（調參），生產用 rdma-process 沒開；調參模式也回應控制命令所以 IP 燈綠",
+  "actions": [
+   "Control 系統狀態 → Spark →「IP 生產」→「切到此模式」",
+   "重跑健檢確認 RDMA ✅"
+  ],
+  "learn": "「IP 燈綠但沒結果」不是連線問題，看是哪個模式在跑",
+  "A": [
+   1,
+   "大致方向（生產服務沒跑）但叫線上人員在 Spark 打 sudo systemctl"
+  ],
+  "B": [
+   2,
+   "正確，一步到位"
+  ]
+ },
+ "ini_changed": {
+  "cat": "ip",
+  "title": "重開機後暗缺陷抓不到 → Spark 的 IP 預設參數檔被改（DTH 0.60→0.30）",
+  "cause": "default_zone.ini 被手動修改（IP 重啟才生效 → 所以「重開機後」才出現）；參考圖測圖 1 顆 → 0 顆",
+  "actions": [
+   "工程確認是否有意修改；誤改 → Spark 上 git checkout -- ip/config/default_zone.ini",
+   "重啟 IP 生產",
+   "重跑 --gpu 健檢確認參考圖相符"
+  ],
+  "learn": "健檢比對參數檔與版本（git）+ 參考圖測圖，兩者一起出現就能定位到「參數被改」",
+  "A": [
+   0,
+   "說成 RDMA 線問題（錯）"
+  ],
+  "B": [
+   2,
+   "正確（另提 Xid 當後備可能，輕微）"
+  ]
+ },
+ "grab_mtu": {
+  "cat": "host",
+  "title": "Grab 換網卡/重灌後所有相機影像都有缺 → Grab 相機網卡 MTU 1500",
+  "cause": "Grab 相機網卡 MTU 1500（應 9000），相機 jumbo 封包在主機端全被丟（rx_errors 6 萬+）",
+  "actions": [
+   "工程把 Grab 相機網卡 MTU 設回 9000（nmcli … 802-3-ethernet.mtu 9000）",
+   "不要逐台換相機線",
+   "重跑健檢確認完整度 100%"
+  ],
+  "learn": "所有相機同時掉封包 = 共用段問題；健檢已改成收斂成一條共用根因（實驗當下報告仍逐台列 6 條）",
+  "A": [
+   0,
+   "說成 RDMA 線（錯）"
+  ],
+  "B": [
+   2,
+   "正確指出 MTU 與 rx_errors"
+  ]
+ },
+ "ip_forward_off": {
+  "cat": "host",
+  "title": "IP 燈紅、Grab 綠、Spark 有開、重開 Control 也一樣 → Grab 轉送（ip_forward）被關",
+  "cause": "Control → Spark 要經 Grab 轉送；Grab ip_forward=0 → Control 連不到 IP",
+  "actions": [
+   "暫時：重開 Grab（從設定檔重新套用）",
+   "永久：工程確認 /etc/sysctl.d 有 net.ipv4.ip_forward=1"
+  ],
+  "learn": "IP 燈紅不一定是 Spark 或線：控制網拓樸是 Control → Grab（轉送）→ Spark",
+  "A": [
+   0,
+   "說成 IP 服務沒跑（錯，重啟 IP 不會好）"
+  ],
+  "B": [
+   2,
+   "正確，含暫時/永久解法"
+  ]
+ }
+}

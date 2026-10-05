@@ -1,0 +1,24 @@
+{
+ "scenario": "grab_mtu",
+ "symptom": "Grab 主機換過網卡（或重灌）之後，所有相機的影像都有缺、常常 NG，相機和交換機燈都正常。",
+ "injected": {
+  "cmd": "sudo ip link set enp1s0f1np1 mtu 1500"
+ },
+ "fault": {
+  "report": "/home/user/cfaoi_logs/fault_exp2/grab_mtu.md",
+  "problems": [
+   "FAIL [取像] CCD01 掉封包（影像不完整）",
+   "FAIL [取像] CCD02 掉封包（影像不完整）",
+   "FAIL [取像] CCD03 掉封包（影像不完整）",
+   "FAIL [取像] CCD04 掉封包（影像不完整）",
+   "FAIL [取像] CCD05 掉封包（影像不完整）",
+   "FAIL [取像] CCD06 掉封包（影像不完整）",
+   "FAIL [主機] Grab 相機網卡 enp1s0f1np1 MTU 1500（應 9000）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "report": "/home/user/cfaoi_logs/fault_exp2/grab_mtu.after.md",
+  "problems": []
+ }
+}

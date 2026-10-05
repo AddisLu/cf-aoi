@@ -1,0 +1,34 @@
+{
+ "scenario": "ip_offline_mode",
+ "symptom": "昨天工程師在調參數，今天開線送料後一直沒有結果，Control 的 IP 燈是綠的。",
+ "A": {
+  "answer": "**結論：上位機（Spark）上的 IP 服務（`cfaoi-ip-production`）可能沒有正常運作**，但 Control 這端的 IP 燈是綠的——這表示 Control 與 Spark 之間的連線正常，問題出在 **Spark 上的 IP 程式沒有在跑**（inactive），所以 RDMA 埠 18515 沒在聽、IP 控制埠也沒回應，導致上位機送料後沒有結果回來 [8]。\n\n## 可能原因\n\n1. **IP 服務（`cfaoi-ip-production`）意外停止或當掉** [2] — 昨天調參數時可能關閉或改動了相關服務，重開機後沒自動啟動。\n2. **Control 設定指向的 IP 節點不正確** — 例如之前有人改過 `control/src/appsettings.json` 中的 `IpOffline` 指向，導致 Control 連到錯誤的位置 [3]。\n\n## 現場照做（線上人員可操作）\n\n### 步驟 1：確認 IP 服務狀態\n到 **Spark 主機**（上位機那台）開啟終端機，輸入：\n```bash\nsystemctl status cfaoi-ip-production\n```\n- 如果看到 **inactive / dead** → 服務已停止。\n- 如果看到 **active (running)** → 服務還在跑，請通知工程師。\n\n### 步驟 2：重啟 IP 服務（若上一步顯示停止）\n```bash\nsudo systemctl restart cfaoi-ip-production\n```\n等一下觀察 Control 是否正常連上。\n\n### 步驟 3：若服務正常但問題仍在 → 通知工程師\n檢查 `control/src/appsettings.json` 中的 `IpOffline` 設定是否正確，以及昨天的調參是否有改動到其他設定 [3]。\n\n## 怎麼確認修好\n\n- **重新送料後，上位機能正常收到結果回來** [1][2]。\n- 如果 Control 的 IP 燈是綠的但上位機仍沒結果，代表 IP 服務本身沒在跑，重啟後應可恢復。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/20261005_rdma_rdma_cable.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/rdma_cable.loop.json",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down_v2.loop.json",
+   "docs/troubleshooting/cases/20261005_switch_uplink_down.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down.loop.json",
+   "docs/troubleshooting/experiments/20261005_fault_injection/ip_down.json"
+  ],
+  "sec": 16.0
+ },
+ "B": {
+  "answer": "健檢報告很清楚了，結論就是 **Spark 上的 IP 停在「調參模式」，生產用的收圖沒開**，不是線路或硬體的問題。\n\n---\n\n### 可能原因\n\n昨天工程師調參後，IP 切到了「調參服務」（active），但**沒有切回「生產服務」**就關機下班了。今天開線時 IP 仍然在調參模式，不會收圖送料，所以一直沒結果 [8]。\n\n證據：Spark 端 `IP 生產服務 inactive`、`調參服務 active`，RDMA 埠 18515 沒在聽，但線、網卡、RoCE 全都正常 [4]。\n\n---\n\n### 現場照做步驟（線上人員可先做）\n\n1. 到 **Control 系統狀態 → Spark**。\n2. 找到「**IP 生產**」。\n3. 按「**切到此模式**」[8]。\n\n---\n\n### 怎麼確認修好\n\n等約 10–20 秒，再按一次**一鍵健檢**，看 RDMA 項目變 ✅ 綠色，正常送料後就會開始出結果了 [8]。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/experiments/20261005_fault_injection/cam_missing.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/packet_loss.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/param_drift.md",
+   "docs/troubleshooting/experiments/20261005_fault_injection/uplink_down.md",
+   "docs/html/grab.html",
+   "tools/triage/cfaoi_triage.py",
+   "docs/troubleshooting/experiments/20261005_fault_injection/rdma_cable.after.md",
+   "docs/troubleshooting/cases/20261005_rdma_ip_down.md"
+  ],
+  "sec": 11.8
+ }
+}

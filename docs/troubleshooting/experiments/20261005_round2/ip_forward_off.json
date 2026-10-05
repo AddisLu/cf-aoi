@@ -1,0 +1,18 @@
+{
+ "scenario": "ip_forward_off",
+ "symptom": "Control 上 IP 的燈一直是紅的，Grab 的燈是綠的；Spark 有開機，重開 Control 也一樣。",
+ "injected": {
+  "cmd": "sudo sysctl -q -w net.ipv4.ip_forward=0"
+ },
+ "fault": {
+  "report": "/home/user/cfaoi_logs/fault_exp2/ip_forward_off.md",
+  "problems": [
+   "FAIL [主機] Grab 的轉送功能關閉（ip_forward=0）→ Control 連不到 Spark 的 IP"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "report": "/home/user/cfaoi_logs/fault_exp2/ip_forward_off.after.md",
+  "problems": []
+ }
+}
