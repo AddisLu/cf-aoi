@@ -2,7 +2,8 @@
 """
 bench_speed — 「DIV 只檢暗 + DIV 投票只檢亮」雙方案的產能評估：DIV 投票的輕量變體
 （PitchTime 2→1、多尺度開/關）各自校準亮門檻（平台法）→ 植入缺陷的亮檢出率 + GPU ms/張。
-產能：37 CCD × 30 張 = 1,110 張/片、30 s 節拍、1 台 Spark（docs/verification/verification_report_arm_20260615.md）。
+產能：37 CCD × 63 張 = 2,331 張/片（87.5 mm/s、8 µm/列）、掃描 28.6 s / 30 s 節拍、1 台 Spark。
+兩段式（--cascade-bright t1）：DIV 亮門檻 t1 粗篩 → 候選小塊跑投票確認（配方 BTH = 投票門檻）。
 在 Spark：python3 bench_speed.py --strip ~/cfaoi_reference/T550_G/IP04 --ip ip/build_at/cfaoi_ip --out /tmp/bench_speed
 """
 import argparse
@@ -17,16 +18,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import autotune_strip as S       # noqa: E402
 import bench_methods as BM       # noqa: E402
 
-SLICES_PER_PANEL = 37 * 30
-TACT_S = 30.0
+SLICES_PER_PANEL = 37 * 63     # 87.5 mm/s、8 µm/列、玻璃 2500 mm → 每台 63 張（Addis 2026-10-06 確認 8 µm）
+TACT_S = 28.6     # 掃描時間（邊拍邊算要跟上的是這個）
 
-VARIANTS = [
-    ('divvote 2p+ms（評比設定）', 'divvote', {'pitch_time': 2, 'choose': 13, 'multiscale': 1}),
-    ('divvote 2p', 'divvote', {'pitch_time': 2, 'choose': 13, 'multiscale': 0}),
-    ('divvote 1p+ms', 'divvote', {'pitch_time': 1, 'choose': 7, 'multiscale': 1}),
-    ('divvote 1p', 'divvote', {'pitch_time': 1, 'choose': 7, 'multiscale': 0}),
-    ('divvote 1p choose6', 'divvote', {'pitch_time': 1, 'choose': 6, 'multiscale': 0}),
-    ('div（對照）', 'div', {}),
+EF = ['--edge-fill', '1']
+VARIANTS = [   # (名稱, 偵測, 配方選項, IP 額外參數)
+    ('兩段式 t1=1.33', 'div', {}, EF + ['--cascade-bright', '1.33']),
+    ('兩段式 t1=1.31', 'div', {}, EF + ['--cascade-bright', '1.31']),
+    ('兩段式 t1=1.30', 'div', {}, EF + ['--cascade-bright', '1.30']),
 ]
 
 
@@ -54,24 +53,24 @@ def main():
                            imgs=[inj_imgs[s] for s in inj_sl])
     bt = [i for i, t in enumerate(truth) if t['pol'] == 'bright']
     rows = []
-    for name, mode, opt in VARIANTS:
+    for name, mode, opt, extra in VARIANTS:
         work = os.path.join(a.out, 'run')
         curve = []
         for b in np.arange(1.10, 2.0, 0.01):
             th = {'dark': 0.01, 'bright': round(float(b), 3)}
-            d, ms = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt)
+            d, ms = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt, extra)
             curve.append((round(float(b), 3), len(d)))
             if len(d) <= 5:
                 break
         tb = round(curve[-1][0] * 1.03, 3)
         th = {'dark': 0.01, 'bright': tb}
-        _, ms = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt)
+        _, ms = BM.run(a.ip, chips, ioi, pi, th, a.strip, work, mode, opt, extra)
         ms_slice = ms / len(paths)
-        d, _ = BM.run(a.ip, chips, ioi, pi, th, inj_dir, work, mode, opt)
+        d, _ = BM.run(a.ip, chips, ioi, pi, th, inj_dir, work, mode, opt, extra)
         hit, fp = BM.match(d, truth, [])
         by = {f: round(np.mean([hit[i] for i in bt if truth[i]['f'] == f]), 2) for f in BM.BRIGHT_F}
         rate = float(np.mean([hit[i] for i in bt]))
-        panel_s = (ms_slice + 7.7) * SLICES_PER_PANEL / 1000 if mode != 'div' else ms_slice * SLICES_PER_PANEL / 1000
+        panel_s = (ms_slice + 7.4) * SLICES_PER_PANEL / 1000 if mode != 'div' else ms_slice * SLICES_PER_PANEL / 1000
         row = {'name': name, 'bright_th': tb, 'bright_rate': round(rate, 3), 'by_contrast': by,
                'ms_slice': round(ms_slice, 1), 'panel_s_with_div': round(panel_s, 1),
                'tact_use': round(panel_s / TACT_S, 2)}

@@ -52,6 +52,7 @@ private:
     bool use_zero_copy = false;
 
     size_t width = 0, height = 0, total_pixels = 0;
+    size_t capacity = 0;          // 已配置的像素容量（≥ total_pixels）
     int max_defects_stored = 0;
     bool allocated = false;
 
@@ -81,11 +82,23 @@ public:
     //    （幾何錯位/越界讀，且錯得一致 → verify 兩跑比對抓不到）。修法：快取鍵納入尺寸，或此處釋放時銷毀 texture。
     void allocate(int w, int h, int max_defects) {
         if (allocated && width == (size_t)w && height == (size_t)h) return;
+        // I9 修正（2026-10-06）：容量夠就重用（只改 width/height），不夠才整套重配。
+        // 兩段式（整張 ↔ 候選小拼圖）、多 zone 不同裁切尺寸都會頻繁換尺寸；舊版每換一次就 free+malloc（含 pinned）。
+        // buffer 是線性（pitch = width），容量 ≥ w×h 即可直接用；換尺寸時清 d_binary（kernel 不寫死區像素，
+        // 舊影像殘留的 1 會變成新影像死區裡的假缺陷）。
+        if (allocated && (size_t)w * h <= capacity && max_defects <= max_defects_stored) {
+            width = w;
+            height = h;
+            total_pixels = (size_t)w * h;
+            CUDA_CHECK(cudaMemset(d_binary, 0, capacity * sizeof(uint8_t)));
+            return;
+        }
         if (allocated) deallocate();
 
         width = w;
         height = h;
         total_pixels = (size_t)w * h;
+        capacity = total_pixels;
         max_defects_stored = max_defects;
 
         if (use_zero_copy) {
