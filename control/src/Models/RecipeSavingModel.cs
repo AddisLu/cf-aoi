@@ -15,7 +15,10 @@ public sealed class RecipeSavingModel
     [XmlElement("MaxSaveDefectCount")] public int MaxSaveDefectCount { get; set; } = 250;
     [XmlElement("MaxSaveAiOkCount")]   public int MaxSaveAiOkCount { get; set; } = 250;
     [XmlElement("MaxSaveRuleOkCount")] public int MaxSaveRuleOkCount { get; set; } = 250;
-    [XmlElement("MaxDefectCountPass")] public int MaxDefectCountPass { get; set; } = 10000;
+    // 爆點門檻：單張缺陷數 ≥ 此值算爆點（IP rdma-process 同一台本片連續 3 張 → 剩餘幀停算判 NG）。
+    // 2026-10-05 由 10000（= GPU 上限，等於整張打滿才算）改 1000：GPU 時間在 ~1000 顆內幾乎不變，
+    // 一張 8192×5000 超過 1000 顆已不是真缺陷而是爆量，早停才保得住 37 台的節拍。
+    [XmlElement("MaxDefectCountPass")] public int MaxDefectCountPass { get; set; } = 1000;
     [XmlElement("SaveDefectWidth")]    public int SaveDefectWidth { get; set; } = 64;
     [XmlElement("SaveDefectHeight")]   public int SaveDefectHeight { get; set; } = 64;
     [XmlElement("AiDefectWidth")]      public int AiDefectWidth { get; set; } = 64;

@@ -1175,12 +1175,13 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   同時修 rdma-process **配方 MaxSaveDefectCount 未生效**（原本小圖無上限）。
   **A/B 實測（6 台、連續 10s、約半數幀有缺陷）**：同步 → 只送出 64 幀（應 ~144，背壓拖慢）、GRAB_STOP 卡 10.3s；
   背景 → **150 幀全收 recv 150/0、dropped=0、佇列峰值 3/8**、overlay 寫出 53／略過 11。
-- **連續爆點停算**（IP rdma-process，`--flood-skip-after N`，預設 3）：同一台本片連續 N 張缺陷數 ≥ 配方
-  `MaxDefectCountPass`（未設 = GPU 上限 10000）→ 本片剩餘幀不送 GPU，仍寫 ResultInfo 但 **DefectCnt=-1、pass=false**
-  （+ JSON `flood_skip`），不可寫 0（上位機只看 DefectCnt，0 = 當成乾淨）。新的一片（panelId 變 / slice0）重新計數。
-  實測（6 台、串流中途換片、門檻 1 張 1 顆強制觸發）：觸發 10 次（5 台 × 2 片）、停算 95 幀全部 -1/false、
-  換片後恢復檢測、150/150 全收。⚠️ **DefectCnt=-1 上位機是否判 NG 待與上位機規格確認（L4）**；
-  Control 預設 MaxDefectCountPass=10000 → 要較早停算請在配方調低（建議 1000）。
+- **連續爆點停算**（IP rdma-process，`--flood-skip-after N`，預設 3）：同一台本片連續 N 張缺陷數 ≥ 爆點門檻
+  （配方 `MaxDefectCountPass`，**預設 1000**；Control 配方預設同步由 10000 調降）→ 本片剩餘幀不送 GPU，
+  仍寫 ResultInfo：**DefectCnt = 爆點門檻值（代表值，≥0）、pass=false** + JSON `flood_skip`（標明未檢測）。
+  不可寫 0（上位機只看 DefectCnt，0 = 當成乾淨）；初版寫 -1，依 Addis 決定改門檻值（缺陷數一律 ≥0）。
+  新的一片（panelId 變 / slice0）重新計數。實測（6 台、串流中途換片、門檻 1 顆 + 連續 1 張強制觸發）：
+  觸發 10 次（5 台 × 2 片）、換片後恢復檢測、150/150 全收；改門檻值後複測停算 67 幀 DefectCnt 全 = 門檻、
+  pass 全 false、全部幀 DefectCnt ≥ 0。
 
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；

@@ -169,7 +169,7 @@ void usage(const char* prog) {
     "  --max-src-ring-size <n> 覆寫 SourceRing 上限（取代計算器；驗證 OOM 防護用）\n"
     "  --max-defect-count-pass <n> offline-file 模式設 MaxDefectCountPass 截斷（驗決定性用）\n"
     "  --flood-skip-after <n> rdma-process：同一台本片連續 n 張爆點（缺陷數 ≥ 配方 MaxDefectCountPass，\n"
-    "                        未設則 10000）→ 本片剩餘幀停算、判 NG（DefectCnt=-1）。預設 3，0 = 關閉\n"
+    "                        未設則 1000）→ 本片剩餘幀停算、判 NG（DefectCnt=門檻值）。預設 3，0 = 關閉\n"
     "  --test-consumer-delay-ms <n> offline-tcp：每幀處理後人工延遲 N ms（模擬慢消費，觸發背壓 ERR 測試）\n"
     "  --test-source-writer-delay-ms <n> SourceWriter：每幀寫完後延遲 N ms（模擬慢 HDD，觸發 ring drop WARN 測試）\n"
     "\n[rdma-validate 模式（需 CFAOI_HAS_RDMA）]\n"
@@ -275,6 +275,8 @@ std::string first_determinism_diff(const DetectionResult& a, const DetectionResu
 // 現場（含正常張缺陷數基線 + 本幀完整 zone 參數）落地。節流由 recorder 統一處理。
 // [手冊 ch6] defect_flood 動畫＋破案卡：訊號取「過濾前」計數的原因見 P2
 constexpr int kDefectCap = 10000;   // = GPU MAX_DEFECTS（不變式 6）
+// 爆點門檻預設（配方/CLI 未設 MaxDefectCountPass 時，連續爆點停算用）。與 Control 配方預設一致。
+constexpr int kFloodThresholdDefault = 1000;
 void record_defect_flood(const std::string& panel_id, int zone_capped,
                          int zone_defects, long pre_filter_total) {
     std::string detail = "缺陷爆量 panel=" + panel_id +
@@ -1099,7 +1101,7 @@ int main(int argc, char** argv) {
         std::cout << "[rdma-process] 連續爆點停算："
                   << (args.flood_skip_after > 0
                           ? "同一台本片連續 " + std::to_string(args.flood_skip_after) +
-                                " 張 ≥ MaxDefectCountPass（未設 = " + std::to_string(kDefectCap) +
+                                " 張 ≥ MaxDefectCountPass（未設 = " + std::to_string(kFloodThresholdDefault) +
                                 "）→ 本片剩餘幀停算判 NG"
                           : std::string("關閉（--flood-skip-after 0）"))
                   << "\n";
@@ -1264,16 +1266,16 @@ int main(int argc, char** argv) {
             diag::FrameScene scene = make_scene_params(z_snapshot, name, hdr);
             scene.queue_depth = (int64_t)depth;   // 水位快照（原漏填 → incident 時查不到塞車徵兆）
             diag::FlightRecorder::instance().set_scene(scene);
-            // 爆點門檻 = 配方 MaxDefectCountPass（≥0 才算有設），否則 GPU 上限（打滿 = 確定爆量）
+            // 爆點門檻 = 配方 MaxDefectCountPass（≥0 才算有設），否則預設 1000（與 Control 配方預設一致）
             const int flood_thr = frame_saving_cfg.max_defect_count_pass >= 0
-                                      ? frame_saving_cfg.max_defect_count_pass : kDefectCap;
+                                      ? frame_saving_cfg.max_defect_count_pass : kFloodThresholdDefault;
             FloodState& fst = flood_by_cam[hdr.camId];
             if (fst.panel != hdr.panelId || (hdr.totalSlice > 1 && hdr.sliceIndex == 0))
                 fst = FloodState{hdr.panelId};
             auto t0 = std::chrono::steady_clock::now();
             InspectionResult res;
             if (fst.tripped) {
-                // 停算：不送 GPU、不存小圖/overlay；仍寫 ResultInfo（DefectCnt=-1、pass=false）
+                // 停算：不送 GPU、不存小圖/overlay；仍寫 ResultInfo（DefectCnt=爆點門檻值、pass=false）
                 // 讓上位機每張都有結果可對帳，且不會把未檢測的幀當成乾淨。
                 res.panel_id     = name;
                 res.image_width  = (int)hdr.width;
@@ -1361,7 +1363,7 @@ int main(int argc, char** argv) {
         rdma_src.stop();
         overlay_writer.stop();   // 寫完排隊中的 overlay（buffer 交還 queue 池）再收尾
         if (flood_trips.load() > 0)
-            printf("[rdma-process] 連續爆點停算：觸發 %llu 次（台×片），停算 %llu 幀（DefectCnt=-1 判 NG）\n",
+            printf("[rdma-process] 連續爆點停算：觸發 %llu 次（台×片），停算 %llu 幀（DefectCnt=門檻值、判 NG）\n",
                    (unsigned long long)flood_trips.load(), (unsigned long long)flood_skipped.load());
         if (overlay_async) {
             const auto ov = overlay_writer.stats();

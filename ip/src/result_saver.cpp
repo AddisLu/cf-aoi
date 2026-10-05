@@ -248,10 +248,11 @@ std::string to_json(const InspectionResult& r) {
             {"unattributed",     r.frame_loss.unattributed},
         };
     }
-    // 連續爆點停算：本幀未送 GPU 檢測（DefectCnt=-1、pass=false），整個欄位只在停算時出現。
+    // 連續爆點停算：本幀未送 GPU 檢測（DefectCnt=爆點門檻值為代表值、pass=false），只在停算時出現。
     if (r.flood_skip.skipped) {
         j["flood_skip"] = {
             {"skipped",     true},
+            {"note",        "未檢測：同一台本片連續爆點停算，DefectCnt 為爆點門檻代表值"},
             {"threshold",   r.flood_skip.threshold},
             {"consecutive", r.flood_skip.consecutive},
         };

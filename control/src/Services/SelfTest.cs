@@ -107,7 +107,7 @@ public static class SelfTest
                      && back.MaxSaveDefectCount == 123 && back.MaxSaveAiOkCount == 45
                      && back.SaveDefectWidth == 80 && back.SaveAiTrain
                      && back.RecipeName == "RCP1"
-                     && back.MaxDefectCountPass == 10000;   // 預設＝IP MAX_DEFECTS
+                     && back.MaxDefectCountPass == 1000;    // 預設＝爆點門檻（2026-10-05 由 10000 調降）
         bool missingDefault = svc.LoadRecipeSetting("NOPE").MaxSaveDefectCount == 250;  // 不存在→預設
         Console.WriteLine($"  RecipeSetting round-trip={rcpOk}（{path}）, 不存在回預設={missingDefault}");
         ok &= rcpOk && missingDefault;

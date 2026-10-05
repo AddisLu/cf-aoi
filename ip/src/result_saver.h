@@ -48,8 +48,10 @@ struct FrameLossInfo {
 
 // 連續爆點停算（rdma-process）：同一台本片連續 N 張缺陷數 ≥ 門檻 → 本片剩餘幀不送 GPU 檢測。
 // skipped=false → JSON 不輸出、行為與舊版完全相同。
-// ⚠️ 停算幀的 DefectCnt 寫 **-1**（= 未檢測、爆點停算），pass=false。**不可**寫 0：
+// ⚠️ 停算幀未檢測、沒有真實缺陷數 → DefectCnt 寫**爆點門檻值**（≥0，上位機看到一定判 NG），
+//    pass=false，JSON 另加 flood_skip 標明「未檢測、以門檻值代表」。**不可**寫 0：
 //    上位機（CF_GET_RESULT）只看 DefectCnt，寫 0 會被當成乾淨 PASS = 靜默漏檢。
+//    （初版寫 -1，2026-10-05 依 Addis 決定改門檻值：缺陷數欄位一律 ≥0。）
 struct FloodSkipInfo {
     bool skipped     = false;
     int  threshold   = 0;   // 爆點門檻：單張缺陷數 ≥ 此值算一次爆點
@@ -79,8 +81,8 @@ struct InspectionResult {
         for (const auto& z : zones) n += z.result.num_defects;
         return n;
     }
-    // 寫進 ResultInfo 的 DefectCnt：停算幀 = -1（未檢測），其餘 = 實際缺陷數
-    int reported_defect_cnt() const { return flood_skip.skipped ? -1 : total_defects(); }
+    // 寫進 ResultInfo 的 DefectCnt：停算幀 = 爆點門檻值（未檢測，代表值），其餘 = 實際缺陷數
+    int reported_defect_cnt() const { return flood_skip.skipped ? flood_skip.threshold : total_defects(); }
     bool pass() const { return !flood_skip.skipped && total_defects() == 0; }
 };
 
