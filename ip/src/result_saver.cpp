@@ -333,8 +333,8 @@ int save(const InspectionResult& r,
     for (const auto& z : r.zones) {
         const int roiW = z.result.image_width;
         const int roiH = z.result.image_height;
-        const int mx = z.zone.pitch_x * 2 + z.zone.fast_search_range;
-        const int my = z.zone.pitch_y * 2 + z.zone.fast_search_range;
+        const int mx = z.zone.edge_fill ? 0 : z.zone.pitch_x * 2 + z.zone.fast_search_range;   // 補邊：無死區
+        const int my = z.zone.edge_fill ? 0 : z.zone.pitch_y * 2 + z.zone.fast_search_range;
         const int ox = z.roi_offset_x, oy = z.roi_offset_y;
         if (roiW <= 2 * mx || roiH <= 2 * my) {
             std::cout << "[DeathMargin] zone " << z.zone_index << " ⚠ ROI " << roiW << "x" << roiH

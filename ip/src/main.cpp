@@ -86,6 +86,8 @@ static bool file_exists(const std::string& p) {
     return ::stat(p.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
+static int g_edge_fill_override = -1;   // --edge-fill 0/1（-1 = 用 ini/ZoneConfig）
+
 struct Args {
     std::string mode = "offline-file";
     int control_port = 8200;
@@ -160,6 +162,7 @@ void usage(const char* prog) {
     "  --max-patches <n>     只存前 n 張缺陷小圖（調參加速）\n"
     "  --save-threads <n>    缺陷小圖平行寫入緒數（0=自動）\n"
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
+    "  --edge-fill <0|1>     補邊：zone 四周補往內平移 3 pitch 的 pattern，消掉 kernel 邊緣死區（覆寫 ini edge_fill）\n"
     "  --mode bench           量純 GPU process_image 速度：一張圖重複跑，報 gpu_ms/wall_ms 統計\n"
     "  --bench-iters <n>      bench 量測張數（預設 100）\n"
     "  --bench-warmup <n>     bench 暖機張數（丟棄，預設 10；吸收 CUDA init/JIT）\n"
@@ -188,6 +191,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         };
         if (k == "--mode") a.mode = next("--mode");
         else if (k == "--stitch") a.stitch = true;
+        else if (k == "--edge-fill") g_edge_fill_override = std::stoi(next("--edge-fill"));
         else if (k == "--input") a.input = next("--input");
         else if (k == "--output") a.output = next("--output");
         else if (k == "--recipe") a.recipe = next("--recipe");
@@ -268,6 +272,45 @@ std::vector<IoiRect> ioi_for_slice(const std::vector<IoiRect>& in, const std::ve
         out.push_back(io);
     }
     return out;
+}
+
+// 補邊（ZoneConfig::edge_fill）：四周各補 (pad_x, pad_y)，值 = 往內平移 (shift_x, shift_y) 的像素（pattern 週期的整數倍）。
+// 先補左右（中段列），再補上下（含已補的左右欄 → 四角也有值）。zone 太小（< 平移 + 補邊）回空 → 呼叫端不補。
+
+cv::Mat periodic_pad(const cv::Mat& sub, int pad_x, int pad_y, int shift_x, int shift_y) {
+    const int W = sub.cols, H = sub.rows;
+    if (W < shift_x + pad_x || H < shift_y + pad_y || shift_x < pad_x || shift_y < pad_y) return cv::Mat();
+    cv::Mat out(H + 2 * pad_y, W + 2 * pad_x, CV_8UC1);
+    sub.copyTo(out(cv::Rect(pad_x, pad_y, W, H)));
+    for (int r = pad_y; r < pad_y + H; ++r) {
+        uint8_t* row = out.ptr<uint8_t>(r);
+        for (int j = 0; j < pad_x; ++j) {
+            row[j] = row[j + shift_x];                                  // 左：往右（往內）平移 shift_x
+            row[pad_x + W + j] = row[pad_x + W + j - shift_x];          // 右：往左（往內）
+        }
+    }
+    for (int i = 0; i < pad_y; ++i) {
+        out.row(i + shift_y).copyTo(out.row(i));                        // 上：往下（往內）
+        out.row(pad_y + H + i - shift_y).copyTo(out.row(pad_y + H + i)); // 下：往上（往內）
+    }
+    return out;
+}
+
+// 補邊後的偵測結果 → 原 zone 座標：扣掉補邊、丟掉中心落在補邊區的缺陷。
+void unpad_result(DetectionResult& dr, int pad_x, int pad_y, int W, int H) {
+    std::vector<DefectInfo> keep;
+    keep.reserve(dr.defects.size());
+    for (auto d : dr.defects) {
+        d.center_x -= pad_x; d.center_y -= pad_y;
+        if (d.center_x < 0 || d.center_y < 0 || d.center_x >= W || d.center_y >= H) continue;
+        d.min_x = std::clamp(d.min_x - pad_x, 0, W - 1); d.max_x = std::clamp(d.max_x - pad_x, 0, W - 1);
+        d.min_y = std::clamp(d.min_y - pad_y, 0, H - 1); d.max_y = std::clamp(d.max_y - pad_y, 0, H - 1);
+        keep.push_back(d);
+    }
+    dr.defects.swap(keep);
+    dr.num_defects = (int)dr.defects.size();
+    dr.image_width = W;
+    dr.image_height = H;
 }
 
 // 比對兩次 process_frame 結果是否 bit-exact。一致回傳空字串；否則回傳第一個差異點描述。
@@ -473,15 +516,31 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         cv::Mat sub = gray(r);
         cv::Mat sub_cont = sub.isContinuous() ? sub : sub.clone();
 
+        // 補邊：死區寬 = kernel margin（2×pitch + search），平移 3 pitch（見 periodic_pad）
+        const int ef = g_edge_fill_override >= 0 ? g_edge_fill_override : z.edge_fill;
+        int pad_x = 0, pad_y = 0;
+        if (ef) {
+            cv::Mat padded = periodic_pad(sub_cont, 2 * z.pitch_x + z.fast_search_range,
+                                          2 * z.pitch_y + z.fast_search_range, 3 * z.pitch_x, 3 * z.pitch_y);
+            if (!padded.empty()) {
+                pad_x = 2 * z.pitch_x + z.fast_search_range;
+                pad_y = 2 * z.pitch_y + z.fast_search_range;
+                sub_cont = padded;
+            }
+        }
+        const int zw = sub_cont.cols - 2 * pad_x, zh = sub_cont.rows - 2 * pad_y;
+
         ZoneConfig zc = z;  // 帶入實際影像尺寸
         zc.width = sub_cont.cols;
         zc.height = sub_cont.rows;
         zc.panel_id = panel_id;
 
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
+        if (pad_x || pad_y) unpad_result(dr, pad_x, pad_y, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
+            if (pad_x || pad_y) unpad_result(dr2, pad_x, pad_y, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {
                 verify_failed = true;
@@ -516,6 +575,7 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zr.roi_offset_x = r.x;
         zr.roi_offset_y = r.y;
         zr.zone = z;
+        zr.zone.edge_fill = (pad_x || pad_y) ? 1 : 0;   // 實際有補邊（給 DeathMargin 顯示）
         zr.result = std::move(dr);
         agg.total_time_ms += zr.result.process_time_ms;
         agg.zones.push_back(std::move(zr));
