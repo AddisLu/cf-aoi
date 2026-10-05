@@ -177,13 +177,30 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
         r['fill'] = b['fill']
         (dummy if (weak or thin_y or thin_x) else chips).append(r)
     chips.sort(key=lambda r: (r['y0'], r['x0']))
-    dummy.sort(key=lambda r: (r['y0'], r['x0']))
+    dummy = merge_bands([d for d in dummy if not any(_overlap(d, c) for c in chips) and d['y1'] > d['y0']],
+                        gap=int(16 * py))
     area = st.w * st.H
     pat = float(m.sum()) * B * B
     roi = sum((r['x1'] - r['x0']) * (r['y1'] - r['y0']) for r in chips)
     return {'pitch': [px, py], 'slice_h': st.h, 'width': st.w, 'height': st.H, 'n_slices': len(st.paths),
             'chips': chips, 'dummy': dummy, 'block_thr': thr,
             'pattern_frac': round(pat / area, 4), 'roi_frac': round(roi / area, 4), 'block_map': bm}
+
+
+def _overlap(a, b):
+    return a['x0'] < b['x1'] and b['x0'] < a['x1'] and a['y0'] < b['y1'] and b['y0'] < a['y1']
+
+
+def merge_bands(rs, gap):
+    """Y 方向重疊或相距 < gap 的框合併成一條帶（外框聯集）——同一個晶片間隙/外圍區只輸出一個 IOI。"""
+    out = []
+    for r in sorted(rs, key=lambda r: r['y0']):
+        if out and r['y0'] <= out[-1]['y1'] + gap:
+            o = out[-1]
+            o.update(x0=min(o['x0'], r['x0']), x1=max(o['x1'], r['x1']), y1=max(o['y1'], r['y1']))
+        else:
+            out.append({k: r[k] for k in ('x0', 'x1', 'y0', 'y1')})
+    return out
 
 
 def rects_for_slice(rects, i, h):
