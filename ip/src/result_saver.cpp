@@ -251,6 +251,37 @@ std::string to_json(const InspectionResult& r) {
     return j.dump(2);
 }
 
+std::vector<OverlayBox> overlay_boxes(const InspectionResult& r, int w, int h) {
+    std::vector<OverlayBox> boxes;
+    boxes.reserve((size_t)r.total_defects());
+    for (const auto& z : r.zones) {
+        for (const auto& d : z.result.defects) {
+            boxes.push_back({std::max(0, z.roi_offset_x + d.min_x - 2),
+                             std::max(0, z.roi_offset_y + d.min_y - 2),
+                             std::min(w - 1, z.roi_offset_x + d.max_x + 2),
+                             std::min(h - 1, z.roi_offset_y + d.max_y + 2),
+                             d.is_bright != 0});
+        }
+    }
+    return boxes;
+}
+
+bool write_overlay(const uint8_t* gray, int w, int h,
+                   const std::vector<OverlayBox>& boxes, const std::string& path) {
+    const cv::Mat src(h, w, CV_8UC1, const_cast<uint8_t*>(gray));
+    cv::Mat overlay;
+    cv::cvtColor(src, overlay, cv::COLOR_GRAY2BGR);
+    for (const auto& b : boxes) {
+        const cv::Scalar color = b.bright ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
+        cv::rectangle(overlay, cv::Point(b.x0, b.y0), cv::Point(b.x1, b.y1), color, 2);
+    }
+    return cv::imwrite(path, overlay, {cv::IMWRITE_PNG_COMPRESSION, 1});
+}
+
+std::string overlay_file(const std::string& panel_dir, const InspectionResult& r) {
+    return panel_dir + "/" + panel_folder_name(r) + "_result.png";
+}
+
 int save(const InspectionResult& r,
          const uint8_t* img, int w, int h,
          const std::string& out_dir,
@@ -438,21 +469,8 @@ int save(const InspectionResult& r,
     // 是 GPU 檢測(7.3ms)的 56 倍，逐幀存只能到 2.4 幀/s（37 台 @12kHz 需 88.8 幀/s）。
     auto t_ov0 = clk::now();
     const bool skip_overlay_no_defect = opt.overlay_on_defect_only && r.total_defects() == 0;
-    if (opt.save_overlay && !skip_overlay_no_defect) {
-        cv::Mat overlay;
-        cv::cvtColor(gray, overlay, cv::COLOR_GRAY2BGR);
-        for (const auto& z : r.zones) {
-            for (const auto& d : z.result.defects) {
-                cv::Scalar color = d.is_bright ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
-                int mx = std::max(0, z.roi_offset_x + d.min_x - 2);
-                int my = std::max(0, z.roi_offset_y + d.min_y - 2);
-                int Mx = std::min(w - 1, z.roi_offset_x + d.max_x + 2);
-                int My = std::min(h - 1, z.roi_offset_y + d.max_y + 2);
-                cv::rectangle(overlay, cv::Point(mx, my), cv::Point(Mx, My), color, 2);
-            }
-        }
-        cv::imwrite(dst + "/" + basename + "_result.png", overlay, png_fast);
-    }
+    if (opt.save_overlay && !skip_overlay_no_defect)
+        write_overlay(img, w, h, overlay_boxes(r, w, h), dst + "/" + basename + "_result.png");
     double ov_ms = ms(t_ov0, clk::now());
 
     // -- #23 興趣區（IOI）裁切存圖（與缺陷無關；固定存這些監看區，對齊 legacy DetectIoiList）--

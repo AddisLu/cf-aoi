@@ -89,6 +89,13 @@ public:
         return b;
     }
 
+    // 消費端以外的持有者（背景 OverlayWriter）用完 buffer 後交還池子；池滿就直接釋放。
+    void recycle(std::vector<uint8_t>&& b) {
+        if (b.capacity() == 0) return;
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (free_.size() < kMaxFree) free_.push_back(std::move(b));
+    }
+
     // 阻塞推入：阻塞直到佇列有位置或被 close()。
     // 用於 RDMA recv_thread：佇列滿時不 drop，阻塞直到 main loop 消費，
     // 從而延伸背壓鏈：FrameQueue 滿 → recv_thread 不 post_recv → Grab RNR → Grab 自然慢下來。

@@ -69,6 +69,7 @@ add_executable(cfaoi_ip
     src/image_source/file_source.cpp
     src/image_source/tcp_source.cpp
     src/result_saver.cpp
+    src/overlay_writer.cpp
     src/control_server.cpp
     src/align_engine.cpp
     src/edge_check.cpp

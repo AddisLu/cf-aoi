@@ -53,6 +53,7 @@
 #include "image_source/tcp_source.h"
 #include "control_server.h"
 #include "result_saver.h"
+#include "overlay_writer.h"
 
 #ifdef CFAOI_HAS_RDMA
 #include "image_source/rdma_source.h"
@@ -105,6 +106,9 @@ struct Args {
     bool overlay_always = false;   // --overlay-always：rdma-process 也逐幀存 overlay（生產不建議）
     int  max_patches = -1;         // >=0 → 只存前 N 張缺陷小圖
     int  save_threads = 0;         // 0 → 自動
+    // rdma-process overlay 背景寫檔（OverlayWriter）：檢測主迴圈不再等 1 秒的 PNG 壓縮
+    int  overlay_threads  = 4;     // --overlay-threads N（背景寫檔緒數，低優先權）
+    int  overlay_inflight = 6;     // --overlay-inflight N（同時持有幀數上限；滿了該張 overlay 略過）
     // bench 模式（量純 GPU 運算速度）
     int  bench_iters = 100;
     int  bench_warmup = 10;
@@ -147,6 +151,10 @@ void usage(const char* prog) {
     "  --overlay-always      rdma-process：0 缺陷的幀也存 overlay（**生產不建議**：8160×5000 PNG\n"
     "                        實測 406-410ms/幀 = GPU 檢測的 56 倍，逐幀存只能到 2.4 幀/s）。\n"
     "                        rdma-process 預設只在有缺陷時存；offline-file/offline-tcp 調參路徑一律存。\n"
+    "  --overlay-threads <n> rdma-process：overlay 背景寫檔緒數（預設 4，nice 10）。檢測主迴圈只交出\n"
+    "                        buffer（零拷貝），不等 PNG 壓縮（Spark 實測 ~1.05s/張）\n"
+    "  --overlay-inflight <n> rdma-process：背景同時持有幀數上限（預設 6 ≈ 246MB）。滿了該張 overlay\n"
+    "                        略過（缺陷清單/小圖照存），寧可少一張疊圖也不讓管線塞車掉幀\n"
     "  --max-patches <n>     只存前 n 張缺陷小圖（調參加速）\n"
     "  --save-threads <n>    缺陷小圖平行寫入緒數（0=自動）\n"
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
@@ -189,6 +197,8 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--overlay-always") a.overlay_always = true;
         else if (k == "--max-patches") a.max_patches = std::stoi(next("--max-patches"));
         else if (k == "--save-threads") a.save_threads = std::stoi(next("--save-threads"));
+        else if (k == "--overlay-threads") a.overlay_threads = std::stoi(next("--overlay-threads"));
+        else if (k == "--overlay-inflight") a.overlay_inflight = std::stoi(next("--overlay-inflight"));
         else if (k == "--bench-iters") a.bench_iters = std::stoi(next("--bench-iters"));
         else if (k == "--bench-warmup") a.bench_warmup = std::stoi(next("--bench-warmup"));
         else if (k == "--bth") a.ov_bth = std::stof(next("--bth"));
@@ -1064,6 +1074,21 @@ int main(int argc, char** argv) {
                   << (args.overlay_always ? "逐幀存（--overlay-always；生產不建議）"
                                           : "僅有缺陷時存（0 缺陷跳過，省 ~410ms/幀）")
                   << "\n";
+        // overlay 改背景寫（OverlayWriter）：主迴圈 save() 不畫 overlay，存完 ResultInfo/小圖後
+        // 把 payload buffer 整塊 move 給背景（零拷貝），寫完交還 FrameQueue 池。
+        // 宣告在 queue 之後 → 解構順序先停 writer 再拆 queue（recycle 回呼引用 queue）。
+        const bool overlay_async = rdma_save_opt.save_overlay && args.overlay_threads > 0;
+        OverlayWriter overlay_writer(
+            overlay_async ? (unsigned)args.overlay_threads : 1u,
+            (unsigned)std::max(1, args.overlay_inflight),
+            [&queue](std::vector<uint8_t>&& b) { queue.recycle(std::move(b)); });
+        if (overlay_async) {
+            rdma_save_opt.save_overlay = false;   // 主迴圈不寫；改由下方 try_submit
+            std::cout << "[rdma-process] overlay 背景寫檔：" << args.overlay_threads << " 緒（nice 10）"
+                      << "  上限 " << args.overlay_inflight << " 幀 in-flight（滿了略過該張 overlay）\n";
+        } else if (rdma_save_opt.save_overlay) {
+            std::cout << "[rdma-process] ⚠ --overlay-threads 0：overlay 同步寫（會卡檢測主迴圈 ~1s/張）\n";
+        }
 
         // 8200 於 rdma 模式亦開（Step 4/5 前置）：串流期間 Control 心跳/LOAD_RECIPE 預熱/
         // CHECK·SET_ALIGN/CF_GET_RESULT（LIST_DEFECT_FOLDERS 鏈）都要通。
@@ -1116,6 +1141,12 @@ int main(int argc, char** argv) {
             s["edge_align_fail"]     = edge_ctr.align_fail.load(std::memory_order_relaxed);
             s["edge_transport_warn"] = edge_ctr.transport_warn.load(std::memory_order_relaxed);
             s["edge_last_drift_pct"] = edge_ctr.last_drift_pct.load(std::memory_order_relaxed);
+            {
+                const auto ov = overlay_writer.stats();
+                s["overlay_written"]  = ov.written;
+                s["overlay_dropped"]  = ov.dropped;
+                s["overlay_inflight"] = ov.inflight;
+            }
             std::lock_guard<std::mutex> lk(zones_mtx);
             s["zones"] = zones.size();
             return s.dump();
@@ -1242,8 +1273,29 @@ int main(int argc, char** argv) {
                         std::to_string(it->second.lost_frames) + " 幀 → panel_incomplete");
                 }
             }
+            // 缺陷小圖張數/尺寸依配方 recipe_saving（LOAD_RECIPE 後）；原本 rdma-process 只用 CLI 預設
+            // （無上限），配方的 MaxSaveDefectCount 在生產路徑不生效 → 爆量時一張可寫 10000 張小圖。
+            SaveOptions frame_save_opt = rdma_save_opt;
+            if (recipe_loaded.load()) {
+                frame_save_opt.max_patches = frame_saving_cfg.max_save_defect_count;
+                frame_save_opt.save_width  = frame_saving_cfg.save_defect_width;
+                frame_save_opt.save_height = frame_saving_cfg.save_defect_height;
+            }
+            std::string panel_dir;
             ResultSaver::save(res, payload.data(), hdr.width, hdr.height,
-                              args.output, args.ip_name, rdma_save_opt);
+                              args.output, args.ip_name, frame_save_opt, &panel_dir);
+            if (overlay_async && (args.overlay_always || res.total_defects() > 0)) {
+                const uint64_t dropped_before = overlay_writer.stats().dropped;
+                if (!overlay_writer.try_submit(ResultSaver::overlay_file(panel_dir, res), payload,
+                                               (int)hdr.width, (int)hdr.height,
+                                               ResultSaver::overlay_boxes(res, (int)hdr.width, (int)hdr.height))) {
+                    const uint64_t n = dropped_before + 1;
+                    if (n <= 5 || n % 50 == 0)
+                        fprintf(stderr, "[overlay] 背景忙碌（%d 幀 in-flight）→ 略過 %s 的 overlay"
+                                "（累計略過 %llu；缺陷清單/小圖已完整寫出）\n",
+                                args.overlay_inflight, name.c_str(), (unsigned long long)n);
+                }
+            }
             ++processed;
             if (processed <= 5 || processed % 20 == 0)
                 printf("[rdma-process] #%d %s defects=%d proc=%.1fms queue=%zu/%zu recv_ok=%llu\n",
@@ -1253,6 +1305,15 @@ int main(int argc, char** argv) {
         }
 
         rdma_src.stop();
+        overlay_writer.stop();   // 寫完排隊中的 overlay（buffer 交還 queue 池）再收尾
+        if (overlay_async) {
+            const auto ov = overlay_writer.stats();
+            printf("[rdma-process] overlay 背景：寫出 %llu／略過 %llu／失敗 %llu  峰值 %u/%d 幀  "
+                   "每張 avg/max=%.0f/%.0fms（不計入 proc）\n",
+                   (unsigned long long)ov.written, (unsigned long long)ov.dropped,
+                   (unsigned long long)ov.failed, ov.peak, args.overlay_inflight,
+                   ov.avg_ms, ov.max_ms);
+        }
         ctrl_srv.stop();
         double total_s = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t_start).count();

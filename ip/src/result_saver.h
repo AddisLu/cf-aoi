@@ -88,6 +88,20 @@ struct SaveOptions {
 
 namespace ResultSaver {
 
+// overlay 一個框（全域座標，已夾在影像內）。亮缺陷紅框、暗缺陷藍框。
+struct OverlayBox { int x0, y0, x1, y1; bool bright; };
+
+// 從檢測結果取出 overlay 框（只複製座標，10000 顆也只有 ~200KB）。
+std::vector<OverlayBox> overlay_boxes(const InspectionResult& r, int w, int h);
+
+// 畫框 + 寫 PNG（低壓縮）。gray 為 w*h Mono8。同步路徑與背景 OverlayWriter 共用。
+// 8192×5000 在 Spark GB10 實測 ~1.05s/張（瓶頸是 PNG 壓縮，不是記憶體搬移）。
+bool write_overlay(const uint8_t* gray, int w, int h,
+                   const std::vector<OverlayBox>& boxes, const std::string& path);
+
+// overlay 檔的完整路徑：<panel_dir>/<panelId>_<recipe>_result.png（panel_dir 由 save() 的 out_panel_dir 取得）
+std::string overlay_file(const std::string& panel_dir, const InspectionResult& r);
+
 // 寫出 <out>/<yyyyMMdd>/<panelId>_<recipeName>/ 下的 ResultInfo(json/xml) + Defect 小圖 + overlay。
 // img 為原始 grayscale 全影像 (w*h, Mono8)；ip_name 進缺陷檔名。回傳寫出的缺陷小圖數量。
 // out_panel_dir 回傳實際輸出的 panel 資料夾（供 log / 測試），可為 nullptr。
