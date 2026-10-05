@@ -114,6 +114,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ZoneEditor = new ZoneParamEditorViewModel(svc);
         DefectSort = new DefectSortViewModel(svc);
         SysSettings = new SystemSettingsViewModel(svc);
+        SysSettings.Agents.StartPolling();   // 系統狀態：每 5 秒向各節點代理要狀態（只在 GUI；selftest 不輪詢）
         SingleCcdSetup = new SingleCcdSetupViewModel(svc);
 
         Workbench = new CameraWorkbenchViewModel(svc, SysSettings, SingleCcdSetup);

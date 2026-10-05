@@ -35,9 +35,47 @@ polkit.addRule(function(action, subject) {
         ["start", "stop", "restart", "reload-or-restart", "try-restart"].indexOf(action.lookup("verb")) >= 0) {
         return polkit.Result.YES;
     }
+    // 節點代理（以 $RUN_USER 執行）代 Control 重開機/關機（POWER 命令；代理端另需 confirm=true）
+    if (subject.user == "$RUN_USER" &&
+        ["org.freedesktop.login1.reboot", "org.freedesktop.login1.reboot-multiple-sessions",
+         "org.freedesktop.login1.power-off", "org.freedesktop.login1.power-off-multiple-sessions"
+        ].indexOf(action.id) >= 0) {
+        return polkit.Result.YES;
+    }
 });
 EOF
-    echo "  已安裝 /etc/polkit-1/rules.d/50-cfaoi.rules（$RUN_USER 免密碼管理 cfaoi-*）"
+    echo "  已安裝 /etc/polkit-1/rules.d/50-cfaoi.rules（$RUN_USER 免密碼管理 cfaoi-*、重開機/關機）"
+}
+
+# 節點代理（商業化階段 2）：Control 遠端查狀態/重啟/看 log/收診斷包/重開機。以一般帳號執行。
+install_agent() {  # $1=角色 grab|ip  $2=OUTPUT_DIR
+    sudo tee /etc/default/cfaoi-agent >/dev/null <<EOF
+# CF-AOI 節點代理設定（cfaoi-agent.service 讀取；install_linux_services.sh 產生）
+ROLE=$1
+REPO=$REPO
+OUTPUT_DIR=$2
+PORT=8300
+# 允許來源：本機 / 控制網 / RDMA 直連網段 / Tailscale（開發期）
+ALLOW=127.0.0.0/8,192.168.10.0/24,192.168.3.0/24,100.64.0.0/10
+EOF
+    install_unit cfaoi-agent "[Unit]
+Description=CF-AOI 節點代理（Control 遠端管理，port 8300）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$RUN_USER
+EnvironmentFile=/etc/default/cfaoi-agent
+ExecStart=/usr/bin/python3 -u $REPO/tools/node_agent/cfaoi_agent.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target"
+    sudo systemctl daemon-reload
+    sudo systemctl enable cfaoi-agent >/dev/null 2>&1
+    sudo systemctl restart cfaoi-agent
+    echo "✓ cfaoi-agent 已啟用並啟動（port 8300，角色 $1）"
 }
 
 if [ "$ROLE" = "ip" ]; then
@@ -91,6 +129,7 @@ WantedBy=multi-user.target"
         | sudo tee /etc/systemd/timesyncd.conf.d/50-cfaoi.conf >/dev/null
     sudo systemctl restart systemd-timesyncd 2>/dev/null || true
     echo "✓ 校時來源：192.168.3.2（Grab）"
+    install_agent ip "$OUT"
 
 elif [ "$ROLE" = "grab" ]; then
     [ -x "$REPO/grab/build/cfaoi_grab" ] || { echo "找不到 $REPO/grab/build/cfaoi_grab（先編譯）"; exit 1; }
@@ -125,6 +164,7 @@ EnvironmentFile=/etc/default/cfaoi-grab
 WorkingDirectory=$REPO/grab
 # stdbuf：stdout 進 journald 時預設整批緩衝，開相機等訊息會延遲好幾分鐘才出現
 ExecStart=/usr/bin/stdbuf -oL -eL $REPO/grab/build/cfaoi_grab --rdma-dest \${RDMA_DEST} --cam-count \${CAM_COUNT} \$GRAB_EXTRA
+SyslogIdentifier=cfaoi_grab
 # RDMA 發送緩衝要 ibv_reg_mr（systemd 預設 memlock 8MB 不夠）
 LimitMEMLOCK=infinity
 # 任何原因結束都重啟（相機/RDMA 的恢復由 Control GRAB_ARM 處理；行程本身要一直在）
@@ -138,6 +178,8 @@ WantedBy=multi-user.target"
     sudo systemctl daemon-reload
     sudo systemctl enable --now cfaoi-grab
     echo "✓ cfaoi-grab 已啟用並啟動（開機自啟）；log：journalctl -u cfaoi-grab -f"
+    mkdir -p "$HOME/cfaoi_logs"
+    install_agent grab "$HOME/cfaoi_logs"
 else
     echo "未知角色：$ROLE（ip|grab）"; exit 1
 fi

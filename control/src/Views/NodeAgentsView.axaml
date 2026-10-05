@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CfAoiControl.ViewModels"
+             x:Class="CfAoiControl.Views.NodeAgentsView"
+             x:DataType="vm:NodeAgentsViewModel">
+  <!-- 系統狀態（商業化階段 2）：經節點代理管理 Grab / Spark。會中斷生產的動作都先走確認列。 -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="10" Margin="0,12,0,0">
+
+      <!-- 總覽 + 全域按鈕 -->
+      <Border Classes="card">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <Ellipse Width="12" Height="12" VerticalAlignment="Center" Margin="0,0,10,0"
+                   Fill="{Binding AllHealthy, Converter={StaticResource BoolToGreenRed}}"/>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock FontSize="15" FontWeight="Bold" Text="{Binding Summary}"/>
+            <TextBlock Classes="mono dim" FontSize="11">
+              <Run Text="Control 版本 "/><Run Text="{Binding ControlVersion}"/>
+              <Run Text="　·　每 5 秒自動更新"/>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                      IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+            <Button Classes="ghost" Content="重新整理" Command="{Binding RefreshCommand}"/>
+            <Button Classes="primary" Content="全部重新啟動" Command="{Binding RestartAllCommand}"
+                    ToolTip.Tip="先 Spark IP、再 Grab；只重啟目前在跑的服務"/>
+            <Button Classes="ghost" Content="收集診斷包" Command="{Binding CollectDiagCommand}"
+                    ToolTip.Tip="各節點 log/設定/系統現況 + Control log → 輸出資料夾 diag/（給工程師帶出 fab）"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- 警告（版本不一致 / 時間差） -->
+      <Border Background="{DynamicResource WarnBg}" CornerRadius="{DynamicResource Rad}" Padding="12,9"
+              IsVisible="{Binding Warning, Converter={StaticResource NotEmptyToBool}}">
+        <TextBlock Foreground="{DynamicResource WarnTx}" TextWrapping="Wrap" Text="{Binding Warning}"/>
+      </Border>
+
+      <!-- 確認列 -->
+      <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Warn}" BorderThickness="2"
+              CornerRadius="{DynamicResource Rad}" Padding="12,10" IsVisible="{Binding AwaitingConfirm}">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" FontWeight="Bold" Text="{Binding ConfirmText}"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+            <Button Classes="bad" Content="確定執行" Command="{Binding ConfirmCommand}"/>
+            <Button Classes="ghost" Content="取消" Command="{Binding CancelConfirmCommand}"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- 動作結果 -->
+      <TextBlock Classes="mono" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource Txt2}"
+                 Text="{Binding ActionStatus}" IsVisible="{Binding ActionStatus, Converter={StaticResource NotEmptyToBool}}"/>
+
+      <!-- 節點卡片 -->
+      <ItemsControl ItemsSource="{Binding Nodes}"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:AgentNodeItem">
+            <Border Classes="card" Margin="0,0,0,10">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <Ellipse Width="11" Height="11" VerticalAlignment="Center" Margin="0,0,10,0"
+                           Fill="{Binding ServicesHealthy, Converter={StaticResource BoolToGreenRed}}"/>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Classes="cardHead" Text="{Binding Name}"/>
+                    <TextBlock Classes="mono dim" FontSize="11" VerticalAlignment="Center" Text="{Binding Endpoint}"/>
+                  </StackPanel>
+                  <Button Grid.Column="2" Classes="ghost" Content="重新開機" Command="{Binding RebootCommand}"
+                          IsEnabled="{Binding Online}" ToolTip.Tip="重開這台 Linux 主機；開機後服務自動啟動"/>
+                </Grid>
+                <TextBlock Classes="mono dim" FontSize="11.5" TextWrapping="Wrap" Text="{Binding InfoText}"/>
+                <TextBlock Foreground="{DynamicResource Bad}" FontSize="12" TextWrapping="Wrap" Text="{Binding Error}"
+                           IsVisible="{Binding Error, Converter={StaticResource NotEmptyToBool}}"/>
+
+                <ItemsControl ItemsSource="{Binding Services}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AgentServiceItem">
+                      <Border Background="{DynamicResource Bg3}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                              CornerRadius="{DynamicResource Rad}" Padding="10,7" Margin="0,0,0,5">
+                        <Grid ColumnDefinitions="Auto,220,*,Auto">
+                          <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,9,0"
+                                   Fill="{Binding IsActive, Converter={StaticResource BoolToGreenRed}}"/>
+                          <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="Bold" Text="{Binding Label}"/>
+                          <TextBlock Grid.Column="2" VerticalAlignment="Center" Classes="mono dim" FontSize="11.5" Text="{Binding StateText}"/>
+                          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+                            <Button Classes="ghost" Content="切到此模式" Command="{Binding SwitchToCommand}"
+                                    IsVisible="{Binding CanSwitch}"
+                                    ToolTip.Tip="IP 生產/調參互斥：啟動這個會自動停另一個"/>
+                            <Button Classes="ghost" Content="重新啟動" Command="{Binding RestartCommand}"/>
+                            <Button Classes="ghost" Content="看 log" Command="{Binding ShowLogsCommand}"/>
+                          </StackPanel>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <!-- log 檢視 -->
+      <Border Classes="card" IsVisible="{Binding HasLog}">
+        <StackPanel Spacing="8">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="cardHead" Text="{Binding LogTitle}"/>
+            <Button Grid.Column="1" Classes="ghost" Content="關閉" Command="{Binding CloseLogCommand}"/>
+          </Grid>
+          <TextBox IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True" MaxHeight="420"
+                   FontFamily="{DynamicResource MonoFont}" FontSize="11.5" Text="{Binding LogText}"/>
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

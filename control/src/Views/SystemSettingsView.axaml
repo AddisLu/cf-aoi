@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:CfAoiControl.ViewModels"
              xmlns:m="using:CfAoiControl.Models"
+             xmlns:views="using:CfAoiControl.Views"
              x:Class="CfAoiControl.Views.SystemSettingsView"
              x:DataType="vm:SystemSettingsViewModel">
 
@@ -12,6 +13,11 @@
     </Grid>
 
     <TabControl Background="Transparent">
+
+      <!-- ── 系統狀態（節點代理：Grab / Spark 遠端管理）─── -->
+      <TabItem Header="系統狀態">
+        <views:NodeAgentsView DataContext="{Binding Agents}"/>
+      </TabItem>
 
       <!-- ── 連線設定 ─── -->
       <TabItem Header="連線設定">

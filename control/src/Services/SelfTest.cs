@@ -52,6 +52,7 @@ public static class SelfTest
                 case "recipesaving": return await RecipeSavingTest(rest);
                 case "workbench": return await WorkbenchTest();
                 case "speed":     return await SpeedTest();
+                case "agents":    return await AgentsTest(cfg);
                 default:
                     Console.WriteLine("用法: --selftest parse|recipe|send|fft|store ...");
                     return 2;
@@ -544,6 +545,43 @@ public static class SelfTest
     // ---- 上位機 CF_/8787 接線 + 回呼 + 交握（in-process，L2 護欄）----
     // 假上位機 client 連自起的 UpstreamServer（接線 UpstreamWiring）；OnLoadRecipe/OnGetResult 接到「假 IP server」；
     // align/grab 刻意不綁 → 驗：LoadRecipe 接通(OK)、GetResult 回 path+count、CHECK/SET_ALIGN 回誠實失敗(ERR 非假 OK)、連線燈轉綠。
+    // ---- 節點代理（商業化階段 2）：對 appsettings Agents 的**真實**代理做唯讀檢查（L3）----
+    // STATUS（含服務清單/版本/校時）、LOGS、DIAG（tar.gz base64 可解）、白名單擋非法服務。不重啟任何東西。
+    private static async Task<int> AgentsTest(SystemConfigModel cfg)
+    {
+        if (cfg.Agents.Count == 0) { Console.WriteLine("  appsettings 沒有 Agents"); return 1; }
+        bool all = true;
+        foreach (var a in cfg.Agents)
+        {
+            var c = new Controllers.AgentClient(a.Host, a.Port);
+            Console.WriteLine($"  ── {a.Name}（{a.Role}，{a.Host}:{a.Port}）");
+            try
+            {
+                var st = await c.StatusAsync();
+                var svcs = st?["services"]?.AsArray().Select(x => $"{x?["unit"]}={x?["active"]}/{x?["enabled"]}").ToList() ?? new();
+                bool okStatus = st?["role"]?.GetValue<string>() == a.Role && svcs.Count > 0;
+                Console.WriteLine($"  STATUS: {(okStatus ? "PASS" : "FAIL")} host={st?["hostname"]} ver={st?["version"]} " +
+                                  $"校時={st?["timesync"]?["source"]} 服務=[{string.Join(", ", svcs)}]");
+                var unit = st!["services"]![0]!["unit"]!.GetValue<string>();
+                var logs = await c.LogsAsync(unit, 5);
+                bool okLogs = (logs?["text"]?.GetValue<string>()?.Length ?? 0) > 0;
+                Console.WriteLine($"  LOGS {unit}: {(okLogs ? "PASS" : "FAIL")}");
+                var diag = await c.DiagAsync();
+                var bytes = Convert.FromBase64String(diag?["base64"]?.GetValue<string>() ?? "");
+                bool okDiag = bytes.Length > 100 && bytes[0] == 0x1f && bytes[1] == 0x8b;   // gzip magic
+                Console.WriteLine($"  DIAG: {(okDiag ? "PASS" : "FAIL")} {diag?["filename"]} {bytes.Length / 1024}KB");
+                bool okDeny;
+                try { await c.ServiceAsync("ssh", "restart"); okDeny = false; }
+                catch (Controllers.AgentException ex) { okDeny = ex.Message.Contains("不允許"); }
+                Console.WriteLine($"  白名單擋非 cfaoi 服務: {(okDeny ? "PASS" : "FAIL")}");
+                all &= okStatus && okLogs && okDiag && okDeny;
+            }
+            catch (Exception ex) { Console.WriteLine($"  ❌ {ex.Message}"); all = false; }
+        }
+        Console.WriteLine(all ? "✓ 節點代理：狀態/log/診斷包/白名單（L3 真代理）" : "✗ 不符");
+        return all ? 0 : 1;
+    }
+
     private static async Task<int> UpstreamTest()
     {
         // 假 IP server（loopback）：回 CHECK_HEALTH/LOAD_RECIPE OK、LIST_DEFECT_FOLDERS 兩夾

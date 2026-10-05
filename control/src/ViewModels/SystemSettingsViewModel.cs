@@ -18,6 +18,9 @@ public partial class SystemSettingsViewModel : ViewModelBase
 {
     private readonly AppServices _svc;
 
+    /// <summary>系統狀態頁（節點代理遠端管理 Grab / Spark；商業化階段 2）。</summary>
+    public NodeAgentsViewModel Agents { get; }
+
     public SystemSettingsViewModel(AppServices svc)
     {
         _svc = svc;
@@ -28,6 +31,8 @@ public partial class SystemSettingsViewModel : ViewModelBase
         OutputDir = svc.Config.Paths.OutputDir;
         ImageDir = svc.Config.Paths.ImageDir;
         UpstreamPort = svc.Config.UpstreamServer.ListenPort;
+
+        Agents = new NodeAgentsViewModel(svc);   // 系統狀態頁（節點代理）；輪詢由 MainWindowViewModel 啟動
 
         // 轉發 ConnectionManager.IsGrabConnected 的 PropertyChanged → 本 VM 的 IsGrabConnected
         svc.Connection.PropertyChanged += OnConnectionPropertyChanged;

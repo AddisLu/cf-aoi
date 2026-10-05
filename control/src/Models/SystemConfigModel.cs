@@ -30,6 +30,16 @@ public sealed class GrabConfig
     public int FramesPerPanel { get; set; } = 0;
 }
 
+// 節點代理（商業化階段 2；tools/node_agent/cfaoi_agent.py，port 8300）：Control 遠端查狀態/重啟/看 log/
+// 收診斷包/重開機。每台 Linux 節點一筆；下方陣列加入時再加兩筆即可。
+public sealed class AgentConfig
+{
+    public string Name { get; set; } = "";       // 顯示名稱（例 Grab、Spark）
+    public string Role { get; set; } = "";       // grab | ip（決定可用的按鈕）
+    public string Host { get; set; } = "127.0.0.1";
+    public int Port { get; set; } = 8300;
+}
+
 public sealed class PathsConfig
 {
     public string RecipeDir { get; set; } = "~/cf-aoi/recipes";
@@ -52,6 +62,8 @@ public sealed class SystemConfigModel
     public PathsConfig Paths { get; set; } = new();
     public ShareSettingModel ShareSetting { get; set; } = new();   // 全域系統旗標（appsettings.json）
     public GrabConfig Grab { get; set; } = new();                  // 取像設定（frames_per_panel 等）
+    // ⚠️ 同 RecipeIps：List 綁定是「附加」→ 不可預填預設值
+    public List<AgentConfig> Agents { get; set; } = new();          // 節點代理（系統狀態頁）
 
     public NodeConfig? ActiveIp =>
         Nodes.TryGetValue(ActiveIpNode, out var n) ? n : null;
