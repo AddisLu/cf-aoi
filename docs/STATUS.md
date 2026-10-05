@@ -1220,7 +1220,7 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
 - LoopEngineering「遠端路徑」`<機台>:<路徑>`（另一 repo，分支 `feat/remote-paths`，2050 測試全過）：RAG 來源、機況監看、
   對話檔案工具直接經 SSH 讀 `grab:/srv/cfaoi`；**未部署**（待 Spark→Grab 金鑰授權 + 合併/重啟由 Addis 決定）。
 
-**運作模式：生產 vs 機況助手（2026-10-05，L2 — 代理/Control 離線驗證；實機待第二台 Spark 線修好）**
+**運作模式：生產 vs 機況助手（2026-10-05，L3 — 代理經實機雙 Spark 驗證；Windows 畫面待測）**
 - 生產只跑 Control/Grab/IP；機台有問題/調機 → Windows Control「系統狀態 → 機況助手」開 Loop + 大模型（兩台 Spark），
   「結束並回生產」關掉；開著期間 CF_READY 回未就緒。代理新命令 `LOOP status|start|stop` + 轉送口 192.168.3.1:4711。
 - 實測現況（2026-10-05）：主 Spark 的大模型（32 小時前雙機啟動）**已卡住**——5 token 請求 40 秒無回應（第二台 Spark
@@ -1232,6 +1232,11 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   vLLM `.env` ETH_IF/IB_IF 改 port1（`enp1s0f1np1` / `rocep1s0f1,roceP2p1s0f1`；舊值讓 launch-cluster 把主 Spark 認成
   192.168.3.1 → 「不在節點清單」直接放棄，雙機啟動/停止都失敗）；第二台殘留 worker 容器（佔 108GB）已停。
   兩台可用記憶體 108 / 115 GB = 生產模式。尚待：`setup_loop_mode.sh`（代理設定，需 sudo）+ Windows 實測雙機載入。
+- **雙機載入實測 L3（2026-10-05 16:47–16:55，經節點代理 = Control 同一路徑，curl 驗）**：`setup_loop_mode.sh` 已跑；
+  LOOP start → 2.5 分鐘 ready（權重已快取）→ 兩台可用記憶體 10 / 13 GB（模型分擔）→ 實際推論：繁中正確作答、
+  1234 tokens / 37s = **33.4 tok/s**（思考模式）；期間 `active=True`（CF_READY 會擋）、IP 生產無重啟無 OOM →
+  LOOP stop → 兩台容器皆停、可用 112 / 114 GB、`active=False`。踩到並修：代理 POST 空內容被 Fastify 回 400（c1f4f0b）。
+  尚待：Windows Control 畫面按鈕實測（Windows 未裝好）。
 
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；

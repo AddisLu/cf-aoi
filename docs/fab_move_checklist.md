@@ -35,6 +35,7 @@
 - [ ] 運作模式（生產只跑三支；機況助手由 Control 開）：主 Spark `scripts/deploy/setup_loop_mode.sh --fab`
 - [x] 第二台 Spark 直連線：spark-3961 上 `scripts/deploy/fix_spark_link.sh --apply` → 177/178 雙向通、MTU 9000 — 2026-10-05
 - [ ] 實測：Control「開啟機況助手」→ 兩台載入就緒 → 開啟畫面 → 「結束並回生產」→ CF_READY 回 OK、Spark 可用記憶體恢復
+      （2026-10-05 已用代理實測雙機載入/推論 33 tok/s/釋放；剩 Windows 畫面按鈕）
 
 ## C. 時間同步（fab 內沒有 NTP 伺服器）
 
