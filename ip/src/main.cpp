@@ -614,7 +614,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zc.width = sub_cont.cols;
         zc.height = sub_cont.rows;
         zc.panel_id = panel_id;
-        const bool cascade = g_cascade_t1 > 0.0f && z.algo_mode == 0 && g_cascade_t1 < z.BTH;
+        // 第二段投票門檻（配方 BTH）可以比 t1 低：t1 只決定「誰當候選」，把關的是投票（壓雜訊後亮門檻可到 ≈1.25）
+        const bool cascade = g_cascade_t1 > 0.0f && z.algo_mode == 0;
         if (cascade) zc.BTH = g_cascade_t1;                          // 第一段：亮門檻放低粗篩
 
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);

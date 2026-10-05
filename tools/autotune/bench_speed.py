@@ -23,11 +23,9 @@ TACT_S = 28.6     # 掃描時間（邊拍邊算要跟上的是這個）
 
 EF = ['--edge-fill', '1']
 VARIANTS = [   # (名稱, 偵測, 配方選項, IP 額外參數)
-    ('div（對照）', 'div', {}, EF),
-    ('divvote 1p', 'divvote', {'pitch_time': 1, 'choose': 7, 'multiscale': 0}, EF),
-    ('兩段式 t1=1.30', 'div', {}, EF + ['--cascade-bright', '1.30']),
-    ('兩段式 t1=1.27', 'div', {}, EF + ['--cascade-bright', '1.27']),
     ('兩段式 t1=1.33', 'div', {}, EF + ['--cascade-bright', '1.33']),
+    ('兩段式 t1=1.31', 'div', {}, EF + ['--cascade-bright', '1.31']),
+    ('兩段式 t1=1.30', 'div', {}, EF + ['--cascade-bright', '1.30']),
 ]
 
 
