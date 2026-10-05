@@ -140,7 +140,9 @@ def refine_box(st, box, px, py, nb_rows, nb_cols, n_col_samples=4, sample_h=1500
     y0, y1 = box['by'] * B, (box['by'] + box['bh']) * B
     at_top, at_bot = box['by'] == 0, box['by'] + box['bh'] >= nb_rows
     at_left, at_right = box['bx'] == 0, box['bx'] + box['bw'] >= nb_cols
-    xi0, xi1 = x0 + search, max(x0 + search + 1, x1 - search)          # 只看框內部的欄
+    xi0, xi1 = x0 + search, x1 - search                              # 只看框內部的欄
+    if xi1 - xi0 < 16:                                               # 框很窄（例：貼 CCD 邊的細條）→ 用整個框寬
+        xi0, xi1 = max(0, x0), min(st.w, max(x1, x0 + 16))
     def yedge(y, d):
         img, top = st.rows(y - 4 * search, y + 4 * search)
         prof = E.energy_profile(img[:, xi0:xi1], px, py, 0)
