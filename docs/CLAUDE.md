@@ -284,6 +284,8 @@ Control 下命令、IP 就地處理、結果回傳（跨機免共用檔案系統
 - **幾何欄位對應**（`DetectRoi`→ZoneConfig，見 ip/CLAUDE.md §5）：`PitchX→pitch_x`、`PitchY→pitch_y`、
   `SearchX→search_range_x`、`SearchY→search_range_y`，**`fast_search_range = clamp(SearchY,0,2)`**（DIV kernel 實吃的垂直局部搜尋）；
   ROI `StartX/StartY/EndX/EndY`（-1=全幅，每個 DetectRoi 一個 zone）。
+  **座標系（2026-10-05，I8）**：任一 zone 的 EndY > 單張高 → 整份配方視為 **panel 座標**（Y = sliceIndex × 張高 + 列），
+  IP 逐張平移、不相交 zone 略過（IOI 同）；否則為單張座標（舊行為不變）。offline-file 由檔名 `Origin(\d+)` 取 sliceIndex。
 - **結果雙寫**（IP `result_saver.cpp`，兩者欄位一致）：
   `{panelId}_{recipeName}_ResultInfo.json`（Control 反序列化用）+ `{panelId}_{recipeName}_ResultInfo.xml`
   （= 序列化 `JudgeResult`，給上位機 `CF_GET_RESULT` 鏈相容）。

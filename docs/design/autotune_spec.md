@@ -34,7 +34,17 @@
 | 幾 up 檢查 | 晶片列數（各 CCD 眾數）× 整片 X 投影分段數 = 幾 up | 合成 6 up ✓；輸入 4 → 判不一致 |
 | 放寬 | 個別 CCD 邊際 × (1+放寬%)：DIV 暗↓亮↑、SUB 絕對值↑ | ✓ |
 
-測試：`python3 tools/autotune/test_autotune.py`（18 項；真實 IP04、真實晶片間隙 T550 IP04 #14/#15、合成整片玻璃）。
+**IP 實檢驗證（2026-10-05，T550 IP04 整條 29 張）**：見 [verification/autotune_ip_validation_20261005.md](../verification/autotune_ip_validation_20261005.md)
+——自動區域 + IP 二分校準門檻 **0.642 / 1.43 → 0 誤判、真缺陷 2/2**（偶/奇張交叉驗證 0 誤判）；
+玻璃內檢測區 97.75%，扣逐張死區後實際檢到 95.01%。
+
+- **整條 CCD（panel 座標）**：`autotune_strip.py`——每張帶上下相鄰張 256 列算週期能量 → 32×32 區塊圖 → 兩層門檻
+  （晶片 / dummy）→ 連通元件外框 → 全解析度細修；IOI 撐滿到上下相鄰晶片的邊。
+- **門檻以 IP 實檢校準為準**（`validate_ip.py --calibrate`）：暗/亮分開二分搜尋 0 誤判最緊值，再留 3%；
+  引擎底線（±pitch 四鄰比值）只當搜尋起點（比 IP 8 方向 kernel 的實際雜訊緊，直接用要加 ~15%）。
+- **配方輸出**：`recipe_writer.py`，DetectRoi = panel 座標（EndX/EndY 不含端點）、DIV + Awc_None、Blob 過濾關。
+
+測試：`python3 tools/autotune/test_autotune.py`（23 項；真實 IP04、真實晶片間隙 T550 IP04 #14/#15、合成整片玻璃）。
 
 ## 4. 各模組要改的地方（盤點結果）
 
@@ -50,10 +60,13 @@
 ## 5. 分期
 
 1. ✅ 引擎核心 + 測試 + 設計稿（本次）
-2. IP `SET_CAPTURE save_only`（C++，Spark 編譯；以 `image_replay_sender` 回放 IP04 驗證命名與張數）
-3. 自動調參服務：Spark 節點代理 `AUTOTUNE` 命令跑引擎（影像就在 Spark，cv2 4.13），結果 JSON + 預覽圖
-4. Control「自動調參」頁（依設計稿）+ 寫入引擎（備份/還原）+ 試檢（REVIEW_LOCAL_IMAGE 帶新配方 XML）
-5. 實機：6 台相機實際收集（需玻璃 + 光源）→ 與人工調參比對
+2. ✅ IP panel 座標配方（I8）+ texture 快取修正（I4）；整條分析、配方輸出、IP 實檢校準（2026-10-05）
+3. IP 接縫補檢：slice 上下各 37 列死區（≈ 1.5% 檢測區）另跑一小條回收；X 方向 53 px 看相鄰 CCD 重疊
+4. IP `SET_CAPTURE save_only`（C++，Spark 編譯；以 `image_replay_sender` 回放 IP04 驗證命名與張數）
+   命名改為**每片一夾、序號 = slice 編號從 0 起**（`<片>/IPnn/IPnn_Origin000000.tif`；IP 由檔名取 sliceIndex）
+5. 自動調參服務：Spark 節點代理 `AUTOTUNE` 命令跑引擎（影像就在 Spark，cv2 4.13），結果 JSON + 預覽圖
+6. Control「自動調參」頁（依設計稿）+ 寫入引擎（備份/還原）+ 試檢（REVIEW_LOCAL_IMAGE 帶新配方 XML）
+7. 實機：6 台相機實際收集（需玻璃 + 光源）→ 與人工調參比對
 
 ## 6. 已確認（2026-10-05 Addis）
 
