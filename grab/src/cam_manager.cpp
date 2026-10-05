@@ -1,4 +1,8 @@
 #include "cam_manager.h"
+#include "cam_pylon.h"
+#include <dlfcn.h>
+#include <unistd.h>
+#include <climits>
 
 #include <algorithm>
 #include <cctype>
@@ -238,7 +242,7 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
     }
     primary_only_ = false;   // 以下為正式開陣列路徑
 
-    auto infos = CamPylon::enumerate_cameras();
+    auto infos = enumerate();
     if (infos.empty()) { err = "enumerate 找不到任何相機"; return false; }
 
     std::string rerr;
@@ -249,11 +253,12 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
     // 非嚴格 + 單台：沿用舊語意（auto/指定序號）。
     if (!strict && want == 1) {
         Entry e;
-        e.cam = std::make_unique<CamPylon>();
+        e.cam = make_camera();
+        if (!e.cam) { err = "eBUS 外掛不可用（見上方訊息）"; return false; }
         e.cam_id = 0;
         e.serial = cli_serial;
         if (!e.cam->open(cli_serial, pkt_size, roi_, line_rate_hz_)) {
-            err = "pylon open failed (serial=" + cli_serial + ")";
+            err = std::string(backend_name()) + " open failed (serial=" + cli_serial + ")";
             return false;
         }
         cams_.push_back(std::move(e));
@@ -294,7 +299,8 @@ bool CamManager::open_all(int want, const std::string& cli_serial,
 
     for (size_t i = 0; i < n; ++i) {
         Entry e;
-        e.cam = std::make_unique<CamPylon>();
+        e.cam = make_camera();
+        if (!e.cam) { err = "eBUS 外掛不可用（見上方訊息）"; stop_all(); return false; }
         e.cam_id = picks[i].cam_id;
         e.serial = picks[i].serial;
         e.mac    = picks[i].mac;
@@ -333,16 +339,17 @@ void CamManager::stop_all() {
     primary_only_ = false;
 }
 
-CamPylon* CamManager::get(int cam_id) {
+ICamera* CamManager::get(int cam_id) {
     for (auto& e : cams_)
         if ((int)e.cam_id == cam_id) return e.cam.get();
     return nullptr;
 }
 
-CamPylon* CamManager::get_or_open_primary(const std::string& cli_serial, int64_t pkt_size) {
+ICamera* CamManager::get_or_open_primary(const std::string& cli_serial, int64_t pkt_size) {
     if (!cams_.empty()) return cams_.front().cam.get();
     Entry e;
-    e.cam = std::make_unique<CamPylon>();
+    e.cam = make_camera();
+    if (!e.cam) return nullptr;
     e.cam_id = 0;
     e.serial = cli_serial;
     if (!e.cam->open(cli_serial, pkt_size, roi_, line_rate_hz_)) return nullptr;
@@ -392,4 +399,64 @@ std::vector<CamManager::Fault> CamManager::faults() const {
         out.push_back(Fault{e.cam_id, e.ccd_id, e.cam->fault_message()});
     }
     return out;
+}
+
+// ── eBUS 外掛（libcfaoi_cam_ebus.so，與 cfaoi_grab 同目錄）────────────────────
+// 只在 --camera ebus 時載入：eBUS 函式庫載入當下就要 GENICAM_ROOT_V3_4 等環境變數（沒有就 exit），
+// 所以先 setenv 再 dlopen；pylon 模式完全不碰 eBUS（也避開兩套 GenICam 同行程）。
+namespace {
+struct EbusPlugin {
+    ICamera* (*create)() = nullptr;
+    void (*enumerate)(std::vector<CamInfo>*) = nullptr;
+    std::string error;
+};
+
+const EbusPlugin& ebus_plugin() {
+    static EbusPlugin p = [] {
+        EbusPlugin r;
+#ifdef CFAOI_EBUS_ROOT
+        const std::string root = CFAOI_EBUS_ROOT;
+        const std::string genicam = root + "/lib/genicam";
+        const std::string log = genicam + "/log/config/DefaultLogging.properties";
+        const char* home = std::getenv("HOME");
+        const std::string cache = std::string(home ? home : "/tmp") + "/.config/Pleora/genicam_cache_v3_4";
+        ::setenv("PUREGEV_ROOT", root.c_str(), 0);
+        for (const char* k : {"GENICAM_ROOT", "GENICAM_ROOT_V3_4"}) ::setenv(k, genicam.c_str(), 0);
+        for (const char* k : {"GENICAM_LOG_CONFIG", "GENICAM_LOG_CONFIG_V3_4"}) ::setenv(k, log.c_str(), 0);
+        for (const char* k : {"GENICAM_CACHE", "GENICAM_CACHE_V3_4"}) ::setenv(k, cache.c_str(), 0);
+        if (std::system(("mkdir -p '" + cache + "'").c_str()) != 0) { /* 快取建不了只是慢 */ }
+        char exe[PATH_MAX] = {0};
+        const ssize_t n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+        std::string dir = n > 0 ? std::string(exe, (size_t)n) : std::string(".");
+        dir = dir.substr(0, dir.find_last_of('/'));
+        const std::string so = dir + "/libcfaoi_cam_ebus.so";
+        void* h = ::dlopen(so.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (!h) { r.error = std::string("載入 ") + so + " 失敗：" + ::dlerror(); return r; }
+        r.create = reinterpret_cast<ICamera* (*)()>(::dlsym(h, "cfaoi_ebus_create"));
+        r.enumerate = reinterpret_cast<void (*)(std::vector<CamInfo>*)>(::dlsym(h, "cfaoi_ebus_enumerate"));
+        if (!r.create || !r.enumerate) r.error = "libcfaoi_cam_ebus.so 缺少進入點";
+#else
+        r.error = "本 grab 建置時沒有 eBUS SDK（/opt/pleora/ebus）→ --camera ebus 不可用";
+#endif
+        if (!r.error.empty()) fprintf(stderr, "[cam_manager] ✗ eBUS：%s\n", r.error.c_str());
+        return r;
+    }();
+    return p;
+}
+}  // namespace
+
+std::vector<CamInfo> CamManager::enumerate() const {
+    if (backend_ == CamBackend::Ebus) {
+        std::vector<CamInfo> out;
+        if (ebus_plugin().enumerate) ebus_plugin().enumerate(&out);
+        return out;
+    }
+    return CamPylon::enumerate_cameras();
+}
+
+std::unique_ptr<ICamera> CamManager::make_camera() const {
+    // eBUS 外掛載不進來 → nullptr（呼叫端報錯）。不可退回 pylon 物件：會開到錯的相機。
+    if (backend_ == CamBackend::Ebus)
+        return ebus_plugin().create ? std::unique_ptr<ICamera>(ebus_plugin().create()) : nullptr;
+    return std::make_unique<CamPylon>();
 }

@@ -102,7 +102,51 @@ set(GRAB_SOURCES
     src/control_server.cpp
 )
 
+# eBUS SDK（L803K 經 Pleora iPORT；--camera ebus）— 可選：找得到才編 cam_ebus.cpp
+option(CFAOI_WITH_EBUS "編入 eBUS 後端（--camera ebus）" ON)
+file(GLOB EBUS_ROOT_CANDIDATES "/opt/pleora/ebus/*")
+set(EBUS_ROOT "")
+if(NOT CFAOI_WITH_EBUS)
+  set(EBUS_ROOT_CANDIDATES "")
+endif()
+foreach(c ${EBUS_ROOT_CANDIDATES})
+  if(EXISTS "${c}/include/PvDevice.h")
+    set(EBUS_ROOT "${c}")
+  endif()
+endforeach()
+if(EBUS_ROOT)
+  message(STATUS "[OK] eBUS SDK: ${EBUS_ROOT}（--camera ebus 可用；外掛 libcfaoi_cam_ebus.so）")
+else()
+  message(STATUS "[--] 無 eBUS SDK（/opt/pleora/ebus）→ 只有 --camera pylon")
+endif()
+
 add_executable(cfaoi_grab ${GRAB_SOURCES})
+
+# eBUS 後端做成外掛（libcfaoi_cam_ebus.so），--camera ebus 時才 dlopen：
+# eBUS 函式庫**載入時**就檢查 GENICAM_ROOT_V3_4，沒設直接 exit → 直接連進 cfaoi_grab 會連 pylon 模式都起不來
+# （2026-10-05 實測服務重啟迴圈）。外掛載入前由 cam_manager.cpp 補環境變數；pylon 模式完全不載 eBUS。
+target_link_libraries(cfaoi_grab PRIVATE ${CMAKE_DL_LIBS})
+if(EBUS_ROOT)
+  target_compile_definitions(cfaoi_grab PRIVATE CFAOI_EBUS_ROOT="${EBUS_ROOT}")
+  add_library(cfaoi_cam_ebus SHARED src/cam_ebus.cpp)
+  set_target_properties(cfaoi_cam_ebus PROPERTIES PREFIX "lib" OUTPUT_NAME "cfaoi_cam_ebus")
+  target_compile_definitions(cfaoi_cam_ebus PRIVATE CFAOI_EBUS_ROOT="${EBUS_ROOT}" _UNIX_ _LINUX_)
+  target_include_directories(cfaoi_cam_ebus PRIVATE ${EBUS_ROOT}/include)
+  target_link_directories(cfaoi_cam_ebus PRIVATE ${EBUS_ROOT}/lib)
+  target_link_libraries(cfaoi_cam_ebus PRIVATE PvBase PvDevice PvStream PvBuffer PvGenICam PvSystem PvSerial pthread)
+  # 舊式 RPATH：GenICam 函式庫是 eBUS 的間接相依，RUNPATH 只管直接相依
+  target_link_options(cfaoi_cam_ebus PRIVATE
+      "-Wl,--disable-new-dtags,-rpath,${EBUS_ROOT}/lib:${EBUS_ROOT}/lib/genicam/bin/Linux64_x64")
+  add_dependencies(cfaoi_grab cfaoi_cam_ebus)
+  # 測試工具：軟體 GigE Vision 裝置假扮 L803K（沒有實體 iPORT 時測 --camera ebus；見 test/ebus_sim/）
+  add_executable(ebus_sim test/ebus_sim/ebus_sim.cpp)
+  target_compile_definitions(ebus_sim PRIVATE _UNIX_ _LINUX_)
+  target_include_directories(ebus_sim PRIVATE ${EBUS_ROOT}/include)
+  target_link_directories(ebus_sim PRIVATE ${EBUS_ROOT}/lib)
+  target_link_libraries(ebus_sim PRIVATE PvSoftDeviceGEV PvVirtualDevice PvBuffer PvBase PvGenICam pthread)
+  target_link_options(ebus_sim PRIVATE
+      "-Wl,--disable-new-dtags,-rpath,${EBUS_ROOT}/lib:${EBUS_ROOT}/lib/genicam/bin/Linux64_x64")
+endif()
 
 # RDMA + pthread
 target_link_libraries(cfaoi_grab PRIVATE ${RDMA_LIBS})

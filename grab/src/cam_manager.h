@@ -14,7 +14,7 @@
 //     不默默佔用槽位（docs/CLAUDE.md 約束②：宣告狀態與偵測狀態不可假 merge）。
 //   兩者皆無 → 退回列舉順序暫派 0..N-1 並印 WARN（舊行為；重插拔後 cam_id 會變）。
 
-#include "cam_pylon.h"
+#include "camera.h"
 
 #include <map>
 #include <memory>
@@ -24,7 +24,7 @@
 class CamManager {
 public:
     struct Entry {
-        std::unique_ptr<CamPylon> cam;
+        std::unique_ptr<ICamera> cam;
         uint16_t    cam_id = 0;
         std::string serial;   // 開機時鎖定的序號
         std::string mac;      // 列舉快照的 MAC（cam_map.json 的比對鍵）
@@ -89,11 +89,20 @@ public:
 
     size_t    size()  const { return cams_.size(); }
     bool      empty() const { return cams_.empty(); }
-    CamPylon* get(int cam_id);
-    CamPylon* primary() { return cams_.empty() ? nullptr : cams_.front().cam.get(); }
+    ICamera* get(int cam_id);
+    ICamera* primary() { return cams_.empty() ? nullptr : cams_.front().cam.get(); }
 
     // idle 調參路徑（TUNE_MEAN / GET_CAM_NODES）：尚無相機時開單台（舊語意），有則回第一台。
-    CamPylon* get_or_open_primary(const std::string& cli_serial, int64_t pkt_size);
+    ICamera* get_or_open_primary(const std::string& cli_serial, int64_t pkt_size);
+
+    // 相機後端（--camera pylon|ebus）。須在任何列舉/開相機之前設定。
+    void set_backend(CamBackend b) { backend_ = b; }
+    CamBackend backend() const { return backend_; }
+    const char* backend_name() const { return backend_ == CamBackend::Ebus ? "ebus" : "pylon"; }
+    // 依後端列舉（LIST_CAMERAS / open_all 共用）
+    std::vector<CamInfo> enumerate() const;
+    // 依後端建一個未開啟的相機物件
+    std::unique_ptr<ICamera> make_camera() const;
 
     int64_t  max_payload() const;      // 所有台最大 PayloadSize（RDMA frame_cap 用）
     uint64_t total_grabbed() const;
@@ -120,5 +129,6 @@ private:
     // open_all 看到此旗標一律重開，避免把單台當成整個陣列（靜默少台）。
     bool primary_only_ = false;
     Roi  roi_;
+    CamBackend backend_ = CamBackend::Pylon;
     double line_rate_hz_ = -1;   // 預設不設限（與出廠相機一致）
 };

@@ -11,51 +11,9 @@
 #include <thread>
 #include <vector>
 
-// 每幀回呼：cam_id / raw pixels / 位元組數 / 寬 / 高
-using FrameCb = std::function<void(uint16_t cam_id,
-                                   const uint8_t* data, uint32_t bytes,
-                                   uint32_t width, uint32_t height)>;
+#include "camera.h"
 
-// 相機列舉結果（CTlFactory::EnumerateDevices 後讀 CDeviceInfo，不需開相機）。
-// 只用 std 型別，不洩漏 pylon header 給非 pylon 檔。供 LIST_CAMERAS 用。
-struct CamInfo {
-    // cam_id/ccd_id/bound/bind_source 由 CamManager::resolve() 填入
-    // （相機 DeviceUserID "CCDnn" 優先，其次 cam_map.json 的 MAC 綁定）。
-    // CamPylon::enumerate_cameras() 本身只填列舉 index + bound=false（它不認識身分規則）。
-    int         cam_id      = 0;     // 已綁定 = 槽位；未綁定 = 列舉 index（不穩定）
-    std::string ccd_id;              // 顯示標籤（例 CCD00）；未綁定為空
-    bool        bound      = false;  // 是否已取得 CCD 身分（未綁定不得當成已就位）
-    std::string bind_source;         // "user_id" / "mac" / ""（未綁定）
-    std::string user_id;             // 相機 DeviceUserID（pylon 的 UserDefinedName；存在相機 flash）
-    std::string model;               // GetModelName 例 raL8192-12gm
-    std::string serial;              // GetSerialNumber
-    std::string device_class;        // GetDeviceClass 例 BaslerGigE
-    std::string mac;                 // GetMacAddress（GigE；非 GigE 空）
-    std::string ip;                  // GetIpAddress（空 = N/A）
-    bool        online     = true;   // 出現在列舉即視為 online
-    bool        persistent = false;  // IsPersistentIpActive()（有 persistent IP = 已綁定）
-    std::string ip_config;           // GetIpConfigCurrent（Persistent/DHCP/AutoIP…）
-};
-
-// GigE 機器層參數快照（open() 設定的東西,供 UI 顯示「看得到」）。只 std 型別。
-struct MachineParams {
-    std::string pixel_format, exposure_auto, gain_auto;
-    std::string trigger_mode, trigger_selector, trigger_source;
-    long long width = 0, height = 0, packet_size = 0, scpd = 0;
-    // 行速率（2026-09-21 起 open() 顯式設定；resulting 是相機依 ROI/曝光/頻寬算出的實際上限）
-    double line_rate_set = 0, line_rate_resulting = 0;
-};
-
-// 影像 ROI（open 時設定）。0 = 不動相機現值。
-// height = **送出的**每幀行數。GigE 相機單幀受機上緩衝限制（raL8192 寬 8192 時 ≤3573 行），
-// 超過時 open() 自動把相機 Height 設成 height/k，取像時每 k 張相機幀拼成一張送出
-// （舊 L803K 為 Camera Link，由擷取卡組幀，無此限制）。
-struct Roi {
-    int64_t width  = 0;
-    int64_t height = 0;
-};
-
-class CamPylon {
+class CamPylon : public ICamera {
 public:
     CamPylon() = default;
     ~CamPylon() { stop(); }

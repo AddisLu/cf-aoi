@@ -45,6 +45,9 @@
 //   --cam-map     PATH       MAC↔cam_id 備援映射（預設 <exe上一層>/cam_map.json；Gap #21）
 //                            CCD 身分以相機 DeviceUserID（CCDnn）為準，此檔為過渡/備援；
 //                            任一來源存在 → 嚴格模式（無身分/重複拒開）；皆無 → 列舉順序暫派 + WARN
+//   --camera      pylon|ebus 相機後端（預設 pylon）。pylon = Basler raL8192-12gm（原生 GigE）；
+//                            ebus = Basler L803K（Camera Link）經 Pleora iPORT CL-GigE（eBUS SDK）。
+//                            ebus 時 --width 預設 8160（L803K 雙 tap 寬），曝光/增益/行速率走 CL 序列埠。
 //   --cpus        pcore|all|LIST  行程 CPU 親和性（預設 pcore）。pcore = Intel 混合架構只用大核
 //                            （讀 /sys/devices/cpu_core/cpus；非混合架構自動等同 all）；LIST 如 0-7,12。
 //                            啟動第一步就設 → pylon 取像 thread / RDMA / 8100 全部繼承。
@@ -240,6 +243,8 @@ int main(int argc, char** argv) {
     std::string cam_cfg_path;                  // 空 = 預設 exe 上一層/cam_config.json
     std::string cam_map_path;                  // 空 = 預設 exe 上一層/cam_map.json
     std::string cpus        = "pcore";        // 預設只用大核（混合架構）；all = 不限制
+    std::string camera      = "pylon";        // 相機後端：pylon（raL8192）| ebus（L803K 經 iPORT）
+    bool        width_given = false;          // --width 有沒有指定（沒有 → 依後端給預設）
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -257,12 +262,13 @@ int main(int argc, char** argv) {
             const std::string v = next();
             line_rate = (v == "max") ? -1 : (v == "keep") ? 0 : atof(v.c_str());
         }
-        else if (a == "--width")       roi.width    = atoll(next());
+        else if (a == "--width")       { roi.width  = atoll(next()); width_given = true; }
         else if (a == "--height")      roi.height   = atoll(next());
         else if (a == "--ctrl-port")   ctrl_port    = atoi(next());
         else if (a == "--cam-config")  cam_cfg_path = next();
         else if (a == "--cam-map")     cam_map_path = next();
         else if (a == "--cpus")        cpus         = next();
+        else if (a == "--camera")      camera       = next();
         else { fprintf(stderr, "未知參數：%s\n", a.c_str()); return 1; }
     }
 
@@ -271,6 +277,17 @@ int main(int argc, char** argv) {
     }
     // 必須在建立任何 thread（pylon / 8100 / RDMA）之前設：thread 建立時繼承呼叫端的親和性
     if (!apply_cpu_affinity(cpus)) return 1;
+    if (camera != "pylon" && camera != "ebus") {
+        fprintf(stderr, "--camera 只接受 pylon 或 ebus（收到 %s）\n", camera.c_str()); return 1;
+    }
+    const CamBackend backend = camera == "ebus" ? CamBackend::Ebus : CamBackend::Pylon;
+    if (backend == CamBackend::Ebus && !width_given) roi.width = 8160;   // L803K 雙 tap 寬
+#ifndef CFAOI_EBUS_ROOT
+    if (backend == CamBackend::Ebus) {
+        fprintf(stderr, "--camera ebus：本 grab 編譯時沒有找到 eBUS SDK（/opt/pleora/ebus）→ 先裝 eBUS 再重新建置\n");
+        return 1;
+    }
+#endif
     std::string rdma_host, rdma_port;
     if (!parse_host_port(rdma_dest, rdma_host, rdma_port)) {
         fprintf(stderr, "--rdma-dest 格式錯誤，應為 IP:PORT\n"); return 1;
@@ -302,6 +319,7 @@ int main(int argc, char** argv) {
 
     // ---- 元件 ----
     CamManager    mgr;
+    mgr.set_backend(backend);
     mgr.set_roi(roi);
     mgr.set_line_rate(line_rate);
     RdmaSender    sender;
@@ -468,7 +486,7 @@ int main(int argc, char** argv) {
                                      float& exp_actual, int& gain_actual,
                                      std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
-        CamPylon* c = mgr.get(cid);
+        ICamera* c = mgr.get(cid);
         // 陣列已開卻找不到該 cam_id → 誠實 ERR（不可默默寫進 cam_config 假裝成功）
         if (!c && !mgr.empty()) { err = "unknown cam_id " + std::to_string(cid); return false; }
         if (!c || !c->is_open()) {
@@ -492,7 +510,7 @@ int main(int argc, char** argv) {
                                      float& exp_actual, int& gain_actual,
                                      std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
-        CamPylon* c = mgr.get(cid);
+        ICamera* c = mgr.get(cid);
         if (!c && !mgr.empty()) { err = "unknown cam_id " + std::to_string(cid); return false; }
         if (!c || !c->is_open()) {
             auto cfg = load_cam_config(cam_cfg_path, cid);
@@ -509,7 +527,7 @@ int main(int argc, char** argv) {
 
     // 相機陣列總覽：LIST_CAMERAS（唯讀列舉，不開相機、不改相機）
     ctrl.set_list_cameras_handler([&]() -> std::string {
-        auto cams = CamPylon::enumerate_cameras();
+        auto cams = mgr.enumerate();
         mgr.annotate(cams);   // 依 DeviceUserID（CCDnn）/ cam_map.json 填 cam_id/ccd_id/bound
         json arr = json::array();
         for (const auto& c : cams) {
@@ -542,7 +560,7 @@ int main(int argc, char** argv) {
         // 依 cam_id 路由；陣列未開時退回 primary（單台 legacy 行為不變）
         // ⚠️ 已知限制（docs/code_review_20260802.md B6）：idle（陣列未開）第一發會開「列舉第一台」
         //   並以請求的 cam_id 回聲——有 cam_map 且該台非第一台時 = 靜默回錯台（★4 的 idle 殘留孔）。
-        CamPylon* c = mgr.get(cid);
+        ICamera* c = mgr.get(cid);
         if (!c && mgr.empty()) c = mgr.get_or_open_primary(serial, pkt_size);
         if (!c) { err = "unknown cam_id " + std::to_string(cid); return false; }
         MachineParams mp;
@@ -588,7 +606,7 @@ int main(int argc, char** argv) {
                                    std::string& err) -> bool {
         std::lock_guard<std::mutex> lk(state_mtx);
         if (grabbing) { err = "取像中，請先 GRAB_STOP 再調參預覽"; return false; }
-        CamPylon* c = mgr.get(cid);
+        ICamera* c = mgr.get(cid);
         // 陣列已開時不得 fallback 到 primary，否則 cam1 的調參會靜默套到 cam0
         // ⚠️ 已知限制（B6）：idle 第一發同 GET_CAM_NODES 會開列舉第一台；且量測後 save_cam_config(cid)
         //   會把「錯台的實測值」寫進請求 cam_id 的設定槽（下次 ARM 套錯）。
@@ -657,8 +675,8 @@ int main(int argc, char** argv) {
     }
     {
         auto cfg = load_cam_config(cam_cfg_path, 0);
-        printf("[main] cfaoi_grab 就緒  ctrl_port=%d  rdma→%s:%s  cam_count=%s  frames/panel=%d  roi=%lldx%lld\n",
-               ctrl_port, rdma_host.c_str(), rdma_port.c_str(),
+        printf("[main] cfaoi_grab 就緒  camera=%s  ctrl_port=%d  rdma→%s:%s  cam_count=%s  frames/panel=%d  roi=%lldx%lld\n",
+               mgr.backend_name(), ctrl_port, rdma_host.c_str(), rdma_port.c_str(),
                cam_count == 0 ? "ALL" : std::to_string(cam_count).c_str(), cli_frames,
                (long long)roi.width, (long long)roi.height);
         printf("[main] pkt_size=%lld  line_rate=%s\n", (long long)pkt_size,
