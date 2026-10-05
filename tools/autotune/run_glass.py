@@ -160,19 +160,20 @@ def main():
     json.dump(results, open(os.path.join(a.out, 'glass_summary.json'), 'w'), ensure_ascii=False, indent=1)
 
 
-def resheet(out_root):
+def resheet(out_root, glass_dir=None):
     """由既有 result.json 重做候選小圖（不重跑 IP）。"""
     for f in sorted(glob.glob(os.path.join(out_root, 'IP*', 'result.json'))):
         r = json.load(open(f))
         if r.get('candidates') is None:
             continue
-        paths = sorted(glob.glob(os.path.join(r['glass_dir'], r['ccd'], '*_Origin*.tif'))) if r.get('glass_dir') else None
+        g = r.get('glass_dir') or glass_dir
+        paths = sorted(glob.glob(os.path.join(g, r['ccd'], '*_Origin*.tif'))) if g else None
         if paths:
             crops(paths, r['candidates'], os.path.join(os.path.dirname(f), 'candidates'), r['pitch_int'][0])
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 3 and sys.argv[1] == '--resheet':
-        resheet(sys.argv[2])
+    if len(sys.argv) >= 3 and sys.argv[1] == '--resheet':
+        resheet(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
     else:
         main()
