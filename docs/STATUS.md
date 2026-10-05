@@ -1227,6 +1227,11 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   177.12/178.12 不通），卻仍佔記憶體（119GB 剩 5GB，IP 生產同時在跑）；Loop 仍顯示 ready（偵測不到）。
   vLLM 叢集 `.env` 網卡仍是 port0（改接線後是 Grab RDMA 線）→ `setup_loop_mode.sh` 改 port1。
 - 驗證：`test_agent_loop.py` 17 項、Control `--selftest upstream`（含診斷模式 CF_READY）全過、Control 建置 0 警告。
+- 同日修復：spark-3961（spark-02）跑 `fix_spark_link.sh --apply` → 177.12/178.12 移到接線的 port1，主 Spark 雙向通、
+  MTU 9000 大封包 0% 遺失；主 Spark 金鑰可登入 177.12、worker 已有 vllm-node 映像與 DeepSeek-V4-Flash 權重。
+  vLLM `.env` ETH_IF/IB_IF 改 port1（`enp1s0f1np1` / `rocep1s0f1,roceP2p1s0f1`；舊值讓 launch-cluster 把主 Spark 認成
+  192.168.3.1 → 「不在節點清單」直接放棄，雙機啟動/停止都失敗）；第二台殘留 worker 容器（佔 108GB）已停。
+  兩台可用記憶體 108 / 115 GB = 生產模式。尚待：`setup_loop_mode.sh`（代理設定，需 sudo）+ Windows 實測雙機載入。
 
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
