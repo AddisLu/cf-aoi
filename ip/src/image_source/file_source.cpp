@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <regex>
 
 #include <opencv2/opencv.hpp>
 
@@ -71,6 +72,11 @@ bool FileImageSource::next_frame(FrameHeader& hdr, std::vector<uint8_t>& payload
         hdr = make_frame_header(current_name_, /*cam_id*/ 0, seq_++,
                                 (uint32_t)w, (uint32_t)h,
                                 payload.data(), (uint32_t)payload.size());
+        // legacy/IP04 命名 `IPnn_Origin000014` 的序號 = 該片第幾張 slice（從 0 起）→ 填 sliceIndex，
+        // 讓 panel 座標配方（I8）在 offline-file 與 rdma-process 走同一套平移。無此命名則維持 0。
+        static const std::regex kOrigin("Origin(\\d+)$");
+        std::smatch m;
+        if (std::regex_search(current_name_, m, kOrigin)) hdr.sliceIndex = (uint16_t)std::stoul(m[1].str());
         return true;
     }
     return false;  // 全部讀完
