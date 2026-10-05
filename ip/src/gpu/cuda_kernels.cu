@@ -31,6 +31,7 @@
 // Global texture object for 2D image access (optimizes non-coalesced neighbor access)
 static cudaTextureObject_t g_tex_input = 0;
 static uint8_t* g_tex_bound_ptr = nullptr;
+static int g_tex_bound_w = 0, g_tex_bound_h = 0;   // 快取鍵須含尺寸（同一 buffer 會裝不同大小的 zone）
 
 // ============================================================================
 // Lens Shading Correction (LSC) Kernel
@@ -913,8 +914,12 @@ void freePersistentBuffers() {
 
 // Helper function to create/bind texture object
 static void bindTextureObject(const uint8_t* d_input, int width, int height) {
-    // Only recreate if pointer changed
-    if (g_tex_bound_ptr == d_input && g_tex_input != 0) {
+    // 只在 指標 + 寬 + 高 都沒變時重用。
+    // ⚠️ 舊版只比指標：多 zone 配方共用同一個 d_input buffer，換成較高的 zone 時 texture 仍是前一個 zone 的高度
+    //    → 超出舊高度的列被 clamp 讀到最後一列 → 只在那附近整列誤判（實測 T550 IP04：slice 0 的 zone 高 1931，
+    //    slice 1 全幅 zone 在 y≈1914 出現 1700+ 顆假暗點；單獨跑 slice 1 = 0 顆）。
+    if (g_tex_bound_ptr == d_input && g_tex_input != 0 &&
+        g_tex_bound_w == width && g_tex_bound_h == height) {
         return;
     }
     
@@ -942,8 +947,18 @@ static void bindTextureObject(const uint8_t* d_input, int width, int height) {
     texDesc.normalizedCoords = 0;
     
     // Create texture object
-    cudaCreateTextureObject(&g_tex_input, &resDesc, &texDesc, nullptr);
+    // 超出 pitch2D 上限（高 > ~65000，例：整片 panel 拼接 145000 列）會失敗：清掉錯誤、g_tex_input 留 0
+    // → 呼叫端改走 shared/global 版本（同一套比對邏輯），不讓殘留的錯誤被後面的 CUDA_CHECK 當成致命錯。
+    if (cudaCreateTextureObject(&g_tex_input, &resDesc, &texDesc, nullptr) != cudaSuccess) {
+        (void)cudaGetLastError();
+        g_tex_input = 0;
+        g_tex_bound_ptr = nullptr;
+        g_tex_bound_w = g_tex_bound_h = 0;
+        return;
+    }
     g_tex_bound_ptr = const_cast<uint8_t*>(d_input);
+    g_tex_bound_w = width;
+    g_tex_bound_h = height;
 }
 
 // ============================================================================
