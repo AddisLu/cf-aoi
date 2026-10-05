@@ -242,6 +242,16 @@ def glass_edges(img, smooth=31, min_jump=12.0):
     return top, bot
 
 
+def split_dummy(segs, n, pitch, max_pitches=60):
+    """晶片 vs 晶片間的 dummy 週期帶：不貼影像邊、長度 < max_pitches 個 pitch 的段 = dummy 帶（實測 T550 dummy 帶 ≈ 30 pitch，留 2 倍）
+    （最小的 32″ 晶片短邊也有數千 px；貼邊的段可能是只照到一部分的晶片，一律當晶片）。
+    dummy 帶不做週期比對（bypass），改列為 IOI 興趣區裁圖給 AI 檢（Addis 2026-10-05）。"""
+    chip, dummy = [], []
+    for s, e in segs:
+        (dummy if s > 0 and e < n and e - s < max_pitches * pitch else chip).append((s, e))
+    return chip, dummy
+
+
 def analyze_regions(img, px, py, min_chip_frac=0.08):
     mask = pattern_mask(img, int(round(px)), int(round(py)))
     h, w = mask.shape
@@ -254,8 +264,14 @@ def analyze_regions(img, px, py, min_chip_frac=0.08):
         rows = refine_segments(energy_profile(img, px, py, 0, csel), rows, search)
         cols = refine_segments(energy_profile(img, px, py, 1, rsel), cols, search)
     top, bot = glass_edges(img)
-    zones = [{'StartX': c0, 'EndX': c1 - 1, 'StartY': r0, 'EndY': r1 - 1} for r0, r1 in rows for c0, c1 in cols]
-    return {'mask': mask, 'rows': rows, 'cols': cols, 'glass_top': top, 'glass_bottom': bot, 'zones': zones,
+    rows, drows = split_dummy(rows, h, py)
+    cols, dcols = split_dummy(cols, w, px)
+    rect = lambda r, c: {'StartX': c[0], 'EndX': c[1] - 1, 'StartY': r[0], 'EndY': r[1] - 1}
+    zones = [rect(r, c) for r in rows for c in cols]                       # DetectRoi：週期比對
+    ioi = [rect(r, c) for r in rows + drows for c in cols + dcols           # DetectIoi：dummy 帶給 AI
+           if r in drows or c in dcols]
+    return {'mask': mask, 'rows': rows, 'cols': cols, 'dummy_rows': drows, 'dummy_cols': dcols,
+            'glass_top': top, 'glass_bottom': bot, 'zones': zones, 'ioi': ioi,
             'pattern_frac': round(float(mask.mean()), 3)}
 
 
@@ -291,7 +307,7 @@ def run(root, n_up, mode='div', margin=0.15, max_per_ccd=6, loosen_map=None, pro
         if th and loosen_map and loosen_map.get(ccd):
             th = loosen(th, loosen_map[ccd])
         res[ccd] = {'pitch': p, 'pitch_int': [px, py], 'thresholds': th,
-                    'zones': reg['zones'], 'glass': [reg['glass_top'], reg['glass_bottom']],
+                    'zones': reg['zones'], 'ioi': reg['ioi'], 'glass': [reg['glass_top'], reg['glass_bottom']],
                     'pattern_frac': reg['pattern_frac'], 'n_images': len(fl)}
         progress(f'CCD{ccd:02d}: pitch {p["x"]:.2f}×{p["y"]:.2f}（{px}×{py}，信心 {p["conf"]:.0f}）'
                  f' 門檻 {th["dark"] if th else "?"}/{th["bright"] if th else "?"} 區塊 {len(reg["zones"])}')

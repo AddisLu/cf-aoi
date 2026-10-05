@@ -106,8 +106,12 @@ if GAP:
     rg = E.analyze_regions(st, 25.86, 18.5, min_chip_frac=0.03)
     # 人工 1:1 判讀：上晶片 pattern 止 3857、dummy 帶 4437–4996、下晶片起 5572（接圖後座標，0–10000）
     truth = [3857, 4437, 4996, 5572]
-    got = [rg['rows'][0][1], rg['rows'][1][0], rg['rows'][1][1], rg['rows'][2][0]] if len(rg['rows']) == 3 else []
-    check('間隙內分出 3 段 pattern（上晶片 / dummy 帶 / 下晶片）', len(rg['rows']) == 3, rg['rows'])
+    segs = sorted(rg['rows'] + rg['dummy_rows'])
+    got = [segs[0][1], segs[1][0], segs[1][1], segs[2][0]] if len(segs) == 3 else []
+    check('間隙內分出 3 段 pattern（上晶片 / dummy 帶 / 下晶片）', len(segs) == 3, segs)
+    check('dummy 帶 → IOI（給 AI），不進週期比對的檢測區', len(rg['dummy_rows']) == 1 and len(rg['ioi']) == 1
+          and len(rg['zones']) == 2 and all(z['EndY'] < 4437 or z['StartY'] > 4996 for z in rg['zones']),
+          (rg['zones'], rg['ioi']))
     check('四條邊界都在 1 個 pitch 內（≤ 20 px；粗分段原本差 ~50–65 px）',
           len(got) == 4 and all(abs(a - b) <= 20 for a, b in zip(got, truth)), list(zip(got, truth)))
 else:
