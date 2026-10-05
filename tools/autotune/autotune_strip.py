@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover
     cv2 = None
 
 CTX = 256          # 每張上下各帶相鄰張幾列（> 2 × pitch + 高通半徑）
+EDGE_SHRINK = 1    # 晶片內側邊往內縮幾個 pitch（縮掉的那圈在 IOI 內，交 AI）
 B = 32             # 區塊大小（px）
 
 
@@ -235,6 +236,14 @@ def _regions(st, px, py, dummy_max_pitches, progress):
         r['fill'], r['energy'] = b['fill'], round(b['energy'], 2)
         chips.append(r)
     chips.sort(key=lambda r: (r['y0'], r['x0']))
+    # 晶片內側的邊（不是影像邊）往內縮 1 pitch：最外一排格子跟內部不同，比 ±2 pitch 時會拉偏比值
+    # （實測 T550 IP09/IP01 左緣晶片：限制暗門檻的點全在 x0+53 = 死區外第一欄 → 暗門檻 0.55 vs 其他 0.63–0.68）
+    sx, sy = int(round(px)) * EDGE_SHRINK, int(round(py)) * EDGE_SHRINK
+    for c in chips:
+        if c['x0'] > 0: c['x0'] += sx
+        if c['x1'] < st.w: c['x1'] -= sx
+        if c['y0'] > 0: c['y0'] += sy
+        if c['y1'] < st.H: c['y1'] -= sy
     ioi = ioi_rects(chips, gx, gy, 2 * int(round(py)) + 2, 2 * int(round(px)) + 2)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
