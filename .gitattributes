@@ -1,5 +1,8 @@
 # 跨平台（Mac / Linux / Windows）行尾正規化
 * text=auto eol=lf
+# Windows 批次檔必須 CRLF（cmd.exe 遇 LF 行尾偶爾錯讀 label/續行）
+*.cmd text eol=crlf
+*.bat text eol=crlf
 
 # 二進位（避免被當文字做 eol 轉換）
 *.tif binary
