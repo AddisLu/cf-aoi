@@ -51,7 +51,7 @@
 | **B11** | grab | `accept` 失敗即 `break`：ECONNABORTED/EMFILE/EINTR → 8100 **靜默死亡**、行程假活 | control_server.cpp:104-108 |
 | **B12** | grab | `cam_config.json` parse 失敗 `catch(...){}` 全吞 → 6 台**靜默回 70µs/256 出廠值**；寫檔失敗也全吞（與 `load_map` fail-fast 雙標）| main.cpp:66-83,103-106 |
 | **I6** | ip | LOAD_RECIPE 失敗**狀態撕裂**：saving/ioi/share_flags/align **先寫後驗**、zones 不換 → 守門拒絕後用「舊 zones + 新配套」繼續跑 | control_server.cpp:424-494 |
-| **I9** | ip | 尺寸切換逐幀/逐 zone 觸發 GPU 全套 cudaFree/cudaMalloc 重配（含 pinned）→ 異型混編/多 zone throughput 崩 | gpu_pipeline.cpp:77-79,306-311 |
+| **I9** ✅ 2026-10-06 已修（GPU buffer 容量重用，換尺寸只清 d_binary；feat/cascade）| ip | 尺寸切換逐幀/逐 zone 觸發 GPU 全套 cudaFree/cudaMalloc 重配（含 pinned）→ 異型混編/多 zone throughput 崩 | gpu_pipeline.cpp:77-79,306-311 |
 | **I10** | ip | recv WC error（幀>slot 的 LOC_LEN_ERR 等）→ 例外 → recv_thread 死 → session 全停，且該幀不進 lost_ 帳、無 incident 歸類 | rdma_common.h:179-188；rdma_source.cpp:135-141 |
 | **I11** | ip | CHECK_ALIGN 缺 `kMaxDim` + uint32 乘法迴繞防呆（SEND_IMAGE_FOR_REVIEW 有這裡沒有）→ 構造尺寸 → 4GB Mat 越界 crash | control_server.cpp:886（對照 537-543）|
 | **I12** | ip | no_wait 串流 `results_` map 只進不出 → 慢性 OOM | control_server.cpp:620-627,374-380 |
