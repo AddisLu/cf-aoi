@@ -67,6 +67,7 @@ CATALOG = [
     ("tools/archive/test_archive.py", "unit", "grab", "python3 tools/archive/test_archive.py"),
     ("tools/node_agent/test_agent_loop.py", "unit", "any", "python3 tools/node_agent/test_agent_loop.py"),
     ("tools/triage/test_triage.py", "unit", "grab", "python3 tools/triage/test_triage.py"),
+    ("tools/autotune/test_autotune.py", "unit", "any", "python3 tools/autotune/test_autotune.py"),
 ]
 KIND_ZH = {"unit": "單元（不需硬體）", "sim": "模擬裝置", "e2e": "端到端（需程式在跑）", "hw": "實機"}
 TEST_LIKE = re.compile(r"(^|/)(test_[^/]+|[^/]*_test\.(cpp|py)|verify_[^/]+|[^/]*_verify\.cpp|[^/]*Tests\.cs)$")
