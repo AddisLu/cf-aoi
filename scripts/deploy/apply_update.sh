@@ -71,6 +71,10 @@ if [ "$RESTART" = 1 ] && [ "$OLD" != "$NEW" ]; then
   systemctl --no-ask-password restart cfaoi-agent 2>/dev/null && echo "  ✓ cfaoi-agent" || true
 fi
 echo "✓ $(hostname) 版本：$(git rev-parse --short HEAD)"
+# 服務設定（unit / polkit / 清理排程）有變 → apply 只換程式，unit 要重跑安裝腳本才會生效（需 sudo）
+if [ "$OLD" != "$NEW" ] && ! git diff --quiet "$OLD" "$NEW" -- scripts/deploy/install_linux_services.sh; then
+  echo "⚠ 這次更新改了服務設定 → 請在 $(hostname) 執行：bash $REPO/scripts/deploy/install_linux_services.sh $ROLE"
+fi
 
 # Spark：把 bundle 送過去，在那邊跑同一支腳本（用本機這份更新後的腳本，經 stdin 傳過去）
 if [ "$DO_SPARK" = 1 ]; then

@@ -14,7 +14,8 @@
   - Grab：`grab/cam_config.json`（曝光/增益）
   - Spark：`/etc/systemd/system/cfaoi-ip-production.service.d/memlock.conf`、`nmcli con show cf-rdma`（含回程路由）
   - 交換機：`display current-configuration` 存檔、`save force`
-- [ ] 全部 repo 打成離線包：`git bundle create cf-aoi-<短碼>.bundle --all`（進 fab 後用 USB 更新程式就靠它）
+- [ ] 產生離線更新包：`scripts/deploy/make_update_package.sh`（git bundle + Windows 包 + apply_update.sh），
+      複製到 USB 帶進 fab；fab 內更新：Grab 上 `bash apply_update.sh . --spark`（流程 2026-10-05 已實測）
 
 ## B. 離線安裝與授權（需要網路，進場前完成）
 
@@ -41,6 +42,7 @@
 - [x] 免密碼管理（polkit）、Control `CF_READY` 真檢查 Grab+IP 連線 — 2026-10-05
 - [x] 服務化後全鏈 `verify_step3_trigger` 7/7、Spark recv 60/0 — 2026-10-05
 - [x] Control 遠端管理（節點代理 + 系統狀態頁：重啟/切模式/看 log/診斷包/重開機）— 2026-10-05
+- [x] 卡死自動重啟（systemd watchdog 30s；兩台 SIGSTOP 實測皆自動恢復）— 2026-10-05
 - [ ] 實測：三台**同時斷電再復電**，不碰任何鍵盤，Control 三顆燈自己變綠、上位機流程可跑
 
 ## E. 線材與標籤
@@ -59,9 +61,9 @@
 
 ## G. 資料與磁碟
 
-- [ ] Spark 輸出磁碟：3.7T 目前用 29%；訂保留天數與自動清理（每片 overlay ≥15MB、小圖 ~3KB/張）
-- [ ] journald 已持久化（Spark ✓）；設上限避免塞滿系統碟
-- [ ] Grab 的 `~/cfaoi_logs/` 定期清理
+- [x] 自動清理（cfaoi-cleanup.timer）：結果 30 天、原始影像 7 天、行車紀錄 180 天、Grab log 30 天、水位 85%→80% — 2026-10-05
+- [x] journald 上限 4GB（兩台）— 2026-10-05
+- [ ] 依產線實際產量確認保留天數夠不夠（`/etc/default/cfaoi-cleanup` 可調）
 
 ## H. 進場後驗收（照順序，每項貼數據）
 

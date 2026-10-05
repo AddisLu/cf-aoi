@@ -34,10 +34,10 @@
 | Grab 啟動 | ✅ systemd 服務、開機自啟（2026-10-05） | — |
 | Spark 開機模式 | ✅ 開機自啟生產模式（2026-10-05） | — |
 | Control `CF_READY` | ✅ Grab+IP 皆連線才 OK，否則 ERR + 原因（2026-10-05） | 階段 2：加相機台數/故障相機判定 |
-| 卡死偵測 | Control 心跳燈 + ✅ 代理可遠端重啟（2026-10-05） | 階段 3：systemd watchdog 自動重啟 |
+| 卡死偵測 | ✅ systemd watchdog 自動重啟 + 代理可遠端重啟（2026-10-05） | — |
 | 遠端管理 | ✅ 節點代理 + Control「系統設定 › 系統狀態」（2026-10-05） | — |
 | 時間同步 | ✅ Grab chrony 校時主機、Spark 已跟上（Windows 待設） | — |
-| 程式更新 | git pull（要網路） | USB 帶版本包，Control 顯示三台版本是否一致 |
+| 程式更新 | ✅ USB 離線更新包（make_update_package / apply_update）+ Control 版本一致性警告（2026-10-05） | — |
 
 ## 4. 分階段
 
@@ -53,7 +53,7 @@
 - Control「系統」頁：三台狀態、版本、磁碟、按鈕；「一鍵全部重啟」
 - 收診斷包：一鍵把三台 log 打包存到 Windows（給工程師帶出 fab 分析）
 
-**階段 3 — 自我修復與維運**
+**階段 3 — 自我修復與維運** — ✅ 2026-10-05 完成（見下方「階段 3 實作」）
 - systemd watchdog（主迴圈定期回報，卡住自動重啟）
 - 磁碟保留天數自動清理、journald 上限
 - 版本包 + 一致性檢查（三台版本不同時 Control 顯示警告）
@@ -78,3 +78,17 @@
 - 驗證：`--selftest agents`（真代理：狀態/log/診斷包/白名單）兩台 PASS；經代理切調參↔生產、重啟 Grab、
   重開機權限（pkcheck）皆通過；之後全鏈 7/7、Spark recv 60/0。畫面截圖：`docs/verification/control_system_status_20261005.png`。
 - **尚未實測**：真的按「重新開機」（只驗了權限）——建議跟階段 1 的斷電復電測試一起做。
+
+## 7. 階段 3 實作（2026-10-05）
+
+- **watchdog**（`shared/sd_watchdog.h`，免 libsystemd）：Grab/IP 的服務設 `WatchdogSec=30`；程式每 10 秒回報一次健康，
+  卡住就停止回報 → systemd 約 30 秒後重啟。判定：命令迴圈（8100/8200）還在、單一命令 ≤120 秒；IP 另加單張影像處理 ≤60 秒。
+  實測：兩台各以 `SIGSTOP` 凍住 → 都在 30 秒時被 systemd 判定逾時並重啟、恢復運作；全鏈測試期間 0 誤觸發
+  （修掉兩個誤報：啟動競態、正常結束）。apport 對這兩支程式不留 core 檔，不佔磁碟。
+- **磁碟自動清理**（`tools/node_agent/cfaoi_cleanup.py` + `cfaoi-cleanup.timer`，每天 03:30、開機 15 分鐘後）：
+  結果 30 天、原始影像 7 天、行車紀錄 180 天、Grab log 30 天；水位 >85% 從最舊刪到 80%（先原始影像）；
+  今天的資料永不刪、只動 CF-AOI 產物。設定 `/etc/default/cfaoi-cleanup`。journald 上限 4GB。
+- **離線更新**：有網路處跑 `scripts/deploy/make_update_package.sh` → USB → fab 內 Grab 上
+  `bash apply_update.sh . --spark`（驗 bundle、工作樹須乾淨、只允許往前、編譯失敗不重啟並印回退指令；
+  改到服務設定時提醒重跑安裝腳本）。Windows 解壓包內 zip 覆蓋 control 資料夾。
+  實測：用此流程把 Spark 從 8b197ee → 99cc5f3 → a0cab72 → 05ce700 連續更新 3 次，全鏈皆 7/7。
