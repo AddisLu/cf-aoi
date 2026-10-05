@@ -185,11 +185,11 @@ def analyze_strip(paths, px=None, py=None, dummy_max_pitches=60, progress=print)
         above = [c['y1'] for c in chips if c['y1'] <= d['y0'] and c['x0'] < d['x1'] and d['x0'] < c['x1']]
         below = [c['y0'] for c in chips if c['y0'] >= d['y1'] and c['x0'] < d['x1'] and d['x0'] < c['x1']]
         # 再往晶片內多包 kernel 死區（2 pitch + search）：晶片真正的邊不補邊（補了會誤判），那一圈交給 AI
-        m = 2 * int(round(py)) + 2
+        mg = 2 * int(round(py)) + 2
         if above:
-            d['y0'] = max(above) - m
+            d['y0'] = max(above) - mg
         if below:
-            d['y1'] = min(below) + m
+            d['y1'] = min(below) + mg
     dummy = merge_bands(dummy, gap=0)
     area = st.w * st.H
     pat = float(m.sum()) * B * B
