@@ -95,7 +95,7 @@ for t in "b1_fault_containment b1_fault_test.cpp cam_pylon.cpp" \
   rm -f "$bin"
 done
 python3 "$REPO/tools/cam_align/test_offline.py" >/dev/null 2>&1 \
-  && ok '調機工具離線測試（34 項）' || bad '調機工具離線測試'
+  && ok '調機工具離線測試（48 項）' || bad '調機工具離線測試'
 
 if [ "$ARM" = 1 ]; then
   head_ '7. GRAB_ARM 實機（需 Spark 端已起 rdma-process）'

@@ -56,7 +56,7 @@
 ## F. 相機
 
 - [ ] persistent IP **斷電複驗**（相機斷電再上電，IP/CCD 名稱仍在）— 尚未驗
-- [ ] 37 台全數 `cam_provision` 命名完成（CCD01–CCD37，IP 尾碼 = 編號）
+- [ ] 37 台全數命名完成（CCD01–CCD37，IP 尾碼 = 編號）：桌面「相機工具」→ 🛠 裝置設定（或 `cam_provision`）
 - [ ] 光源到位後重調曝光，`cam_config.json` 入帳（暗場的 70µs/256 只是預設）
 
 ## G. 資料與磁碟
@@ -78,7 +78,7 @@
 - [ ] Control 同時管 2 台 Grab + 2 台 Spark、結果合併回上位機（尚未實作）
 - [x] Grab eBUS 取像後端（`--camera ebus`）+ iPORT CCD 命名工具（`iport_provision`）— 2026-10-05 模擬驗通
 - [ ] 實體 iPORT + L803K 實測：取像/掉幀率、UART 曝光/行速率、`iport_provision` ForceIP
-- [ ] 18 台命名 CCD38–55（`iport_provision set <SN> CCDnn` → 192.168.4.nn）、行速率統一
+- [ ] 18 台命名 CCD38–55（桌面「相機工具」🛠 裝置設定，或 `iport_provision set <SN> CCDnn` → 192.168.4.nn）、行速率統一
 - [ ] spark-3961 網路整理（SSH host key）
 
 ## J. 文件（Claude 在 fab 內無法協助）

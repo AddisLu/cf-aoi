@@ -227,8 +227,8 @@ if [ -d "$DESK" ]; then
     cat > "$DESK/cam-align.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=光學調機（線掃相機）
-Comment=線掃相機直線度調整（raL8192 原生 GigE / L803K 經 iPORT）
+Name=相機工具（設定・取像・調機）
+Comment=線掃相機：CCD 命名/IP 設定、即時取像、曝光增益、對焦與直線度調機、健檢（raL8192 / L803K 經 iPORT）
 Exec=python3 $REPO/tools/cam_align/cam_align.py
 Icon=camera-video
 Terminal=false
@@ -289,7 +289,7 @@ if [ "$DO_BUILD" = 0 ]; then note '略過（--skip-build）'; else
     run_test stitch               grab/test/stitch/stitch_test.cpp               grab/src/cam_pylon.cpp
     run_test ccd_identity         grab/test/ccd_identity/ccd_identity_test.cpp   grab/src/cam_manager.cpp grab/src/cam_pylon.cpp
     python3 "$REPO/tools/cam_align/test_offline.py" >/dev/null 2>&1 \
-      && note '測試通過：cam_align 離線（34 項）' || warn 'cam_align 離線測試未過'
+      && note '測試通過：cam_align 離線（48 項）' || warn 'cam_align 離線測試未過'
   fi
 fi
 

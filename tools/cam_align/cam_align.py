@@ -22,6 +22,7 @@ import socket
 import struct
 import subprocess
 import sys
+import subprocess
 import threading
 import time
 import webbrowser
@@ -29,7 +30,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gvcp_setip import REG_CCP  # noqa: E402
+from gvcp_setip import REG_CCP, Gvcp  # noqa: E402
+import provision  # noqa: E402
 from gvcp_discover import discover as gvcp_discover  # noqa: E402
 from genicam_client import GevDevice, CURATED  # noqa: E402
 from l800_serial import attach as l800_attach, set_line_rate_hz  # noqa: E402
@@ -37,6 +39,8 @@ from PIL import Image  # noqa: E402
 
 # GigE Vision bootstrap（所有相機一致）
 REG_SCP0, REG_SCPS0, REG_SCDA0 = 0x0D00, 0x0D04, 0x0D18
+REG_HB_TIMEOUT = 0x0938           # GevHeartbeatTimeout（ms）；取一張最久 4s 不送心跳 → 工作期間拉長
+HB_TIMEOUT_MS = 10000
 DO_NOT_FRAGMENT = 0x40000000
 GVSP_LEADER, GVSP_TRAILER, GVSP_PAYLOAD = 1, 2, 3
 
@@ -146,7 +150,7 @@ class Cam:
         self.lock = threading.Lock()
         self.latest = None                  # (seq, bytes, w, h)
         self.seq = 0
-        self.stats = {'dur_ms': 0, 'lost': 0, 'mean': 0, 'frames': 0, 'err': ''}
+        self.stats = {'dur_ms': 0, 'lost': 0, 'complete': 100.0, 'mean': 0, 'frames': 0, 'err': ''}
         self.packet = 9000
         self.orient = load_orients().get(info['mac'], {'rot': 0, 'flip': False})
         self.serial = None                  # (bridge, L800) —— L803K 序列埠
@@ -321,7 +325,12 @@ class Worker(threading.Thread):
         if r is None:
             raise RuntimeError('裝置沒回應')
         if r[0] != 0:
-            raise RuntimeError('取得控制權失敗（被其他軟體占用？）')
+            raise RuntimeError('取得控制權失敗（被其他軟體占用？例如產線 Grab → 按上方「暫停產線 Grab」）')
+        # 取一張最久 4 秒不送心跳，超過多數相機預設的 3 秒心跳逾時 → 工作期間拉長到 10 秒、結束還原
+        hb = g.read_reg(c.ip, REG_HB_TIMEOUT)
+        if hb is not None:
+            self.orig['hb'] = hb[0]
+            g.write_reg(c.ip, [(REG_HB_TIMEOUT, HB_TIMEOUT_MS)])
         for n in ('AcquisitionMode', 'PixelFormat', 'TLParamsLocked'):
             f = c.ctrl.get(n)
             if f and f.kind != 'command':
@@ -380,6 +389,8 @@ class Worker(threading.Thread):
                 g.write_reg(c.ip, [(REG_SCPS0, self.orig['scps'])])
                 g.write_reg(c.ip, [(REG_SCP0, self.orig['scp'])])
                 g.write_reg(c.ip, [(REG_SCDA0, self.orig['scda'])])
+            if 'hb' in self.orig:
+                c.dev.g.write_reg(c.ip, [(REG_HB_TIMEOUT, self.orig['hb'])])
             c.dev.g.write_reg(c.ip, [(REG_CCP, 0)])
         self.rx.close()
 
@@ -418,8 +429,11 @@ class Worker(threading.Thread):
             return None
         data = b''.join(parts[i] for i in sorted(parts))
         expect = w * h
+        # 完整度 = 實收影像 bytes / 應有 bytes（舊的 maxpid-len(parts) 漏算尾端遺失）。
+        # Camera Link 資料腳接觸不良 = 隨機缺行 → 完整度 < 99.5%（cl_health.py 同判準）
+        complete = min(100.0, 100.0 * len(data) / max(1, expect))
         data = (data + b'\x00' * expect)[:expect]
-        return data, w, h, maxpid - len(parts), time.time() - t0
+        return data, w, h, maxpid - len(parts), time.time() - t0, complete
 
     def run(self):
         c = self.cam
@@ -453,13 +467,13 @@ class Worker(threading.Thread):
                         continue
                     c.stats['err'] = c.stats['err'] or '取像逾時'
                     continue
-                data, w, h, lost, dur = r
+                data, w, h, lost, dur, complete = r
                 sample = data[::997]
                 mean = sum(sample) / max(1, len(sample))
                 with c.lock:
                     c.seq += 1
                     c.latest = (c.seq, data, w, h)
-                    c.stats.update(dur_ms=round(dur * 1000), lost=lost,
+                    c.stats.update(dur_ms=round(dur * 1000), lost=lost, complete=round(complete, 2),
                                    mean=round(mean, 1), err='',
                                    frames=c.stats['frames'] + 1)
                 with CFG_LOCK:
@@ -515,6 +529,24 @@ LAST_TICK = [0.0]             # 最近一次 /api/status（頁面 tick 心跳）
 BYE_AT = [None]               # 頁面明確關閉的時間
 
 
+INVENTORY = {}                # mac -> 掃描到的所有裝置（不限 MAX_CAMS；裝置設定用）
+GRAB_PAUSED = [False]         # 本工具暫停了產線 Grab → 關閉時自動恢復
+
+
+def _probe_busy(info):
+    """讀 CCP：非 0 = 已有程式取得控制權（產線 Grab / pylon Viewer / eBUS Player…）。跨網段讀不到 → None。"""
+    if not info.get('reachable'):
+        info['busy'] = None
+        return
+    try:
+        g = Gvcp(info['iface'], info['srcip'])
+        r = g.read_reg(info['ip'], REG_CCP)
+        g.s.close()
+        info['busy'] = None if r is None else bool(r[0])
+    except Exception:
+        info['busy'] = None
+
+
 def do_discover():
     found = {}
     ifmap = iface_addrs()
@@ -525,11 +557,26 @@ def do_discover():
                     src = pick_src(addrs, ip)
                     found[ip] = dict(ip=ip, mac=info['mac'], version=info['version'],
                                      model=(info['model'].strip() or '未知型號'),
+                                     manufacturer=info.get('manufacturer', ''),
+                                     serial=info.get('serial', ''), user_id=info.get('user_id', ''),
+                                     subnet=info.get('subnet', ''),
+                                     kind=provision.camera_kind(info['model'], info.get('manufacturer', '')),
                                      iface=ifname, srcip=src or addrs[0][0],
                                      reachable=src is not None)
             except Exception:
                 pass
     with STATE_LOCK:
+        running = {c.info['mac'] for c in CAMS.values() if c.running()}
+    probes = [threading.Thread(target=_probe_busy, args=(i,)) for i in found.values()
+              if i['mac'] not in running]
+    for t in probes:
+        t.start()
+    for t in probes:
+        t.join(timeout=3)
+    with STATE_LOCK:
+        INVENTORY.clear()
+        for info in found.values():
+            INVENTORY[info['mac']] = dict(info)
         for ip in list(CAMS):
             if ip not in found and not CAMS[ip].running():
                 del CAMS[ip]
@@ -565,6 +612,71 @@ def stop_cams():
             w.stop_flag.set()
     for w in ws:
         w.join(timeout=8)
+
+
+def api_provision(body):
+    """裝置設定：命名 CCDnn + persistent IP（規則同 grab 的 cam_provision / iport_provision）。"""
+    with STATE_LOCK:
+        if any(c.running() for c in CAMS.values()):
+            return {'ok': False, 'log': ['請先按「停止」再設定（取像中不能改 IP/名稱）']}
+        dev = INVENTORY.get((body.get('mac') or '').lower())
+        others = list(INVENTORY.values())
+    if not dev:
+        return {'ok': False, 'log': ['找不到這台（先按「掃描相機」）']}
+    ccd = (body.get('ccd') or '').strip().upper()
+    try:
+        n = provision.parse_ccd(ccd)
+        ip = (body.get('ip') or '').strip() or provision.default_ip(dev.get('kind', ''), n)
+    except ValueError as e:
+        return {'ok': False, 'log': [str(e)]}
+    if not provision.valid_ip(ip):
+        return {'ok': False, 'log': [f'IP 不合法：{ip}']}
+    err = provision.check_conflicts(others, dev['mac'], ccd, ip)
+    if err:
+        return {'ok': False, 'log': ['✗ ' + err]}
+    addrs = iface_addrs().get(dev['iface'], [])
+    src = pick_src(addrs, ip)
+    if not src:
+        return {'ok': False, 'log': [f'✗ 主機網卡 {dev["iface"]} 沒有 {ip} 所在網段的位址，改完會連不到'
+                                     '（相機網卡應有 192.168.5.200/24 與 192.168.4.2/24）']}
+    if dev.get('busy'):
+        return {'ok': False, 'log': ['✗ 這台被其他程式使用中（產線 Grab？先按「暫停產線 Grab」）']}
+    g = Gvcp(dev['iface'], src)
+    try:
+        ok, log = provision.provision(g, dev, ccd, ip)
+    finally:
+        g.s.close()
+    if ok:
+        do_discover()
+    return {'ok': ok, 'log': log}
+
+
+def api_grabsvc(action):
+    """產線 Grab（cfaoi-grab 服務）暫停/恢復：調機時相機要讓給本工具（同時只能一個控制端）。
+    靠 polkit 免密碼（install_linux_services.sh 安裝）；本工具暫停的，關閉時自動恢復。"""
+    def state():
+        inst = subprocess.run(['systemctl', 'cat', 'cfaoi-grab'], capture_output=True).returncode == 0
+        act = subprocess.run(['systemctl', 'is-active', '-q', 'cfaoi-grab']).returncode == 0
+        return {'installed': inst, 'active': act, 'paused_by_tool': GRAB_PAUSED[0]}
+    if action in ('pause', 'resume'):
+        verb = 'stop' if action == 'pause' else 'start'
+        r = subprocess.run(['systemctl', '--no-ask-password', verb, 'cfaoi-grab'],
+                           capture_output=True, text=True)
+        out = state()
+        if r.returncode != 0:
+            out['err'] = (r.stderr or r.stdout).strip() or f'systemctl {verb} 失敗'
+        else:
+            GRAB_PAUSED[0] = action == 'pause'
+            out['paused_by_tool'] = GRAB_PAUSED[0]
+        return out
+    return state()
+
+
+def restore_grab():
+    if GRAB_PAUSED[0]:
+        print('恢復產線 Grab（本工具先前暫停的）')
+        subprocess.run(['systemctl', '--no-ask-password', 'start', 'cfaoi-grab'])
+        GRAB_PAUSED[0] = False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -625,6 +737,14 @@ class Handler(BaseHTTPRequestHandler):
                              packet=c.packet, orient=c.orient)
                         for i, c in enumerate(CAMS.values())]
             self._json(dict(devices=devs, cfg=CFG))
+        elif u.path == '/api/inventory':
+            with STATE_LOCK:
+                live = {c.info['mac'] for c in CAMS.values()}
+                inv = [dict(d, live=d['mac'] in live) for d in INVENTORY.values()]
+            inv.sort(key=lambda d: (d.get('user_id') or '~', d['ip']))
+            self._json({'devices': inv})
+        elif u.path == '/api/grabsvc':
+            self._json(api_grabsvc(''))
         elif u.path == '/api/status':
             out = {}
             with STATE_LOCK:
@@ -742,6 +862,10 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == '/api/bye':
             BYE_AT[0] = time.time()       # 頁面關閉（sendBeacon），3 秒後熄燈
             self._json({'ok': True})
+        elif u.path == '/api/provision':
+            self._json(api_provision(body))
+        elif u.path == '/api/grabsvc':
+            self._json(api_grabsvc(body.get('action', '')))
         elif u.path == '/api/snapshot':
             ts = time.strftime('%Y%m%d_%H%M%S')
             outdir = os.path.expanduser(f'~/CamAlign_{ts}')
@@ -755,10 +879,20 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 os.makedirs(outdir, exist_ok=True)
                 _, data, w, h = f
-                base = os.path.join(outdir, f'cam_{c.ip.replace(".", "_")}')
+                name = c.info.get('user_id') or f'cam_{c.ip.replace(".", "_")}'   # 有 CCD 名稱就用名稱
+                base = os.path.join(outdir, name)
                 with open(base + '.raw', 'wb') as fh:
                     fh.write(data)
                 Image.frombytes('L', (w, h), data).save(base + '.png')
+                meta = {k: c.info.get(k) for k in ('user_id', 'model', 'serial', 'mac', 'ip', 'version')}
+                meta.update(width=w, height=h, time=ts, stats=dict(c.stats))
+                try:                                         # 當下參數（曝光/增益/行速率…）
+                    with c.gvcp_lock:
+                        meta['params'] = {f['key']: f.get('value') for f in c.list_features()}
+                except Exception as e:
+                    meta['params_err'] = str(e)
+                with open(base + '.json', 'w', encoding='utf-8') as fh:
+                    json.dump(meta, fh, ensure_ascii=False, indent=2)
                 saved.append(base + '.png')
             self._json({'saved': saved, 'dir': outdir if saved else ''})
         else:
@@ -767,7 +901,7 @@ class Handler(BaseHTTPRequestHandler):
 
 PAGE = r'''<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>相機調機</title><style>
+<title>相機工具</title><style>
 :root{color-scheme:dark;
  --bg:#101318;--panel:#191e26;--panel2:#20262f;--line:#2b323d;
  --tx:#e8edf4;--dim:#8b96a5;--acc:#4f8ef7;--ok:#3fb960;--warn:#e8a13c;--bad:#e5534b}
@@ -863,13 +997,36 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .applyall{display:flex;align-items:center;gap:8px;margin-top:12px;
  font-size:13px;color:var(--dim)}
 .ro{color:var(--dim);font-size:13px}
+.chip{font-size:12.5px;border-radius:999px;padding:4px 11px;border:1px solid var(--line);
+ color:var(--dim);white-space:nowrap}
+.chip.on{color:#9fe0b2;border-color:#2c4a34}.chip.off{color:#f2c98c;border-color:#54401f}
+table.inv{width:100%;border-collapse:collapse;font-size:13.5px}
+table.inv th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;
+ border-bottom:1px solid var(--line);white-space:nowrap}
+table.inv td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.inv input{width:86px;background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+ border-radius:7px;padding:5px 7px}
+table.inv input.ip{width:128px}
+.tag{font-size:11.5px;border-radius:6px;padding:1px 7px;border:1px solid var(--line);color:var(--dim)}
+.tag.ok{color:#9fe0b2;border-color:#2c4a34}.tag.bad{color:#ff9d97;border-color:#553030}
+.tag.warn{color:#f2c98c;border-color:#54401f}
+#provlog{white-space:pre-wrap;font-size:12.5px;margin-top:10px;background:#0b0e13;
+ border-radius:8px;padding:8px 10px;min-height:40px;color:var(--dim)}
+#metrics{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+#metrics td,#metrics th{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left}
+#metrics th{color:var(--dim);font-weight:500}
+.help li{margin:6px 0}.help b{color:var(--acc)}
 </style></head><body>
 <header>
- <h1>📷 相機調機</h1>
+ <h1>📷 相機工具</h1>
  <button class="btn" onclick="discover()">🔍 掃描相機</button>
+ <button class="btn" onclick="openSetup()">🛠 裝置設定</button>
  <button class="btn primary" onclick="startAll()">▶ 全部開始</button>
  <button class="btn danger" onclick="stopAll()">⏹ 停止</button>
  <button class="btn" onclick="snapshot()">💾 存快照</button>
+ <span class="chip" id="grabchip" title="產線 Grab 開著時會占用相機">產線 Grab：…</span>
+ <button class="btn" id="grabbtn" onclick="toggleGrab()" style="display:none">⏸ 暫停產線 Grab</button>
+ <button class="btn" onclick="$('help').showModal()">❓ 說明</button>
  <span id="msg">啟動中…</span>
 </header>
 <div id="grid"></div>
@@ -881,6 +1038,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
       oninput="setRow(this.value)" style="width:150px;vertical-align:middle">
     <span id="rowv">50%</span></span></div>
   <canvas id="prof" height="230"></canvas>
+  <table id="metrics"></table>
  </div>
  <div class="box" id="zoombox">
   <div class="t" id="zoomtitle">🔎 1:1 放大 — 點任一相機畫面</div>
@@ -891,6 +1049,40 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
  <div class="dlg-hd"><span id="dlg-title">設定</span>
   <button class="x" onclick="dlg.close()">✕</button></div>
  <div class="dlg-bd" id="dlg-body">載入中…</div>
+</dialog>
+<dialog id="setup" style="min-width:900px">
+ <div class="dlg-hd"><span>🛠 裝置設定 — 命名 CCDnn ＋ 固定 IP（存在相機裡，換主機也不用重設）</span>
+  <button class="x" onclick="setup.close()">✕</button></div>
+ <div class="dlg-bd">
+  <div class="note" style="margin-top:6px">規則：名稱 <b>CCDnn</b>（01 起）；IP 尾碼 = 編號 —
+   raL8192 → <span class="mono">192.168.5.nn</span>、L803K（iPORT）→ <span class="mono">192.168.4.nn</span>。
+   名稱或 IP 撞到別台會被擋下；要交換編號時先把其中一台設到暫時位址（例 .101）。
+   出廠 IP 在別的網段的新相機也能直接設（會先強制改 IP）。設定前請先「⏹ 停止」取像。</div>
+  <div style="max-height:52vh;overflow:auto;margin-top:10px"><table class="inv" id="invtbl"></table></div>
+  <div id="provlog">選一台填好名稱後按「寫入」。</div>
+  <div style="text-align:right;margin-top:10px">
+   <button class="sbtn" onclick="loadInv(true)">🔍 重新掃描</button></div>
+ </div>
+</dialog>
+<dialog id="help" style="max-width:760px">
+ <div class="dlg-hd"><span>❓ 使用說明（新相機接上後照順序做）</span>
+  <button class="x" onclick="help.close()">✕</button></div>
+ <div class="dlg-bd help"><ol>
+  <li><b>讓出相機</b>：產線 Grab 開著時會占用相機 → 按上方「⏸ 暫停產線 Grab」（關閉本工具會自動恢復）。</li>
+  <li><b>掃描</b>：按「🔍 掃描相機」。看不到相機 → 檢查電源、網路線、交換機埠是否 1G。</li>
+  <li><b>命名＋設 IP</b>：「🛠 裝置設定」→ 每台填 CCD 編號（上方 raL8192 CCD01–37、下方 L803K CCD38–55）→ 寫入。
+      寫完再掃一次，名稱與 IP 應都正確。</li>
+  <li><b>取像</b>：「▶ 全部開始」（最多同時 6 台）或卡片上「▶ 單獨」。</li>
+  <li><b>設定參數</b>：卡片「⚙ 設定」→ 曝光、增益、行速率、行數等；可勾「同時套用到全部相機」讓同模組一致。
+      L803K 的參數走 Camera Link 序列埠，設定介面相同。<b>同一批相機行速率必須一致</b>（決定影像比例尺）。</li>
+  <li><b>調機</b>：下方剖面圖把各台同一列的亮度疊在一起，表格顯示每台的
+      <b>對焦度</b>（越高越清楚，轉焦距時看它到最高）與相對第一台的<b>偏移</b>（像素，越接近 0 越對齊）。
+      點畫面任一處可看 1:1 放大。</li>
+  <li><b>健檢</b>：卡片狀態列的<b>完整度</b> < 99.5% 會變黃 → 多半是 Camera Link 線鬆了（斷電、兩端重插鎖螺絲），
+      或網路掉包。</li>
+  <li><b>存檔</b>：「💾 存快照」存到家目錄 CamAlign_時間/，每台一組 PNG＋RAW＋JSON（含當下參數）。</li>
+  <li><b>收尾</b>：「⏹ 停止」（相機設定自動還原）→ 關閉分頁（產線 Grab 自動恢復）。</li>
+ </ol></div>
 </dialog>
 <script>
 let DEVS=[], zoomIp=null, zoomF={fx:.5,fy:.5};
@@ -927,7 +1119,7 @@ async function refresh(){
    <div class="card" style="border-top-color:${d.color}">
     <div class="hd">
      <div class="num" style="background:${d.color}">${i+1}</div>
-     <div class="who"><b title="${d.model}">${d.model}</b>
+     <div class="who"><b title="${d.model}">${d.user_id?d.user_id+' · ':''}${d.model}</b>
       <span class="mono">${d.ip}　fw ${d.version}</span></div>
      <span class="pill" id="pl_${i}">待機</span>
     </div>
@@ -1038,9 +1230,11 @@ async function tick(){
         continue}
       n++;
       if(pl){pl.className='pill run';pl.textContent='取像中'}
+      const cp=(s.complete??100), bad=cp<99.5;
+      el.className=bad?'st err':'st';
       el.innerHTML=`第 <span class="num">${s.frames}</span> 張・`+
-        `<span class="num">${s.dur_ms}</span>ms・掉包 <span class="num">${s.lost}</span>`+
-        `・亮度 <span class="num">${s.mean}</span>`;
+        `<span class="num">${s.dur_ms}</span>ms・完整度 <span class="num">${cp.toFixed(1)}%</span>`+
+        `・亮度 <span class="num">${s.mean}</span>`+(bad?'・⚠ 缺資料（Camera Link 線？）':'');
       const im=$('img_'+i);
       if(im.dataset.seq!=s.seq){im.dataset.seq=s.seq;
         im.src=`/api/frame?ip=${d.ip}&s=${s.seq}`}
@@ -1058,11 +1252,13 @@ async function drawProfiles(st){
   for(let y=1;y<4;y++){g.moveTo(0,y*H/4);g.lineTo(W,y*H/4)} g.stroke();
   g.fillStyle='#5b6675';g.font='11px ui-monospace';
   g.fillText('255',6,14);g.fillText('128',6,H/2+4);g.fillText('0',6,H-6);
+  const got=[];
   for(let i=0;i<DEVS.length;i++){
     const d=DEVS[i];if(!st[d.ip]||!st[d.ip].running)continue;
     try{
       const p=await jget('/api/profile?ip='+d.ip);
       if(!p.v)continue;
+      got.push({i,d,p});
       g.strokeStyle=d.color;g.lineWidth=1.6;g.beginPath();
       const n=p.v.length;
       for(let k=0;k<n;k++){const x=k/(n-1)*W,y=H-4-(p.v[k]/255)*(H-8);
@@ -1070,7 +1266,81 @@ async function drawProfiles(st){
       g.stroke();
     }catch(e){}
   }
+  drawMetrics(got);
 }
+// 調機指標：對焦度 = 剖面相鄰差的平均（邊緣越銳利越大）；偏移 = 與第一台的互相關最大位移（取樣點 → 像素）
+function focusScore(v){let s=0;for(let k=1;k<v.length;k++)s+=Math.abs(v[k]-v[k-1]);return s/(v.length-1)}
+function bestLag(a,b){
+  const n=Math.min(a.length,b.length),mx=Math.floor(n/4);
+  const ma=a.reduce((x,y)=>x+y,0)/n, mb=b.reduce((x,y)=>x+y,0)/n;
+  let best=0,bv=-Infinity;
+  for(let L=-mx;L<=mx;L++){let s=0,c=0;
+    for(let k=Math.max(0,-L);k<Math.min(n,n-L);k++){s+=(a[k]-ma)*(b[k+L]-mb);c++}
+    if(c&&s/c>bv){bv=s/c;best=L}}
+  return best;
+}
+function drawMetrics(got){
+  const t=$('metrics');
+  if(!got.length){t.innerHTML='';return}
+  const ref=got[0];
+  t.innerHTML='<tr><th>相機</th><th>對焦度</th><th>相對 '+(ref.d.user_id||('#'+(ref.i+1)))+
+    ' 偏移（px）</th><th>剖面列</th></tr>'+got.map(x=>{
+      const step=x.p.w/x.p.v.length, lag=x===ref?0:bestLag(ref.p.v,x.p.v)*step;
+      return `<tr><td><span style="color:${x.d.color}">■</span> ${x.d.user_id||('#'+(x.i+1))}</td>`+
+        `<td class="num">${focusScore(x.p.v).toFixed(2)}</td>`+
+        `<td class="num">${x===ref?'（基準）':(lag>0?'+':'')+lag.toFixed(0)}</td>`+
+        `<td class="num">${x.p.row}</td></tr>`}).join('');
+}
+
+// ---- 裝置設定（命名 + IP）----
+const setup=$('setup'), help=$('help');
+let INV=[];
+async function openSetup(){setup.showModal();await loadInv(false)}
+async function loadInv(rescan){
+  if(rescan){$('provlog').textContent='掃描中…';const r=await jpost('/api/discover');
+    if(r.err){$('provlog').textContent=r.err;return}}
+  const r=await jget('/api/inventory'); INV=r.devices;
+  const kindTxt={iport:'L803K（iPORT）',basler:'raL8192'};
+  $('invtbl').innerHTML='<tr><th>目前名稱</th><th>型號</th><th>序號</th><th>目前 IP</th><th>狀態</th>'+
+    '<th>新名稱</th><th>新 IP（空白=依規則）</th><th></th></tr>'+INV.map((d,k)=>{
+      const st=d.busy?'<span class="tag bad">使用中</span>':(!d.reachable?'<span class="tag warn">跨網段</span>':
+        '<span class="tag ok">可設定</span>');
+      return `<tr><td><b>${d.user_id||'<span class="ro">未命名</span>'}</b></td>`+
+        `<td>${d.model}<br><span class="ro">${kindTxt[d.kind]||'未知類型'}</span></td>`+
+        `<td class="mono">${d.serial||''}</td><td class="mono">${d.ip}</td><td>${st}</td>`+
+        `<td><input id="ccd_${k}" placeholder="CCD01" value="${d.user_id||''}" oninput="hintIp(${k})"></td>`+
+        `<td><input class="ip mono" id="ip_${k}" placeholder="${d.kind?'自動':'必填'}"></td>`+
+        `<td><button class="sbtn" onclick="prov(${k})">寫入</button></td></tr>`}).join('')+
+    (INV.length?'':'<tr><td colspan="8" class="ro">沒有找到相機（先按「重新掃描」）</td></tr>');
+  if(rescan)$('provlog').textContent=`找到 ${INV.length} 台`;
+  INV.forEach((d,k)=>hintIp(k));
+}
+function hintIp(k){const d=INV[k],m=/^CCD(\d{2})$/i.exec($('ccd_'+k).value.trim());
+  const n=m?parseInt(m[1],10):0;
+  $('ip_'+k).placeholder=(n&&d.kind)?(d.kind==='iport'?'192.168.4.':'192.168.5.')+n:(d.kind?'自動':'必填');}
+async function prov(k){
+  const d=INV[k],ccd=$('ccd_'+k).value.trim().toUpperCase(),ip=$('ip_'+k).value.trim();
+  $('provlog').textContent=`寫入 ${d.model} ${d.serial||d.mac} → ${ccd} ${ip||'（依規則）'}…`;
+  const r=await jpost('/api/provision',{mac:d.mac,ccd,ip});
+  $('provlog').textContent=(r.log||[]).join('\n')||(r.ok?'完成':'失敗');
+  if(r.ok){await loadInv(false);await refresh();}
+}
+
+// ---- 產線 Grab 暫停 / 恢復 ----
+let GRAB={};
+async function grabState(){try{GRAB=await jget('/api/grabsvc');}catch(e){return}
+  const c=$('grabchip'),b=$('grabbtn');
+  if(!GRAB.installed){c.textContent='產線 Grab：未安裝';c.className='chip';b.style.display='none';return}
+  c.textContent='產線 Grab：'+(GRAB.active?'運作中（占用相機）':(GRAB.paused_by_tool?'已暫停（關閉本工具會恢復）':'未運作'));
+  c.className='chip '+(GRAB.active?'on':'off');
+  b.style.display=''; b.textContent=GRAB.active?'⏸ 暫停產線 Grab':'▶ 恢復產線 Grab';}
+async function toggleGrab(){
+  const act=GRAB.active?'pause':'resume';
+  if(act==='pause'&&!confirm('暫停產線 Grab？產線取像會停止，直到按「恢復」或關閉本工具。'))return;
+  const r=await jpost('/api/grabsvc',{action:act});
+  say(r.err?('失敗：'+r.err):(act==='pause'?'產線 Grab 已暫停':'產線 Grab 已恢復'));
+  grabState();}
+grabState(); setInterval(grabState,5000);
 addEventListener('pagehide',()=>navigator.sendBeacon('/api/bye',''));
 refresh().then(()=>{if(!DEVS.length)discover();else say('就緒')});
 tick();
@@ -1144,6 +1414,7 @@ def main():
                 break
         print('頁面已關閉，停止相機並結束伺服器')
         stop_cams()
+        restore_grab()
         srv.shutdown()
 
     signal.signal(signal.SIGTERM, lambda *a: srv.shutdown())   # kill 也走優雅清理
@@ -1158,6 +1429,7 @@ def main():
         pass
     finally:
         stop_cams()
+        restore_grab()
     return 0
 
 

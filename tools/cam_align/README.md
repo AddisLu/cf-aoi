@@ -1,7 +1,29 @@
-# 光學調機工具（cam_align）+ iPORT CL-GigE / Basler L803k 取像環境
+# 相機工具（cam_align：設定・取像・調機）+ iPORT CL-GigE / Basler L803k 取像環境
 
 > 2026-09-18 起收進 cf-aoi repo（原 `~/Addis/iport`）。桌面捷徑 `cam-align.desktop`
-> 指向 `tools/cam_align/cam_align.py`。測試影像、`aravis-local/` 建置產物留在舊目錄，不版控。
+> （「相機工具（設定・取像・調機）」）指向 `tools/cam_align/cam_align.py`。測試影像、`aravis-local/` 建置產物留在舊目錄，不版控。
+
+## 接上相機後的標準流程（2026-10-05 起，桌面「相機工具」）
+
+頁面右上 **❓ 說明** 有同樣的步驟。
+
+1. **暫停產線 Grab**：標題列 Grab 燈號旁按「暫停」（`systemctl stop cfaoi-grab`）。
+   相機被產線 Grab 佔用時無法取像/命名；關閉工具頁面（或 90 秒無操作）會**自動恢復**。
+2. **掃描**：列出 raL8192（192.168.5.x）與 iPORT/L803K（192.168.4.x）；卡片顯示 CCD 名稱。
+3. **🛠 裝置設定**：列出網路上**所有**相機（不限 6 台），填 CCD 編號 → IP 自動帶
+   （raL8192 → 192.168.5.nn、iPORT → 192.168.4.nn）→「寫入」。走 FORCEIP + bootstrap
+   暫存器（`provision.py`，與 grab 的 `cam_provision` / `iport_provision` 同規則），
+   撞名/撞 IP/相機使用中/主機在該網段沒位址 → 拒絕並說明。寫入後讀回比對、斷電保留。
+4. **取像 / 設定**：全部開始或單台開始；⚙ 調曝光、增益、行數、旋轉/鏡像，「套用到全部」。
+   狀態列顯示 **完整度**（收到 bytes / 應有 bytes）：< 99.5% 標紅「缺資料（Camera Link 線？）」。
+5. **調機**：剖面圖下方 **對焦度**（相鄰像素差平均，越大越清晰）與 **偏移 px**
+   （各台相對第一台的互相關位移）→ 對直線度與焦距。
+6. **健檢**：`cl_health.py` / 頁面健檢按鈕（掉包、完整度、CL 線）。
+7. **存快照**：`~/CamAlign_<時間>/CCDnn.{png,raw,json}`（json 記身分、尺寸、統計、參數）。
+
+實機驗證（2026-10-05 user-IMB-M47，6 × raL8192）：掃描 6/6、暫停/恢復產線 Grab、
+CCD06 同值重寫讀回一致、6 台同時取像完整度 100% / 掉包 0、快照 18 檔。
+GigE heartbeat 逾時調為 10 秒（關工具時還原），避免瀏覽器卡頓時相機自行斷線。
 
 ## 兩種相機共用同一條路徑（2026-09-18）
 
@@ -24,7 +46,7 @@ raL8192 首次接入時修掉的三個坑（都只在 iPORT 上測過才沒發�
 ## 測試
 
 ```bash
-python3 tools/cam_align/test_offline.py     # 34 項，不需相機
+python3 tools/cam_align/test_offline.py     # 48 項（含 provision 以假 GVCP 驗流程/拒絕條件），不需相機
 python3 tools/cam_align/cam_align.py --test # 需相機在線
 ```
 

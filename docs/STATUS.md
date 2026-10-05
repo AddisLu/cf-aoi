@@ -1202,6 +1202,13 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   192.168.4.nn（標準暫存器 + WRITEREG，避開 iPORT 的 WRITEMEM bug），讀回比對；名稱撞 CCD03、IP 撞 192.168.5.1、
   格式錯三種防呆皆擋下；寫入 CCD38 後 grab LIST_CAMERAS 綁定 cam_id 38。ForceIP 待實體 iPORT 驗。
 
+**桌面「相機工具（設定・取像・調機）」（2026-10-05，L3 raL8192／L1 L803K）**
+- `tools/cam_align` 擴充為現場自助工具：🛠 裝置設定（列網路上全部相機、填 CCD 編號自動帶 IP、FORCEIP + 寫名稱/
+  persistent IP、讀回比對；規則與 `cam_provision`/`iport_provision` 一致，共用 `provision.py`）、暫停/恢復產線 Grab
+  （關頁面自動恢復）、完整度 %（CL 線缺資料警示）、對焦度與相對偏移 px、快照以 CCD 命名 + json、❓ 說明頁。
+- 實機（6 × raL8192）：掃描 6/6、暫停/恢復 cfaoi-grab、CCD06 同值重寫讀回一致、6 台同時取像完整度 100%/掉包 0、
+  快照 18 檔；離線 `test_offline.py` 48 項全過（新增 provision 14 項：撞名/撞 IP/使用中/讀回不符/CCP 一定釋放）。
+
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
   本機 ssh spark-3961 host key 驗證失敗，未處理。不影響 grab/IP。

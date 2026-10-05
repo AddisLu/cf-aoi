@@ -171,5 +171,71 @@ black = d.resolve('BlackLevelRaw')
 check(d.get(black) == -2048, 'Sign=Signed → 讀成負值')
 check(d.resolve('Hidden') is None, 'pIsAvailable=0 → 視同無此參數')
 
+# ── 5. 裝置設定（provision.py：命名 CCDnn + persistent IP）────────────────────
+print('\n[provision] CCD 命名 + IP（假 GVCP 裝置）')
+import provision                                            # noqa: E402
+from gvcp_setip import REG_CCP, REG_NET_IF_CONFIG, REG_PERSISTENT_IP   # noqa: E402
+
+
+class FakeGvcp:
+    """一台假相機：暫存器 dict；FORCEIP 改位址；CCP 被別人持有時寫入回 ACCESS_DENIED。"""
+    def __init__(self, ip, busy=False, ignore_name=False):
+        self.ip, self.busy, self.ignore_name, self.regs = ip, busy, ignore_name, {REG_CCP: 0}
+
+    def force_ip(self, mac, ip, mask, gw):
+        if self.busy:
+            return (0x8006, b'')
+        self.ip = ip
+        return (0, b'')
+
+    def read_reg(self, dest, *addrs):
+        if dest != self.ip:
+            return None
+        return [self.regs.get(a, 0) for a in addrs]
+
+    def write_reg(self, dest, pairs):
+        if dest != self.ip:
+            return None
+        for a, v in pairs:
+            if self.busy:
+                return (0x8006, b'')
+            if self.ignore_name and 0xE8 <= a < 0xF8:
+                continue                                  # 模擬「回 SUCCESS 但沒寫進去」的韌體
+            self.regs[a] = v
+        return (0, b'')
+
+
+name_pairs = provision.pack_name('CCD38')
+check(provision.unpack_name([v for _, v in name_pairs]) == 'CCD38' and name_pairs[0][1] == 0x43434433,
+      '名稱打包：大端序、第一個字元在最高位元組，可還原')
+check(provision.parse_ccd('CCD05') == 5, 'CCD05 → 編號 5')
+for bad in ('CCD5', 'CCD00', 'cam05', ''):
+    try:
+        provision.parse_ccd(bad)
+        check(False, f'格式錯擋下：{bad!r}')
+    except ValueError:
+        check(True, f'格式錯擋下：{bad!r}')
+check(provision.camera_kind('raL8192-12gm', 'Basler') == 'basler' and
+      provision.camera_kind('iPORT CL-GigE', 'Pleora Technologies Inc.') == 'iport',
+      '型號判斷：raL8192 / iPORT')
+check(provision.default_ip('basler', 5) == '192.168.5.5' and provision.default_ip('iport', 38) == '192.168.4.38',
+      'IP 規則：raL8192 → 192.168.5.nn、iPORT → 192.168.4.nn')
+devs = [dict(mac='aa:00', ip='192.168.5.3', user_id='CCD03', model='raL8192-12gm', serial='1'),
+        dict(mac='bb:00', ip='192.168.4.1', user_id='', model='iPORT', serial='2')]
+check('已被' in (provision.check_conflicts(devs, 'bb:00', 'CCD03', '192.168.4.38') or ''), '撞名擋下')
+check('已被' in (provision.check_conflicts(devs, 'bb:00', 'CCD38', '192.168.5.3') or ''), '撞 IP 擋下')
+check(provision.check_conflicts(devs, 'bb:00', 'CCD38', '192.168.4.38') is None, '不撞號放行')
+g = FakeGvcp('192.168.4.1')
+ok, log = provision.provision(g, devs[1], 'CCD38', '192.168.4.38', sleep=lambda s: None)
+check(ok and g.ip == '192.168.4.38' and g.regs[REG_PERSISTENT_IP] == provision.ip_u32('192.168.4.38')
+      and g.regs[REG_NET_IF_CONFIG] == 0x5 and g.regs[REG_CCP] == 0,
+      '跨網段新相機：ForceIP → 寫名稱/IP → 讀回一致 → 釋放控制權', '; '.join(log[-1:]))
+ok, log = provision.provision(FakeGvcp('192.168.4.1', busy=True), devs[1], 'CCD38', '192.168.4.38',
+                              sleep=lambda s: None)
+check(not ok and '控制' in log[-1], '被其他程式占用 → 拒絕（不搶）')
+ok, log = provision.provision(FakeGvcp('192.168.4.1', ignore_name=True), devs[1], 'CCD38', '192.168.4.38',
+                              sleep=lambda s: None)
+check(not ok and '不符' in log[-1], '韌體回成功但沒寫進去 → 讀回比對抓到')
+
 print(f'\n{len(FAIL)} 項失敗' if FAIL else '\n全數通過')
 sys.exit(1 if FAIL else 0)
