@@ -1,0 +1,19 @@
+{
+ "scenario": "q_gpu_ok",
+ "symptom": "今天缺陷數忽然變很多，是不是 Spark 的 GPU 壞了？要怎麼確認？",
+ "A": {
+  "answer": "## 結論\n\n缺陷數暴增**不一定**是 GPU 壞了，請先檢查以下可能原因，不要直接判定硬體故障。\n\n## 可能原因\n\n根據知識庫中的 DEBUG 決策樹 [3]，缺陷數暴增（誤報太多）的可能原因依序為：\n\n1. **閾值設定太緊** → 最常見，先從參數下手\n2. **Pitch 設定錯誤** → pitch 設錯可能造成合併距離異常，導致缺陷數量爆衝（單 zone 約 5×10⁷ 次迭代，會把消費執行緒卡住秒級）[4][7]\n3. **GPU 狀態異常** → 延遲過高或驅動問題\n\n## 現場照做步驟（誰都可以做）\n\n### Step 1：檢查 GPU 狀態（操作人員可做）\n在 Spark（運算端）的 terminal 執行：\n```bash\nnvidia-smi\n```\n[1] → 確認 GPU 型號、記憶體用量、溫度是否正常、有沒有 process 在跑。\n\n### Step 2：檢查延遲（操作人員可做）\n查看檢測流程的延遲數據：\n- 延遲 > 5ms → 降低 search_range 或關閉多尺度\n- 延遲 > 10ms → 檢查 GPU 狀態或重新建置\n- 延遲 > 50ms → GPU 故障或驅動程式問題 [3]\n\n### Step 3：檢查 pitch 設定（工程師或操作人員可做）\n確認 defect_rules.h 中的 `merge_distance` 參數是否設錯，pitch 設錯會導致合併邏輯跑出數萬顆缺陷（正常應為個位數～數百顆）[4][7]。\n\n### Step 4：確認 CUDA 裝置（工程師可做）\n若以上都正常，在 Spark 端跑驗證程式，檢查 `cudaGetDeviceCount()` 是否回傳 0 或錯誤 [2]。\n\n## 如何確認修好\n\n- 若 GPU 問題 → `nvidia-smi` 正常顯示 GPU、`cudaGetDeviceCount` ≥ 1、延遲回到 < 5ms，重新跑一塊 panel 缺陷數回到正常範圍\n- 若 pitch 問題 → 修正後重新檢測同塊 panel，缺陷數應大幅下降\n- 若閾值問題 → 調回原本數值後缺陷數正常\n\n**結論：先看 nvidia-smi 和延遲，不要直接認定 GPU 壞了。**",
+  "reasoning_chars": 0,
+  "sources": [
+   "RAG_TRAINING.md",
+   "include/tdd/preprocessing_module.h",
+   "RAG_TRAINING.md",
+   "ip/src/defect_rules.h",
+   "docs/CLAUDE.md",
+   "RAG_TRAINING.md",
+   "ip/src/defect_rules.h",
+   "docs/CLAUDE.md"
+  ],
+  "sec": 19.0
+ }
+}

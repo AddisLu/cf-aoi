@@ -1,0 +1,201 @@
+{
+ "time": "2026-10-05T17:39:24",
+ "machine": "user-IMB-M47",
+ "items": [
+  {
+   "area": "相機",
+   "level": "OK",
+   "title": "相機 6 台都在（CCD01–CCD06）",
+   "evidence": "",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "取像",
+   "level": "INFO",
+   "title": "全部相機畫面都很暗（亮度中位數 2.8）",
+   "evidence": "",
+   "cause": "光源沒開，或沒有玻璃/背景（實驗室無光源時屬正常）",
+   "action": "量產前確認光源已開",
+   "who": ""
+  },
+  {
+   "area": "取像",
+   "level": "OK",
+   "title": "取像測試 6 台：影像完整、無掉封包",
+   "evidence": "每台 5.0 秒；CCD01 4張、CCD02 4張、CCD03 4張、CCD04 4張、CCD05 4張、CCD06 4張",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "OK",
+   "title": "交換機上行 HGE1/0/25 正常（100G(a)）",
+   "evidence": "",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "INFO",
+   "title": "交換機時鐘未設定（顯示 2001 年）",
+   "evidence": "",
+   "cause": "交換機沒有對時",
+   "action": "有空時 clock datetime 設定（或設 NTP 指向 Grab 192.168.10.21）；不影響取像，只影響交換機 log 時間",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "INFO",
+   "title": "交換機 console 讀取有雜訊（同一份設定兩次讀出不同字元）",
+   "evidence": "",
+   "cause": "console 線/轉接頭品質或接觸不良（不影響交換機運作，只影響讀取）",
+   "action": "有空時換 USB-console 線",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "OK",
+   "title": "交換機設定與基準相同",
+   "evidence": "",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "RDMA",
+   "level": "OK",
+   "title": "Grab ↔ Spark RDMA 正常（線、兩端網卡、IP 程式都正常）",
+   "evidence": "Grab enp1s0f0np0：link 有、100000Mb/s、MTU 9000、RoCE ACTIVE；ping Spark 通、大封包 通；Spark 端：link 有、MTU 9000、RoCE ACTIVE、IP 生產服務 active、調參服務 inactive、RDMA 埠 18515 有在聽；IP 控制埠 有回應",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "GPU",
+   "level": "OK",
+   "title": "GPU 運作中：NVIDIA GB10, 50, 0 %, 2405 MHz, 10.77 W",
+   "evidence": "Spark 可用記憶體 112 GB",
+   "cause": "",
+   "action": "",
+   "who": ""
+  }
+ ],
+ "facts": {
+  "cam_expected": [
+   "CCD01",
+   "CCD02",
+   "CCD03",
+   "CCD04",
+   "CCD05",
+   "CCD06"
+  ],
+  "cam_found": [
+   "CCD01",
+   "CCD02",
+   "CCD03",
+   "CCD04",
+   "CCD05",
+   "CCD06"
+  ],
+  "cam_missing": [],
+  "grab_health": {
+   "armed": false,
+   "cams": 0,
+   "dropped": 0,
+   "faulted": 0,
+   "faulted_cams": [],
+   "frames_per_panel": 0,
+   "grabbed": 0,
+   "grabbing": false,
+   "running": 0,
+   "sent_bytes": 0,
+   "sent_frames": 0
+  },
+  "nic_delta": {
+   "rx_dropped": 0,
+   "rx_errors": 0,
+   "rx_missed_errors": 0,
+   "rx_crc_errors": 0,
+   "rx_over_errors": 0,
+   "rx_fifo_errors": 0
+  },
+  "capture": {
+   "CCD04": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.7,
+    "err": ""
+   },
+   "CCD01": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   },
+   "CCD02": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   },
+   "CCD05": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.7,
+    "err": ""
+   },
+   "CCD03": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   },
+   "CCD06": {
+    "frames": 4,
+    "complete": 100.0,
+    "lost": 0,
+    "mean": 2.8,
+    "err": ""
+   }
+  },
+  "rdma": {
+   "grab_nic": "enp1s0f0np0",
+   "carrier": true,
+   "speed": "100000",
+   "mtu": "9000",
+   "roce": "ACTIVE",
+   "ping": true,
+   "jumbo": true,
+   "spark": {
+    "carrier": "1",
+    "speed": "100000",
+    "mtu": "9000",
+    "ip": "192.168.3.1/24",
+    "rdma": "state ACTIVE",
+    "svc": "active",
+    "svc_off": "inactive",
+    "listen": "4"
+   },
+   "ip_health": true
+  },
+  "gpu": {
+   "smi": "NVIDIA GB10, 50, 0 %, 2405 MHz, 10.77 W",
+   "xid": [],
+   "mem_avail_mb": 115324,
+   "vllm": 0,
+   "ip_restarts": [
+    "4",
+    "active"
+   ]
+  }
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "scenario": "rdma_cable",
+ "symptom": "上位機送料後沒有結果，Control 的 IP 燈是紅的，Spark 前面燈有亮。到底是線還是 Spark 壞了？",
+ "injected": {
+  "grab_nic_down": true
+ },
+ "fault": {
+  "report": "/home/user/cfaoi_logs/fault_exp/rdma_cable.md",
+  "problems": [
+   "FAIL [RDMA] Grab ↔ Spark 直連線沒有 link（線的問題，或 Spark 沒開機）",
+   "WARN [GPU] 無法登入 Spark 查 GPU"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "report": "/home/user/cfaoi_logs/fault_exp/rdma_cable.after.md",
+  "problems": []
+ }
+}

@@ -1,0 +1,34 @@
+{
+ "scenario": "packet_loss",
+ "symptom": "CCD03 的影像有時候缺一截、有黑色橫條，結果圖常判 NG，其他相機正常。",
+ "A": {
+  "answer": "## 結論\n\n**CCD03 的影像有黑色橫條、缺一截，問題出在交換機該埠的 jumbo frame 設定跑掉了** —— 最大框長被設成 1536，導致相機送的 jumbo 封包被交換機丟棄，造成畫面缺塊與 NG [4]。\n\n---\n\n## 可能原因\n\n1. **交換機埠的 jumbo frame 設定被改過**（可能有人誤設或重置部分設定），最大框長從 9416 被鎖在 1536，大封包過不去 [4]\n2. 其他相機正常 → 排除 uplink、整台交換機或電源問題，問題鎖定在 **CCD03 所插的交換機埠**\n\n---\n\n## 現場照做（可由線上人員執行）\n\n1. **找到 CCD03 的線**：沿相機線材找到交換機上對應的埠（線材上有 CCD 標示）\n2. **登入交換機確認 jumbo frame 設定**  \n   - 進入該埠的介面設定模式：  \n     `interface <CCD03 插的埠號>`  \n   - 下指令查看：`show jumboframe`  \n   - 正常值應為 **9416**（或 enable），若顯示 **1536** 即為異常\n3. **修正設定**（需有交換機管理權限的人操作）：  \n   ```text\n   interface <埠號>\n   jumboframe enable 9416\n   quit\n   ```\n4. 完成後，在 Control 主畫面觀察 CCD03 的影像是否恢復正常，黑色橫條是否消失\n\n---\n\n## 如何確認修好\n\n- **Control 主畫面**：CCD03 的即時影像不再有黑色橫條或缺一截 [4]\n- **跑一片樣品**：結果圖不再異常判 NG，與其他相機一致\n- 若設定正確但問題仍存在，請通知設備工程師檢查該埠的實體接線或交換機硬體狀態",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/design/operator_ui/components/camera-card.html",
+   "docs/design/operator_ui/components/camera-card.html",
+   "tools/triage/fault_inject.py",
+   "tools/triage/fault_inject.py",
+   "docs/troubleshooting/cases/README.md",
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "config/ccd_params.json"
+  ],
+  "sec": 18.5
+ },
+ "B": {
+  "answer": "CF-AOI 機況分析：\n\n## 結論\n\n**交換機上 CCD03 的埠（WGE1/0/39）最大框長被設成 1536**，相機送的 jumbo 封包（需 ≥ 9000）被交換機丟掉，導致 CCD03 影像缺一截、有黑色橫條、常被判 NG。【1】【3】\n\n> 健檢報告直接指出：交換機該埠最大框長 1536（期間超長封包 +11425），完整度 0.0%。\n\n---\n\n## 可能原因\n\n1. **有人手動改過交換機設定**：把 `jumboframe enable 9416` 改成 `jumboframe enable 1536`（健檢報告顯示交換機設定比基準多出這一行）。【1】\n2. **交換機被重置或更換**：新交換機的預設值可能不是 9416，換上去後沒開 jumbo 就會這樣。【2】\n\n---\n\n## 現場照做步驟（誰可以做）\n\n### 設備工程人員（需登入交換機權限）\n1. 登入交換機，找到 CCD03 目前插的埠（現在是 **WGE1/0/39**，但線材上標示仍以 CCD03 為準）。\n2. 下指令：\n   ```\n   interface WGE1/0/39\n   jumboframe enable 9416\n   quit\n   save force\n   ```\n3. 回到 Control 畫面觀察 CCD03 是否恢復影像。\n\n### 如果不會下交換機指令（現場作業員／線外人員）\n1. **先把 CCD03 的網路線（線材上有 CCD03 標示）換插到另一個空埠**，看影像是否回來──如果回來，代表原埠的設定有問題，請通報設備工程處理。\n\n---\n\n## 怎麼確認修好\n\n1. 在 Control 畫面看 CCD03 影像是否完整、不再缺一截或出現黑色橫條。\n2. **重跑一鍵健檢**：確認 CCD03 的「完整度」回到 **100%**，且該埠不再報最大框長異常。\n\n> ⚠️ 健檢報告還有一項：**交換機設定和基準不同（1 行）**，就是那行 `jumboframe enable 1536`，修完後要再跑一次健檢確認該行消失。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/fault_inject.py",
+   "tools/triage/fault_inject.py",
+   "tools/triage/cfaoi_triage.py",
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md",
+   "tools/triage/fault_inject.py",
+   "tools/triage/cfaoi_triage.py"
+  ],
+  "sec": 22.4
+ }
+}

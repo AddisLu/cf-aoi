@@ -1,0 +1,149 @@
+{
+ "time": "2026-10-05T17:41:27",
+ "machine": "user-IMB-M47",
+ "items": [
+  {
+   "area": "相機",
+   "level": "FAIL",
+   "title": "全部 6 台相機都不見了 → 問題在共用的那一段，不是個別相機",
+   "evidence": "Grab 相機網卡 ? link 無；交換機 console 可用",
+   "cause": "Grab ↔ 交換機 100G 上行線斷/模組鬆脫、交換機沒電或當機、或交換機設定被重置",
+   "action": "① 看交換機電源燈與 Grab 後面 100G 線燈號 ② 重插 Grab ↔ 交換機 100G 線兩端 ③ 相機總電源 ④ 仍不行找工程看交換機設定（見交換機項目）",
+   "who": "設備工程"
+  },
+  {
+   "area": "相機",
+   "level": "OK",
+   "title": "相機 6 台都在（CCD01–CCD06）",
+   "evidence": "",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "FAIL",
+   "title": "交換機 → Grab 上行埠 HGE1/0/25 斷線（ADM）",
+   "evidence": "{\"link\": \"ADM\", \"speed\": \"auto\", \"duplex\": \"A\", \"desc\": \"damac-enp1s0f1np1-100G\"}",
+   "cause": "100G 線/模組鬆脫或損壞、或交換機埠被關閉 → 所有相機都會不見",
+   "action": "重插 Grab 與交換機之間的 100G 線兩端；仍不行換線",
+   "who": "設備工程"
+  },
+  {
+   "area": "交換機",
+   "level": "WARN",
+   "title": "交換機有埠被手動關閉（shutdown）：HGE1/0/25",
+   "evidence": "",
+   "cause": "有人下了 shutdown，或換交換機後設定不同 → 相機插在這些埠會沒有訊號",
+   "action": "相機改插其他埠；或工程人員 undo shutdown",
+   "who": "設備工程"
+  },
+  {
+   "area": "交換機",
+   "level": "INFO",
+   "title": "交換機時鐘未設定（顯示 2001 年）",
+   "evidence": "",
+   "cause": "交換機沒有對時",
+   "action": "有空時 clock datetime 設定（或設 NTP 指向 Grab 192.168.10.21）；不影響取像，只影響交換機 log 時間",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "INFO",
+   "title": "交換機 console 讀取有雜訊（同一份設定兩次讀出不同字元）",
+   "evidence": "",
+   "cause": "console 線/轉接頭品質或接觸不良（不影響交換機運作，只影響讀取）",
+   "action": "有空時換 USB-console 線",
+   "who": ""
+  },
+  {
+   "area": "交換機",
+   "level": "FAIL",
+   "title": "交換機設定和基準不同（1 行）—很可能就是 CCD01、CCD02、CCD03、CCD04、CCD05、CCD06 不見的原因",
+   "evidence": "+ interface HundredGigE1/0/25 | shutdown",
+   "cause": "有人改過交換機設定，或交換機更換/重置/升級後設定沒還原（例：相機埠少了 speed 1000 → 1G 相機永遠連不上）",
+   "action": "工程人員對照差異還原（相機埠需 speed 1000、上行 100G、jumbo），再 save force；換新交換機見 docs/troubleshooting_線上異常處理.md「交換機更換」",
+   "who": "設備工程"
+  },
+  {
+   "area": "RDMA",
+   "level": "OK",
+   "title": "Grab ↔ Spark RDMA 正常（線、兩端網卡、IP 程式都正常）",
+   "evidence": "Grab enp1s0f0np0：link 有、100000Mb/s、MTU 9000、RoCE ACTIVE；ping Spark 通、大封包 通；Spark 端：link 有、MTU 9000、RoCE ACTIVE、IP 生產服務 active、調參服務 inactive、RDMA 埠 18515 有在聽；IP 控制埠 有回應",
+   "cause": "",
+   "action": "",
+   "who": ""
+  },
+  {
+   "area": "GPU",
+   "level": "OK",
+   "title": "GPU 運作中：NVIDIA GB10, 50, 0 %, 2405 MHz, 10.77 W",
+   "evidence": "Spark 可用記憶體 112 GB",
+   "cause": "",
+   "action": "",
+   "who": ""
+  }
+ ],
+ "facts": {
+  "cam_expected": [
+   "CCD01",
+   "CCD02",
+   "CCD03",
+   "CCD04",
+   "CCD05",
+   "CCD06"
+  ],
+  "cam_found": [],
+  "cam_missing": [
+   "CCD01",
+   "CCD02",
+   "CCD03",
+   "CCD04",
+   "CCD05",
+   "CCD06"
+  ],
+  "grab_health": {
+   "armed": false,
+   "cams": 0,
+   "dropped": 0,
+   "faulted": 0,
+   "faulted_cams": [],
+   "frames_per_panel": 0,
+   "grabbed": 0,
+   "grabbing": false,
+   "running": 0,
+   "sent_bytes": 0,
+   "sent_frames": 0
+  },
+  "rdma": {
+   "grab_nic": "enp1s0f0np0",
+   "carrier": true,
+   "speed": "100000",
+   "mtu": "9000",
+   "roce": "ACTIVE",
+   "ping": true,
+   "jumbo": true,
+   "spark": {
+    "carrier": "1",
+    "speed": "100000",
+    "mtu": "9000",
+    "ip": "192.168.3.1/24",
+    "rdma": "state ACTIVE",
+    "svc": "active",
+    "svc_off": "inactive",
+    "listen": "4"
+   },
+   "ip_health": true
+  },
+  "gpu": {
+   "smi": "NVIDIA GB10, 50, 0 %, 2405 MHz, 10.77 W",
+   "xid": [],
+   "mem_avail_mb": 115320,
+   "vllm": 0,
+   "ip_restarts": [
+    "4",
+    "active"
+   ]
+  }
+ }
+}

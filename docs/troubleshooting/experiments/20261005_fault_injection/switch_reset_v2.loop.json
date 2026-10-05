@@ -1,0 +1,34 @@
+{
+ "scenario": "switch_reset",
+ "symptom": "交換機壞掉換了一台新的（或被重置過），接回去後有兩台相機（CCD05、CCD06）一直連不上，線都換過了還是一樣。",
+ "A": {
+  "answer": "## 結論\n\n問題出在**交換機的埠速度設定** — 新交換機（或被重置後）的 CCD05、CCD06 埠沒有鎖定 1000M（speed），可能降速或協商失敗導致連不上 [7]。\n\n---\n\n## 可能原因\n\n新交換機或重置後，特定埠的 speed 設定跑掉（被清成 auto 或錯誤值），而 CCD05、CCD06 這兩台相機需要強制鎖定 1000M 才能正常連線。這與交換機型號 5945 的行為相符 [7]。\n\n---\n\n## 現場照做步驟（設備工程可做）\n\n1. **確認交換機型號**（看交換機前面標籤，例如 H3C 5945 或類似機種）。\n2. **從交換機 console 登入**（用 console 線接電腦，或用 SSH 連交換機 IP）。\n3. **檢查 CCD05、CCD06 所插埠的 speed 設定**：\n   - 先下 `display interface brief` 看這兩個埠目前 status 與 speed。\n4. **將這兩個埠強制設為 1000M**：\n   ```\n   system-view\n   interface WGE1/0/??    ← CCD05 插的埠號\n   speed 1000\n   quit\n   interface WGE1/0/??    ← CCD06 插的埠號\n   speed 1000\n   quit\n   save\n   ```\n5. **重插這兩條線**（或等幾秒讓埠重啟協商）。\n6. 回 Control 畫面看 CCD05、CCD06 是否恢復影像。\n\n> ⚠️ 如果不知道 CCD05、CCD06 插在哪個埠，可以先下 `display mac-address | include 相機MAC` 得知埠位（MAC 可從 `cam_map.json` 查出）。\n\n---\n\n## 如何確認修好\n\n回到 Control 主畫面，CCD05 與 CCD06 都出現正常即時影像，且沒有連線錯誤訊息。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "tools/triage/cfaoi_triage.py",
+   "cf-aoi-git-history.md",
+   "tools/triage/cfaoi_triage.py",
+   "docs/troubleshooting/cases/README.md",
+   "tools/triage/fault_inject.py",
+   "control/src/config/array_topology.example.json"
+  ],
+  "sec": 17.2
+ },
+ "B": {
+  "answer": "好的，我先用工具查一下目前有沒有相關的任務或已知問題。\n\n## 結論\n\n**交換機設定遺失**導致 CCD05 和 CCD06 連不上。這兩台相機插在交換機的 **WGE1/0/35（CCD05）** 和 **WGE1/0/36（CCD06）**（對照回推 33–36 這組 port-group），以及相鄰的 **WGE1/0/33、WGE1/0/34** 也少了 `speed 1000` — 新交換機（或被重置的交換機）這四埠預設是 auto-neg，但 25G SFP28 埠插 1G 銅纜模組必須手動設 `speed 1000`，否則永不 link up [5]。\n\n---\n\n## 可能原因\n\n1. **交換機更換／重置後，相機埠沒補 `speed 1000`**（最常見）[5]\n   - 25G SFP28 埠插 1G 銅纜模組，auto-neg 永遠 link DOWN，插了模組也像壞線。\n   - `speed 1000` 有 **port-group 連動**（33–36 四埠一組），下一個就全組生效，但沒下的話整組都 link down。\n\n2. **若曾對 port-group 下 `speed 1000` 但沒回答 `[Y/N]` 確認**，指令被吃掉，設定沒寫進去 [5]。\n   - 2026-09-17 實例：37–40、41–44 組沒回到 Y → 顯示仍 `auto`，4 台相機全失聯。\n\n3. **線或模組本身損壞**（但已換過線，可能性較低）\n\n---\n\n## 現場照做（設備工程人員可做）\n\n### 步驟一：確認交換機目前設定\n\n用 console 線連交換機（damac `/dev/ttyUSB0`，9600 8N1），下指令：\n```\ndisplay interface brief | include WGE\n```\n檢查 WGE1/0/33、34、35、36 的 speed 是否為 **1G**（而非 `auto`）。\n\n### 步驟二：補下 speed 1000\n\n對 33–36 這組 port-group 下一次即可（會連動全組，但會跳 `[Y/N]` 確認）：\n```\ninterface Twenty-FiveGigE1/0/33\n speed 1000\n```\n**看到 `[Y/N]` 時一定要輸入 `Y`**，否則後續指令會被吞掉。  \n也可以對 35 或 36 下，效果相同（同一個 port-group）。\n\n### 步驟三：儲存並確認\n\n```\nsave force\n```\n再跑一次 `display interface brief | include WGE`，確認四埠都顯示 **UP 1G**。\n\n### 步驟四（若以上無效）\n\n- 把 CCD05 和 CCD06 的線改插到**同一 port-group 內的其他空埠**（例如 WGE1/0/37–56 已預設 `speed 1000`，直接插就能用 [5]）。\n- 檢查相機背面燈號（不亮 = 沒電，查電源線）。\n\n---\n\n## 怎麼確認修好\n\n1. 交換機上 `display interface brief` 看到 WGE1/0/33–36 都 **UP 1G**。\n2. 再跑一次「一鍵健檢」→ CCD05 和 CCD06 **不再出現「不見了」**，MAC 00:30:53:54:e3:16（CCD05）和 00:30:53:54:e3:15（CCD06）出現在交換機 MAC 表中 [1][報告]。\n3. 取像測試：4 台以外的 CCD05、CCD06 也能正常抓畫面。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/test_triage.py",
+   "docs/verification/verification_report_arm_20260615.md",
+   "docs/verification/verification_report_arm_20260615.md",
+   "RAG_TRAINING.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/html/demo_diag/incident_20260712_053711_616.json",
+   "docs/html/demo_diag/incident_20260712_053711_616.json",
+   "docs/verification/cam_line_rate_probe_20260921.txt"
+  ],
+  "sec": 35.8
+ }
+}

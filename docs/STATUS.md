@@ -1238,6 +1238,13 @@ CCD05/06 依埠序接續（CCD01–04 = WGE43/41/39/37）：**WGE1/0/35 = SN 255
   LOOP stop → 兩台容器皆停、可用 112 / 114 GB、`active=False`。踩到並修：代理 POST 空內容被 Fastify 回 400（c1f4f0b）。
   尚待：Windows Control 畫面按鈕實測（Windows 未裝好）。
 
+**一鍵健檢 + 故障注入實驗（2026-10-05，L3 — 實機 7 情境）**：`tools/triage/cfaoi_triage.py`（Control 系統狀態「一鍵健檢」、
+Grab 代理 TRIAGE）。實機注入 7 種故障（相機斷線/掉封包/參數被改/上行斷/交換機重置/IP 程式停/RDMA 線斷）→ **健檢 7/7 判對**、
+全部自動還原複驗。機況助手考 10 題：只給症狀 **9/20**、先按健檢再問 **19/20** → 現場流程：先健檢、看不懂再問助手。
+實驗中修掉 9 個問題（RDMA CM 誤報、console 雜訊誤報、MAC 連號錯配、5945 不支援入方向限速…）。
+報告 `docs/verification/machine_assistant_eval_20261005.md`；案例 `docs/troubleshooting/cases/`；
+知識 `docs/troubleshooting_線上異常處理.md`。交換機部分只驗證借用的 5945，正式 SN2201 待補。
+
 **未完成**
 - spark-3961 端：它的 177.12/178.12 設在未接線的埠（接線埠在發 DHCP）→ Spark↔Spark 鏈路不通；
   本機 ssh spark-3961 host key 驗證失敗，未處理。不影響 grab/IP。

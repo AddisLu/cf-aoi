@@ -1,0 +1,1 @@
+{"report": "/home/user/cfaoi_logs/fault_exp/grab_triage_182115.md", "items": [{"area": "RDMA", "level": "OK", "title": "Grab ↔ Spark RDMA 正常（線、兩端網卡、IP 程式都正常）", "evidence": "Grab enp1s0f0np0：link 有、100000Mb/s、MTU 9000、RoCE ACTIVE；ping Spark 通、大封包 通；Spark 端：link 有、MTU 9000、RoCE ACTIVE、IP 生產服務 active、調參服務 inactive、RDMA 埠 18515 有在聽；IP 控制埠 有回應", "cause": "", "action": "", "who": ""}]}

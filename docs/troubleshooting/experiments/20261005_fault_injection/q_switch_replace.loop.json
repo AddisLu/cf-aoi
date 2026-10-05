@@ -1,0 +1,19 @@
+{
+ "scenario": "q_switch_replace",
+ "symptom": "交換機壞掉，廠商換了一台新的 HPE 5945 過來，接回去之後要怎麼設定才能讓相機正常？",
+ "A": {
+  "answer": "根據參考資料，這是一台 HPE FlexFabric 5945（CFAOI-SW1），以下是完整的設定步驟。\n\n## 結論\n\n交換機是 **CFAOI-SW1（HPE FlexFabric 5945）**，接回後要設 **埠 speed**、**stp**、**damac 網卡 IP/MTU**，才能讓相機經 100G 上行到 damac。\n\n---\n\n## 必要設定步驟（可照順序做）\n\n### 1️⃣ 交換機本體設定（對 console 下指令，console 在 damac `/dev/ttyUSB0`，9600 8N1）\n\n每插一台相機，該埠就需要設定。**2026-09-17 起全部 48 個 25G 埠已預設好**，但如果新機是出廠值，要手動做：\n\n**每個相機插的 WGE 埠**（建議插 WGE1/0/33–38）：\n```\ninterface WGE1/0/33\n speed 1000\n stp edged-port\n quit\n save force\n```\n\n> ⚠️ **25G SFP28 埠插 1G 銅纜模組，auto-neg 永不 link，一定手動下 `speed 1000`**，否則 link DOWN。 [4]\n>\n> ⚠️ **`speed 1000` 有 port-group 連動**（四埠一組：1–4、5–8…33–36、37–40…），下指令會問 `[Y/N]`，要回 **Y** 否則該組沒生效。 [4]\n\n**100G 上行埠**（到 damac ConnectX-5 f1）：\n```\ninterface HGE1/0/25\n quit\n```\n（jumbo 原廠已有 9416，不必再設）[4]\n\n**驗證**：`display interface brief | include WGE` 看該埠應顯示 **UP 1000Mbps/F**。\n\n---\n\n### 2️⃣ damac 網路設定（需 root 權限）\n\ndamac 的 `enp1s0f1np1`（ConnectX-5 f1，MAC 尾 …:CC:19）要設相機同網段 IP：\n```\nnmcli conn mod enp1s0f1np1 ipv4.addresses 192.168.5.200/24\nnmcli conn mod enp1s0f1np1 ipv4.method manual\nnmcli conn mod enp1s0f1np1 802-3-ethernet.mtu 9000\nnmcli conn up enp1s0f1np1\n```\n\n`enp1s0f0np0`（直連 Spark 的 RDMA 路徑，MAC 尾 …:CC:18）MTU 也拉到 9000：\n```\nnmcli conn mod enp1s0f0np0 802-3-ethernet.mtu 9000\nnmcli conn up enp1s0f0np0\n```\n\n> ⚠️ **兩條線不要接反**：f0（…:CC:18）→ Spark DAC 直連、f1（…:CC:19）→ 5945 `HGE1/0/25`。接反相機與 RDMA 會對調 [6]。\n\n---\n\n### 3️⃣ 確認相機可達\n\n```\nping 192.168.5.1\n```\n應 0% loss（CCD01 的 IP = 192.168.5.1）。\n\n```\nLIST_CAMERAS\n```\n應看到該台相機 `online=true`。\n\n---\n\n## 怎麼確認修好\n\n1. 交換機 `display interface brief | include WGE` — 相機埠 **UP 1000M**，HGE1/0/25 **UP 100G**\n2. damac `ping 192.168.5.1` — 0% loss，rtt < 1ms\n3. `LIST_CAMERAS` — 該台相機 `online=true`\n4. 起 grab 時要用 `--cam-count 6`，不要用 `ALL`（B4 已知缺陷）[2]",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/STATUS.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/grab_machine_migration.md",
+   "docs/STATUS.md",
+   "docs/6cam_setup_runbook.md"
+  ],
+  "sec": 29.3
+ }
+}

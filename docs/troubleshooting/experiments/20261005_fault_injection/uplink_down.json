@@ -1,0 +1,25 @@
+{
+ "scenario": "uplink_down",
+ "symptom": "開機後 Control 顯示所有相機都沒有影像，Grab 燈號是綠的。",
+ "injected": {
+  "port": "HGE1/0/25"
+ },
+ "fault": {
+  "exit": 2,
+  "sec": 45.3,
+  "report": "/home/user/cfaoi_logs/fault_exp/uplink_down.md",
+  "problems": [
+   "FAIL [相機] 全部 6 台相機都不見了 → 問題在共用的那一段，不是個別相機",
+   "FAIL [交換機] 交換機 → Grab 上行埠 HGE1/0/25 斷線（ADM）",
+   "WARN [交換機] 交換機有埠被手動關閉（shutdown）：HGE1/0/25",
+   "FAIL [交換機] 交換機設定和基準不同（1 行）—很可能就是 CCD01、CCD02、CCD03、CCD04、CCD05、CCD06 不見的原因"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 100.0,
+  "report": "/home/user/cfaoi_logs/fault_exp/uplink_down.after.md",
+  "problems": []
+ }
+}

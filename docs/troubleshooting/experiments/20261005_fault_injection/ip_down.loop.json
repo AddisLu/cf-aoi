@@ -1,0 +1,19 @@
+{
+ "scenario": "ip_down",
+ "symptom": "上位機送料後一直沒有結果回來，Control 的 IP 燈是紅的，Grab 燈是綠的。是不是 Grab 跟 Spark 中間的線壞了？",
+ "A": {
+  "answer": "**結論：不是 Grab 跟 Spark 之間的線路問題。** 燈號顯示 **IP 連線中斷**（IP 燈紅），Grab 正常（燈綠），問題出在 Control ↔ IP（Spark）之間的連線，不是 Grab ↔ Spark。[1][2]\n\n---\n\n### 可能原因\n\n1. **網路抖動或瞬斷**：若網路封包遺失率高或 RTT 過大（例如跑在手機熱點或無線環境），心跳可能被觸發斷線。舊版曾經 2s 逾時＋單次失敗就斷，目前已改為 **5s 逾時 × 連續 2 次失敗** 才判定斷線（最慢約 12.5s 判定）[2][4]\n\n2. **IP 端的 ControlServer 忙碌或未啟動**：IP 的 ControlServer 是單客戶端序列處理，若有人佔住連線（例如診斷腳本），Control 就會連不上 [7]\n\n3. **實體線路（Control ↔ 交換機 ↔ IP）接觸不良或鬆脫**\n\n4. **IP 端程式當掉或未正常運作**\n\n---\n\n### 現場照做步驟（誰可以做）\n\n**現場人員（可操作）：**\n\n1. **先檢查網路線**：確認 Control 主機到交換機、交換機到 Spark（IP 機）的網路線是否有鬆脫或燈號不亮\n2. **檢查 Control App 的 Status 區三盞燈**：IP（紅）、Grab（綠）、上位機——目前 IP 紅代表 Control 收不到 IP 心跳 [1]\n3. **重插網路線**：兩端拔起重插，確認交換機埠燈號正常\n4. **重新啟動 Control App**：關掉重開，看 IP 燈是否變綠\n5. **若持續紅燈**：請通知工程師檢查 IP（Spark）端程式是否正常運作、ControlServer 是否有 Listen\n\n---\n\n### 怎麼確認修好\n\n- Control 主視窗 **Status 區的 IP 燈轉為綠色**，log 出現「IP 已連線」[2]\n- 重新送料後，上位機能正常收到結果回來 [1]",
+  "reasoning_chars": 0,
+  "sources": [
+   "cf-aoi-git-history.md",
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md",
+   "grab/test/b1_fault_containment/b1_fault_test.cpp",
+   "grab/test/b1_fault_containment/b1_fault_test.cpp",
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md"
+  ],
+  "sec": 19.9
+ }
+}

@@ -1,0 +1,23 @@
+{
+ "scenario": "packet_loss",
+ "symptom": "CCD03 的影像有時候缺一截、有黑色橫條，結果圖常判 NG，其他相機正常。",
+ "injected": {
+  "port": "WGE1/0/39"
+ },
+ "fault": {
+  "exit": 2,
+  "sec": 123.3,
+  "report": "/home/user/cfaoi_logs/fault_exp/packet_loss.md",
+  "problems": [
+   "FAIL [取像] CCD03 掉封包（影像不完整）",
+   "WARN [交換機] 交換機設定和基準不同（1 行）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 110.2,
+  "report": "/home/user/cfaoi_logs/fault_exp/packet_loss.after.md",
+  "problems": []
+ }
+}

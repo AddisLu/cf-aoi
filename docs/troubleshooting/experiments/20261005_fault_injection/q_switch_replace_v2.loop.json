@@ -1,0 +1,19 @@
+{
+ "scenario": "q_switch_replace",
+ "symptom": "交換機壞掉，廠商換了一台新的 HPE 5945 過來，接回去之後要怎麼設定才能讓相機正常？",
+ "A": {
+  "answer": "## 結論：HPE 5945 交換機換新後，相機插上 WGE 埠無法連線的原因通常是 **port-group 連動沒確認導致 speed 未生效**，或是**埠沒開 speed 1000**。\n\n不過，**2026-09-17 起 5945 全部 48 個 25G 埠（WGE1/0/1–24、33–56）已預設 speed 1000 + stp edged-port 並 save force**，所以新機換上後直接插相機到任一 WGE 埠就會 UP 1G，理論上不用逐埠設定 [7]。\n\n但廠商換的是 **新交換機**（出廠預設不會有這些設定），所以還是要手動走一遍。以下是現場照做的步驟：\n\n---\n\n### 誰可以做：線上人員（需懂 console 連線）\n\n#### 步驟 1：連 console 進交換機\n- Console 線接 Grab 機台的 `/dev/ttyUSB0` [6]\n- 連線參數：**9600 8N1** [7]\n\n#### 步驟 2：對所有相機要用的埠下 `speed 1000`\n相機可插 WGE1/0/1–24、33–56。指令範例（以 1–4 埠為例）：\n\n```\nsystem-view\ninterface WGE1/0/1\nspeed 1000\n```\n\n⚠️ **重要：port-group 連動**（1–4、5–8…33–36、37–40…四埠一組），對組內任一埠下 speed 1000 就會問 `[Y/N]`，**一定要回 Y**，否則該組全部埠不會生效 [7]。\n\n#### 步驟 3：下 `stp edged-port`\n```\ninterface WGE1/0/1\nstp edged-port\n```\n（每埠都要設，或對 port-group 下）\n\n#### 步驟 4：儲存設定\n```\nsave force\n```\n\n#### 步驟 5：驗證\n```\ndisplay interface brief | include WGE\n```\n確認該埠狀態為 **UP，Speed: 1000** [7]\n\n---\n\n### 已踩過的坑（如果還是不通）\n\n1. **插了模組但 link DOWN**：先下 `display transceiver` 看有沒有認到模組。如果認得到但 link DOWN，就是沒下 speed 1000，auto-neg 和 25G 埠不會通 [7]。\n2. **下 speed 時沒回 Y**：2026-09-17 實例中 37–40、41–44 這兩個組沒回到 Y，4 台相機全失聯 [7]。\n3. **OEM SFP-GE-T 模組 EEPROM 會誤報成 1000_BASE_SX_SFP**，但下 speed 1000 後照常 UP，不用管 [7]。\n\n---\n\n### 怎麼確認修好\n\n- 交換機這端：**display interface brief | include WGE** 顯示 UP 1G\n- 再到 Control UI 看 **LIST_CAMERAS** 是否列出 6 台相機且狀態為「已綁定」 [5]\n- 然後起 grab 時**務必用 `--cam-count 6`**（不要用 `ALL`），6 台都 ARM 成功才算正常 [1]",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "control/src/Models/CameraInfoModel.cs",
+   "control/src/Controllers/ConnectionManager.cs",
+   "control/src/Models/CameraInfoModel.cs",
+   "docs/fab_move_checklist.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md"
+  ],
+  "sec": 26.2
+ }
+}

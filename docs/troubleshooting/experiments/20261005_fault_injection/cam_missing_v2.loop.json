@@ -1,0 +1,34 @@
+{
+ "scenario": "cam_missing",
+ "symptom": "Control 主畫面 CCD05 一直沒有影像，其他相機正常；產線停在等待取像。",
+ "A": {
+  "answer": "**結論：CCD05 網路連線中斷（Link Down）**，導致 Control 主畫面無法取得該顆相機的影像。[2]\n\n---\n\n### 可能原因\n\n- **CCD05 的網路線接觸不良或脫落**（線上端最常見）\n- **交換機該埠被 shutdown**（人為誤關或設定跑掉）\n- **CCD05 本身掉電或硬體異常**\n- **CCD05 的 MAC 與預期不符（插錯埠）**，主畫面會顯示「MAC 不符」狀態 [4]\n\n---\n\n### 現場照做步驟（線上人員可執行）\n\n1. **到機台後方找到 CCD05 的線材**（線材上會有 CCD05 標示），檢查網路接頭是否鬆脫，重新插緊。\n2. **查看 CCD05 本體電源燈號**——若沒亮燈，可能是供電異常，通知設備/電工檢查。\n3. **到控制主畫面查看 CCD05 的狀態卡片**：\n   - 若顯示「離線」→ 網路不通或沒電 [4]\n   - 若顯示「MAC 不符」→ 線可能插錯到別的埠 [4]\n   - 若顯示「未綁定」→ 偵測到但尚未指派 [4]\n4. **若外觀與燈號正常但仍沒影像，請通知工程師**檢查交換機埠狀態與交換機 MAC 表（需用工具確認該埠是否被 shutdown）[3]。\n\n---\n\n### 怎麼確認修好\n\n- Control 主畫面 CCD05 恢復顯示即時影像（綠色狀態、有幀數）[4]。\n- 產線能正常取像繼續運行。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/troubleshooting/cases/README.md",
+   "docs/troubleshooting/cases/README.md",
+   "tools/triage/fault_inject.py",
+   "docs/design/operator_ui/components/camera-card.html",
+   "cf-aoi-git-history.md",
+   "docs/design/operator_ui/components/camera-card.html",
+   "docs/design/operator_ui/pages/step-2-capture.html",
+   "cf-aoi-git-history.md"
+  ],
+  "sec": 15.7
+ },
+ "B": {
+  "answer": "**結論：CCD05 沒有影像，是因為它的交換機埠 WGE1/0/35 被手動關閉（shutdown）了，加上交換機設定和基準不同（多了這一行 shutdown），所以那埠不會有訊號，CCD05 當然無法連線。**\n\n---\n\n## 可能原因\n\n1. **有人對交換機下了 `shutdown` 指令**，把 WGE1/0/35 關閉了 [1] – 這是健檢報告明確指出的。\n2. **更換交換機或重置後，設定沒還原** – 新交換機可能沒設 `speed 1000`，或舊設定裡有 `shutdown` 被帶過來 [4][7]。\n3. **CCD05 那條網路線/光纖或模組**雖然插著有訊號，但因為交換機埠被關閉，根本不會傳資料。\n\n> CCD05 相機本身有 MAC 00:30:53:54:e3:16 在記錄裡但不在交換機表上，和「埠被 shutdown」完全吻合 [2]。\n\n---\n\n## 現場照做步驟（誰可以做）\n\n### 👷 設備工程人員\n\n**① 檢查交換機上 WGE1/0/35 的狀態**\n用 console 登入交換機（damac `/dev/ttyUSB0`，9600 8N1），下指令：\n```\ndisplay interface Twenty-FiveGigE1/0/35\n```\n如果看到 `shutdown`，就是被關閉了。\n\n**② 把 WGE1/0/35 打開並設正確速度**\n```\ninterface Twenty-FiveGigE1/0/35\nundo shutdown\nspeed 1000\nquit\nsave force\n```\n> 注意：`speed 1000` 有 port-group 連動（35 和 33–36 同一組），下指令後要記得回 `Y` 確認 [4][7]。\n\n**③ 或用最快方式：CCD05 線改插到其他沒 shutdown 的 WGE 埠**\n（5945 交換機全部 WGE 埠已預設 `speed 1000` + `stp edged-port`，插上去就會 UP）[4][7]\n\n### 👷 設備工程人員（選項二）\n\n如果只是要趕快復線，**CCD05 那條線改插到另一個 WGE 空埠**（例如 WGE1/0/36），不必改交換機設定，也不用重配 IP——CCD 是依 MAC 綁定的，插到不同埠也能用。\n\n---\n\n## 怎麼確認修好\n\n1. **看交換機埠燈號**：WGE1/0/35（或新插的埠）的 Link/ACT 燈要亮。\n2. **下指令檢查**：\n   ```\n   display interface brief | include WGE1/0/35\n   ```\n   看到 `UP 1G` 表示正常 [4]。\n3. **回 Control 主畫面看 CCD05**：如果影像出現了、不再卡「等待取像」，就修好了。\n4. **重新跑一次一鍵健檢**：確認相機和交換機的異常都消失。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/cfaoi_triage.py",
+   "docs/troubleshooting/cases/README.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/design/operator_ui/components/camera-card.html",
+   "docs/design/operator_ui/components/camera-card.html",
+   "docs/6cam_setup_runbook.md",
+   "docs/troubleshooting/cases/README.md"
+  ],
+  "sec": 26.1
+ }
+}

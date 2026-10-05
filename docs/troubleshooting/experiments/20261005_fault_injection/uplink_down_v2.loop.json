@@ -1,0 +1,34 @@
+{
+ "scenario": "uplink_down",
+ "symptom": "開機後 Control 顯示所有相機都沒有影像，Grab 燈號是綠的。",
+ "A": {
+  "answer": "**結論：** 問題出在上行（uplink）線路斷了——交換機連接 Control / 上位機的埠被關閉或線路不通，導致 Grab 雖然有跟相機連線（綠燈），但影像送不到 Control。\n\n可能原因與現場照做步驟：\n\n| 可能原因 | 說明 |\n|---|---|\n| **上行埠被 shutdown** | 交換機連 Control 的那一埠被人手動關閉或交換機重置後未恢復 |\n| **上行實體線路故障** | 那條網路線鬆脫、壞掉或交換機電源重啟後埠沒起來 |\n\n**現場照做（任何人都可以做）：**\n\n1. **先確認是哪個埠**  \n   - 到機台交換機處，找標籤寫「Uplink」「To Control」或「To PC」的那個埠。\n\n2. **檢查交換機埠燈號**  \n   - 看 uplink 埠的 LED：沒亮 → 物理斷線或埠被關閉。  \n   - 亮但不穩閃 → 線路或接頭氧化。\n\n3. **重新插拔網路線**（一端交換機、一端 Control 電腦）  \n   - 如果登得進交換機 console，下指令：  \n     ```\n     interface <uplink埠位>\n     no shutdown\n     ```\n\n4. **檢查 Control 端網卡**  \n   - Control 電腦那端的網路孔燈號也要亮；沒亮 → 換一條網路線試試。\n\n5. **若交換機剛被換過或重置**  \n   - 新的交換機預設可能所有埠都是 shutdown，需要全部 no shutdown 並設定正確 VLAN / MTU。\n\n**怎麼確認修好：**  \nControl 畫面重新出現即時影像（所有 CCD 都有畫面），或在交換機上 ping Control IP 有回應 (參考資料 [5] uplink_down 症狀完全相同)。",
+  "reasoning_chars": 0,
+  "sources": [
+   "scripts/launchers/Grab-Linux.sh",
+   "cf-aoi-git-history.md",
+   "cf-aoi-git-history.md",
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/fault_inject.py",
+   "cf-aoi-git-history.md",
+   "cf-aoi-git-history.md",
+   "docs/troubleshooting/cases/README.md"
+  ],
+  "sec": 18.1
+ },
+ "B": {
+  "answer": "## 結論\n\n**交換機上行埠 HGE1/0/25 被手動關閉（shutdown）**，導致 Grab ↔ 交換機之間的 100G 連線中斷，所以全部 6 台 CCD01–CCD06 相機都看不到。\n\n---\n\n## 可能原因\n\n1. **有人對交換機下了 `shutdown` 指令** – 設定了 `interface HundredGigE1/0/25` 然後 `shutdown`，導致該埠不送訊號 [1]。\n2. **交換機更換/重置後設定沒還原** – 新交換機或重置後，上行埠處於預設關閉狀態，或相機埠缺少 `speed 1000` 設定 [1]。\n3. **100G 線/光模組鬆脫或損壞** – 雖然健檢顯示埠狀態是 `ADM`（被管理關閉）而非 `DOWN`（斷線），但不排除硬體也有問題。\n\n---\n\n## 現場照做步驟\n\n### 👷 設備工程（或懂交換機的人）\n\n1. **確認交換機電源燈有亮**，Grab 後面接交換機的那條 100G 線兩端燈號有亮。\n2. **對交換機下 `undo shutdown`**，讓 `HGE1/0/25` 恢復啟用。\n3. **檢查設定**：確認相機埠（建議 WGE1/0/33-38）有設 `speed 1000`，上行埠 `HGE1/0/25` 有設 `speed 100000` 及 `jumbo` [1]。\n4. **執行 `save force`** 儲存設定，避免下次重開機又跑掉。\n5. **重插 Grab ↔ 交換機 100G 線兩端**（光模組也重插）；若仍不行，換一條線試試。\n\n---\n\n## 怎麼確認修好\n\n- Grab 燈號維持綠色（表示與交換機連線正常）。\n- Control 畫面恢復顯示 CCD01–CCD06 的即時影像。\n- 再次按「一鍵健檢」，相機與交換機項目應顯示 ✅ 正常。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/cfaoi_triage.py",
+   "docs/grab_machine_migration.md",
+   "docs/6cam_setup_runbook.md",
+   "docs/6cam_setup_runbook.md",
+   "tools/cam_align/README.md",
+   "tools/triage/cfaoi_triage.py",
+   "docs/grab_machine_migration.md",
+   "docs/fab_move_checklist.md"
+  ],
+  "sec": 19.5
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "scenario": "cam_missing",
+ "symptom": "Control 主畫面 CCD05 一直沒有影像，其他相機正常；產線停在等待取像。",
+ "injected": {
+  "port": "WGE1/0/35"
+ },
+ "fault": {
+  "exit": 2,
+  "sec": 92.0,
+  "report": "/home/user/cfaoi_logs/fault_exp/cam_missing.md",
+  "problems": [
+   "FAIL [相機] CCD05 不見了：線路沒有訊號",
+   "WARN [交換機] 交換機有埠被手動關閉（shutdown）：WGE1/0/35",
+   "FAIL [交換機] 交換機設定和基準不同（1 行）—很可能就是 CCD05 不見的原因"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 100.0,
+  "report": "/home/user/cfaoi_logs/fault_exp/cam_missing.after.md",
+  "problems": []
+ }
+}

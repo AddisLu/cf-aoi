@@ -1,0 +1,21 @@
+{
+ "scenario": "param_drift",
+ "symptom": "CCD02 的影像比其他台暗很多，缺陷數也變得很奇怪；昨天有人來調過機。",
+ "injected": {},
+ "fault": {
+  "exit": 1,
+  "sec": 100.0,
+  "report": "/home/user/cfaoi_logs/fault_exp/param_drift.md",
+  "problems": [
+   "WARN [取像] CCD02 相機參數和設定不同：曝光 10.0 µs（設定 70.0）",
+   "WARN [交換機] 交換機設定和基準不同（1 行）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 100.0,
+  "report": "/home/user/cfaoi_logs/fault_exp/param_drift.after.md",
+  "problems": []
+ }
+}

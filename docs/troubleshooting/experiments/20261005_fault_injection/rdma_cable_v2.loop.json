@@ -1,0 +1,34 @@
+{
+ "scenario": "rdma_cable",
+ "symptom": "上位機送料後沒有結果，Control 的 IP 燈是紅的，Spark 前面燈有亮。到底是線還是 Spark 壞了？",
+ "A": {
+  "answer": "**結論：問題出在 Spark 端（程式/機器故障），不是線壞掉。**\n\n根據知識庫中的故障注入腳本與健檢邏輯（[5][8]），你描述的症狀（上位機送料無結果、Control IP 燈紅、Spark 前面燈亮）對應的是 `ip_down` 情境：**Spark 上的 IP 生產服務（cfaoi-ip-production）沒在跑**，所以 Control 連不上 Spark 的 IP 程式，燈號就紅了。Grab 燈是綠的代表 Grab ↔ Spark 的實體線（RDMA）和網路層都正常，線沒有壞。\n\n---\n\n### 可能原因\n\n| 可能原因 | 說明 |\n|---------|------|\n| **IP 生產服務停止或當掉** | Spark 上的 `cfaoi-ip-production` 服務未啟動或 crash [5][8] |\n| **IP 程式正在重啟/初始化** | 服務剛啟動但 RDMA 埠還沒開始聽（listen = 0）[8] |\n| **IP 程式忙碌卡住** | 服務在跑、埠有聽，但 8200 控制埠沒回應 [8] |\n\n---\n\n### 現場照做步驟（線上人員可執行）\n\n1. **查看 Spark 上的服務狀態**  \n   登入 Spark，執行：\n   ```bash\n   systemctl status cfaoi-ip-production\n   ```\n   看 `Active` 是不是 `active (running)`。\n\n2. **如果服務不在跑 → 重新啟動**  \n   ```bash\n   sudo systemctl start cfaoi-ip-production\n   ```\n\n3. **如果服務在跑但 Control IP 燈還是紅 → 等 30 秒後重跑健檢**  \n   可從 Control 端執行健檢工具確認。\n\n4. **反覆失敗** → 通知設備工程看 log：\n   ```bash\n   journalctl -u cfaoi-ip-production --since \"1 hour ago\" --no-pager\n   ```\n\n---\n\n### 怎麼確認修好\n\n- 從 Control 看 IP 燈變成**綠色**。\n- 上位機重新送料後，結果正常回來。\n- 重跑健檢（`cfaoi_triage.py`）會顯示 **RDMA: OK** 及 **IP: OK**。",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/verification/capacity_2spark_checklist.md",
+   "docs/verification/capacity_2spark_checklist.md",
+   "cf-aoi-git-history.md",
+   "docs/STATUS.md",
+   "tools/triage/fault_inject.py",
+   "tools/triage/rdma_cable_test.sh",
+   "docs/STATUS.md",
+   "tools/triage/cfaoi_triage.py"
+  ],
+  "sec": 18.8
+ },
+ "B": {
+  "answer": "**結論：問題出在 Grab 與 Spark 之間的直連線（RDMA 線），不是 Spark 整台壞掉。**  \nControl IP 燈紅 = 控制面沒收到 Grab 的狀態（因為 RDMA 不通），但 Spark 前面燈有亮表示它電源正常、有開機。[1][2]\n\n---\n\n## 可能原因（依機率）\n\n1. **Grab↔Spark 直連線鬆脫或光模組沒插緊** — 健檢報 Grab 端 `enp1s0f0np0` 完全沒有 link（link 無、速率 ? Mb/s）[1]\n2. **線材或光模組損壞** — 兩端都沒訊號\n3. **Spark 關機/當機** — 但使用者已確認 Spark 燈有亮，所以機率低\n4. **Grab 或 Spark 的 RDMA 網卡故障** — 如果線換過仍無 link 才考慮\n\n---\n\n## 現場照做（順序做）\n\n### 誰可以做：線上人員（不用等設備工程）\n\n1. **到機台後方，找到 Grab 主機（截取中心 PC）與 Spark（上方那台）之間的 RDMA 直連線**（通常是光纖或銅纜，兩端接在 100G 網卡）\n2. **先把兩端插頭拔出來，再重新插到底**，確認卡榫有卡緊\n3. **看 Grab 端網卡的 link 燈**（在 `enp1s0f0np0` 這個埠）：\n   - 燈亮了 → 線接觸問題，已排除\n   - 燈不亮 → 下一步\n4. **換一條備用 RDMA 線**（兩端都換）：\n   - 換線後 link 燈亮 → 原線壞了，用備用線繼續生產\n   - 換線後仍不亮 → 通知設備工程（可能是網卡或機器問題）\n\n---\n\n## 怎樣算修好\n\n- Control 的 **IP 燈變綠**\n- 上位機送料後正常出結果（不再有「沒有結果」的情況）\n- 或者現場再跑一次「一鍵健檢」，RDMA 項目變 **✅ PASS**（`PORT_ACTIVE`、ping 通、大封包通）[4]",
+  "reasoning_chars": 0,
+  "sources": [
+   "scripts/deploy/fix_spark_link.sh",
+   "tools/triage/rdma_cable_test.sh",
+   "cf-aoi-git-history.md",
+   "docs/verification/verification_report_20260611.md",
+   "docs/commercial_deploy_plan.md",
+   "docs/verification/machine_state_damac_20260918.txt",
+   "docs/STATUS.md",
+   "docs/verification/machine_state_damac_20260918.txt"
+  ],
+  "sec": 20.8
+ }
+}

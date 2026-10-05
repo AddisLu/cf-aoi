@@ -1,0 +1,19 @@
+{
+ "scenario": "packet_loss",
+ "symptom": "CCD03 的影像有時候缺一截、有黑色橫條，結果圖常判 NG，其他相機正常。",
+ "A": {
+  "answer": "## 結論\n\n**CCD03 收圖有遺失（掉幀）**，導致 slice 缺漏 → 該段未檢查 → `DefectCnt=0` 也可能 NG（`panel_incomplete` 標記）[3]。\n\n---\n\n## 可能原因\n\n1. **CCD03 到交換機之間的線材接觸不良**（RJ45 接頭鬆脫、線纜受損），造成傳輸 CRC 錯誤，`rdma_source` 會丟棄壞幀 [3]\n2. **CCD03 掉線/瞬斷**（偶發離線），導致正在傳的 slice 沒到齊 [1]\n3. **CCD03 MAC 位址對不上**（插錯交換機埠或更換過相機），系統會顯示「MAC 不符」而無法正常收圖 [1]\n\n---\n\n## 現場照做步驟（誰都可以做，建議通知設備／製程）\n\n1. **檢查 CCD03 的網路線** — 拔起重插 CCD03 尾端的 RJ45 接頭（線材上有「CCD03」標示），交換機那一端的埠也要確認插緊。\n2. **確認 LED／指示燈** — CCD03 的電源燈與連線燈是否恆亮；交換機對應埠的綠燈要閃爍正常。\n3. **登入操作介面看 camera card 狀態**：\n   - 若顯示 **「離線」** → 掉線，檢查電源與網路線。\n   - 若顯示 **「MAC 不符」** → 插錯埠或換過相機未重新綁定，需要改接或按介面提示重新綁定 [1]。\n   - 若顯示 **「未綁定」（琥珀色）** → 按介面指示一鍵綁定 [1]。\n4. **查看 rdma-process 的 console log**，搜尋關鍵字 `[rdma-process] ⚠ 收圖遺失`，確認是否出現 `cam3`（CCD03）的 slice 遺失記錄 [6]。\n\n---\n\n## 怎麼確認修好\n\n- 操作介面上 CCD03 的 card 顯示為正常狀態（卡上顯示「5 幀 · drop 0」、step 燈全亮）[1]\n- 跑一片產品不再出現黑色橫條或 NG\n- Console log 無 `[rdma-process] ⚠ 收圖遺失` 關於 cam3 的訊息 [6]",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/design/operator_ui/components/camera-card.html",
+   "docs/design/operator_ui/components/camera-card.html",
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "docs/verification/verification_report_arm_20260615.md",
+   "rdma-掉幀排查與行車紀錄欄位.md",
+   "config/ccd_params.json",
+   "control/src/config/array_topology.example.json"
+  ],
+  "sec": 21.0
+ }
+}

@@ -1,0 +1,34 @@
+{
+ "scenario": "q_xid",
+ "symptom": "我看到 Spark 的系統 log 裡最近有一百多筆「NVRM: Xid」錯誤，GPU 是不是壞了？需要送修嗎？",
+ "A": {
+  "answer": "我先查詢相關知識庫資料與模型戰績來回答。\n\n不需要送修。\n\n**結論：這些 Xid 錯誤是 GPU 上執行的應用程式（程式層）錯誤，不是 GPU 硬體壞掉** [2]。\n\n---\n\n### 原因說明\n\n從知識庫中的健檢邏輯來看，Xid 錯誤會分成兩類 [2]：\n\n| 分類 | 代表意義 | 你的情況 |\n|---|---|---|\n| **Xid 硬體錯誤**（例如 Xid 48、79 等） | GPU 記憶體、匯流排或韌體層級故障，會標示 **FAIL**，需要送修/換機 | ❌ **不是這種** |\n| **Xid 程式錯誤** | 應用程式自己造成的錯誤，不是 GPU 硬體壞，標示 **WARN 或 INFO** | ✅ **一百多筆屬於這種** |\n\n你看到的一百多筆 Xid，如果是來自 `cfaoi` 相關程式，屬於「含 IP 程式 → 看 IP log/行車紀錄」的情況；如果來自其他程式（開發/測試程式），則「不影響生產，可忽略」[2]。\n\n---\n\n### 現場照做步驟（線上人員可做）\n\n1. **先做一鍵健檢**：在機台操作畫面按「健檢」，看 GPU 項目是否出現 **FAIL**（硬體錯誤）。若顯示 **WARN/INFO** 就不是硬體壞。\n2. **確認 GPU 能否正常讀到**：請設備工程執行 `nvidia-smi`，若正常顯示 GPU 資訊代表沒掉線 [7]。\n3. **觀察生產有無異常**：如果缺陷數異常，先從 Control 看行車紀錄，不是 GPU 壞。\n\n---\n\n### 如何確認修好\n\n- 若健檢 GPU 項目為 **OK** 或 **INFO**，且 `nvidia-smi` 看得到 GPU → **不用送修，繼續生產即可**。\n- 若健檢出現 **FAIL**（硬體 Xid）且重開 Spark 後仍重複出現，才需通報設備工程送修/換機 [2]。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/eval_loop.py",
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/test_triage.py",
+   "RAG_TRAINING.md",
+   "RAG_TRAINING.md",
+   "RAG_TRAINING.md",
+   "RAG_TRAINING.md"
+  ],
+  "sec": 20.9
+ },
+ "B": {
+  "answer": "**結論：GPU 沒有壞，不需要送修。**  \n\n你看到的一百多筆 Xid 錯誤，分類上全部都是 **Xid 13（程式執行錯誤／非法指令）、Xid 31（程式存取非法記憶體）、Xid 43（程式被 GPU 停止）**，這些屬於**應用程式層的錯誤**，不是硬體故障 [1]。  \n而且健檢報告顯示 GPU 溫度 50°C、使用率 0%、時脈 2405 MHz、功耗 10.76 W，都在正常範圍；離線單元和測圖也都正確通過 [2]。\n\n---\n\n**可能原因**  \n- 那幾支程式（ccl_bench、dbg）寫入非法記憶體或執行到不存在的指令，被 GPU 驅動中斷並記錄 Xid（GPU 本身沒壞）。  \n- 多半是開發中的測試程式或調試工具，不是生產線上的 AOI 流程。\n\n---\n\n**現場照做（線上人員可做）**  \n1. 問一下最近有沒有工程師在 Spark 上跑 `ccl_bench` 或 `dbg` 這類測試程式——那些 Xid 就是他們跑的。  \n2. 如果你只是想清除紀錄：  \n   - `sudo journalctl --rotate && sudo journalctl --vacuum-time=1d`（清除舊 journal，不影響系統）  \n3. 如果之後生產中又出現 Xid 13/31/43，而且不是測試程式跑的，才叫工程來看。\n\n---\n\n**怎麼確認修好**  \n按下「一鍵健檢」再跑一次，只要 GPU 區塊全部顯示 ✅（就像你貼的這份），就代表 GPU 硬體正常、可以繼續生產。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/cfaoi_triage.py",
+   "RAG_TRAINING.md",
+   "tools/triage/test_triage.py",
+   "docs/verification/baseline_x86/clean_x86.json",
+   "RAG_TRAINING.md",
+   "docs/verification/baseline_x86/clean_x86.json",
+   "tools/triage/cfaoi_triage.py"
+  ],
+  "sec": 16.5
+ }
+}

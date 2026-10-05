@@ -1,0 +1,34 @@
+{
+ "scenario": "ip_down",
+ "symptom": "上位機送料後一直沒有結果回來，Control 的 IP 燈是紅的，Grab 燈是綠的。是不是 Grab 跟 Spark 中間的線壞了？",
+ "A": {
+  "answer": "## 結論\n\n**不是 Grab 跟 Spark 中間的線壞掉。**  Grab 燈是綠的表示 Grab 連線正常 [1]，問題出在 **上位機（IP）與 Control 的連線**——IP 燈紅的代表控制端收不到 IP 程式的心跳 [7]。\n\n---\n\n## 可能原因\n\n根據知識庫中的故障注入實驗與診斷紀錄，這個症狀（IP 燈紅、Grab 燈綠、上位機送料無結果）對應的是 **IP 服務異常或網路抖動**，而非實體線路斷線 [2][3]：\n\n1. **IP 服務（`cfaoi-ip-production`）意外停止或當掉** [2] — 這是 fault_inject.py 中 `ip_down` 情景的症狀\n2. **Control ↔ Spark 之間的網路不穩定**（封包遺失、高延遲），導致心跳單次逾時但 IP 程式其實正常 [4][7] — 但這個問題已在 commit `2423b6b` 修過（改為 5s 逾時 × 連續 2 次才判定斷線）[4][7]，所以新版軟體不該再發生\n\n---\n\n## 現場照做（線上人員可操作）\n\n### 步驟 1：確認 IP 服務狀態\n請到 **Spark 主機**（上位機那台）開啟終端機，輸入：\n```bash\nsystemctl status cfaoi-ip-production\n```\n- 如果看到 **inactive / dead** → 服務已停止（需重新啟動）\n- 如果看到 **active (running)** → 服務還在跑，檢查網路\n\n### 步驟 2：重啟 IP 服務（若上一步顯示停止）\n```bash\nsudo systemctl restart cfaoi-aoi-production\n```\n等一下觀察 Control 的 IP 燈是否變綠。\n\n### 步驟 3：若服務正常但燈仍紅 → 檢查網路\n- 確認 Control 與 Spark 之間的網路線是否插緊\n- 檢查兩端的網路孔燈號是否正常閃爍\n- 在 Control 端用 `ping <Spark IP>` 看有沒有封包遺失\n\n---\n\n## 怎麼確認修好？\n\nControl 主視窗的 **IP 燈轉為綠色**，且上位機再次送料後 **結果正常回來** [7]。",
+  "reasoning_chars": 0,
+  "sources": [
+   "cf-aoi-git-history.md",
+   "tools/triage/fault_inject.py",
+   "tools/triage/rdma_cable_test.sh",
+   "cf-aoi-git-history.md",
+   "grab/test/b1_fault_containment/b1_fault_test.cpp",
+   "grab/test/b1_fault_containment/b1_fault_test.cpp",
+   "docs/STATUS.md",
+   "docs/STATUS.md"
+  ],
+  "sec": 19.1
+ },
+ "B": {
+  "answer": "報告告訴你答案了：**不是線壞掉。**\n\n健檢結果第 1 項明確寫著：\n\n> ❌ **線和網路都正常，是 Spark 上的 IP 程式沒在跑（機器/程式問題，不是線）**[1]\n\nGrab ↔ Spark 之間的實體線（Grab enp1s0f0np0：link 有、100000Mb/s、RoCE ACTIVE；ping Spark 通、大封包也通）全部正常，問題出在 Spark 那一端的 **IP 生產服務（cfaoi-ip-production）沒有在跑（inactive）**，所以 RDMA 埠 18515 沒在聽、IP 控制埠也沒回應 —— 這就是為什麼 Control 的 IP 燈是紅的，而上位機送料沒有結果回來。\n\n---\n\n### 可能原因\n1. **IP 生產服務停止或反覆當掉** — 可能是程式 crash、記憶體不足被 OOM killer 終止，或 GPU 異常（健檢報了 105 筆 GPU Xid 錯誤，包含 Xid 13/31/43）導致服務被系統停掉。\n\n---\n\n### 現場照做步驟（線上人員可先做）\n\n1. 到 Control 系統狀態 → Spark → 找到「IP 生產」服務。\n2. 按「重新啟動」啟動 cfaoi-ip-production 服務。\n3. 等約 10–20 秒後，跑一次一鍵健檢確認 IP 燈變綠。\n\n---\n\n### 怎麼確認修好？\n- 重新跑一次一鍵健檢：RDMA 那一項變成「✅ Grab ↔ Spark RDMA 正常（線、兩端網卡、IP 程式都正常）」[1]。\n- Control 的 IP 燈從紅轉綠。\n- 上位機再送一片料應該就會有結果回來。\n\n---\n\n如果重新啟動後又馬上掛掉（反覆當掉），請收 log 和診斷包交給設備工程，因為健檢也發現最近 7 天有 105 筆 GPU 程式錯誤紀錄（Xid 13/31/43），可能跟 GPU 那邊有關。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/rdma_cable_test.sh",
+   "scripts/launchers/Grab-Linux.sh",
+   "tools/triage/cfaoi_triage.py",
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md",
+   "docs/html/index.html",
+   "docs/STATUS.md"
+  ],
+  "sec": 19.8
+ }
+}

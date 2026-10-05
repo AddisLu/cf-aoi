@@ -37,7 +37,7 @@
 **2026-09-17 起 5945 全部 48 個 25G 埠（WGE1/0/1–24、33–56）已預設 `speed 1000` + `stp edged-port` 並 `save force`**
 （撐到 SN2201 到貨）→ 相機插任一 WGE 埠即 UP 1G，**不必再逐埠設定**。
 驗證：`display interface brief | include WGE` 該埠應 UP 1G。
-（25G 埠要改回高速時，須對該 port-group 重下 `speed`。console = damac `/dev/ttyUSB0`，9600 8N1。）
+（25G 埠要改回高速時，須對該 port-group 重下 `speed`。console = Grab 主機（user-IMB-M47，2026-10 起；原 damac）`/dev/ttyUSB0`，9600 8N1。）
 
 已踩過的坑（仍適用於 SN2201 以外的新交換機）：
 1. **25G SFP28 埠插 1G 銅纜模組，auto-neg 永不 link up，必須 `speed 1000`**。只插模組不下 speed：

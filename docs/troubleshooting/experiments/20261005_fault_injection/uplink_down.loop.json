@@ -1,0 +1,19 @@
+{
+ "scenario": "uplink_down",
+ "symptom": "開機後 Control 顯示所有相機都沒有影像，Grab 燈號是綠的。",
+ "A": {
+  "answer": "## 🔍 結論\n\n**Grab 燈號綠**表示 `cfaoi_grab` 程式有正常執行、與 Control 的 8100 TCP 連線正常，但**所有相機無影像**，問題不在程式層，而在**相機端或傳輸路徑**。\n\n---\n\n## 可能原因（依檢查順序排列）\n\n| 原因 | 說明 |\n|------|------|\n| 1️⃣ **相機未列舉到（LIST_CAMERAS 回傳為空）** | 相機電源未開、pylon 驅動未載入、或 GigE 網路不通 [8] |\n| 2️⃣ **CCD 未綁定（cam_map.json 未建立或不正確）** | 即使相機有列舉到，也要執行 SET_CAM_MAP 把 MAC → cam_id / ccd_id 綁定，Control 的相機陣列總覽才會顯示影像 [5] |\n| 3️⃣ **未執行 GRAB_ARM / GRAB_START** | Grab 狀態機必須走 IDLE → GRAB_ARM（開陣列+RDMA 預熱）→ GRAB_START（觸發）才開始送幀 [1][3] |\n| 4️⃣ **GevSCPSPacketSize / MTU 不匹配** | 相機封包大小設 9000，若交換機或 NIC 未開 jumbo frame（9416），封包會被丟棄 [3] |\n| 5️⃣ **線材或交換機埠位異常** | 線材上的 CCD 標示可能與交換機埠位不再對應；交換機重新拔插後埠位會變 [5] |\n\n---\n\n## 👷 現場照做步驟（可由線上人員操作）\n\n### Step 1：確認相機列舉\n在 damac 終端機執行：\n```bash\ncfaoi_grab --cam-count 0\n# 或直接看 pylon Viewer 能不能找到相機\n```\n👉 如果 **pylon Viewer 也看不到相機** → 檢查相機電源（12V 指示燈）與 GigE 網線\n\n### Step 2：執行 LIST_CAMERAS 看列舉結果\n在 Control 的 SystemSettings → 相機 tab，點「重新整理」：\n- 看**實體陣列**一欄有沒有 CCD 出現（已綁定=綠色、待綁定=琥珀色、離線=灰色）[8]\n- 如果全部空白 → 相機網路不通\n\n### Step 3：綁定 CCD（若列舉到但未綁定）\n在 **SystemSettings → 相機 tab** 中，選取待綁定的 CCD，按「綁定」[5]。\n> 綁定後會自動執行 `SET_CAM_MAP`，寫入 `cam_map.json`。\n\n### Step 4：確認 Grab 狀態機\n在 Control 端檢查 Grab 連線狀態：\n- 若 Grab 燈號綠、但無影像，從 Control 發 **GRAB_ARM**（讓 Grab 提前開相機+連 RDMA）→ 再發 **GRAB_START**[1][3]\n\n### Step 5：檢查交換機與 MTU\n- 確認交換機埠 **Jumbo Frame** 設定為 **9416**（非 1514 或 1500）\n- 確認 damac NIC MTU = 9000（`ip link show | grep mtu`）[3]\n\n---\n\n## ✅ 怎麼確認修好\n\n1. **LIST_CAMERAS** 回傳的相機數量 = 實際接線的 CCD 數量\n2. **每台 CCD 在 Control 相機總覽中顯示為「已綁定（綠色）」**[8]\n3. 執行 `GRAB_START` 後，Control 收到影像，`grabbed` 計數持續增加 [3]\n4. 若以上都對但還是沒影像 → 檢查 `--pkt-size`、`--line-rate` 等 CLI 參數是否正確設定 [3]",
+  "reasoning_chars": 0,
+  "sources": [
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md",
+   "grab/src/main.cpp",
+   "control/CLAUDE.md",
+   "cf-aoi-git-history.md",
+   "cf-aoi-git-history.md",
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md"
+  ],
+  "sec": 31.7
+ }
+}

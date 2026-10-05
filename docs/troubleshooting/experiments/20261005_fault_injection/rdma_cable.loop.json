@@ -1,0 +1,19 @@
+{
+ "scenario": "rdma_cable",
+ "symptom": "上位機送料後沒有結果，Control 的 IP 燈是紅的，Spark 前面燈有亮。到底是線還是 Spark 壞了？",
+ "A": {
+  "answer": "**結論：Spark 本身應該是好的（前燈有亮代表它活著），問題出在 Control 與 Spark 之間的連線（IP 燈紅）。** 這有兩個可能：\n\n1. **CCD 線材或交換機埠不穩**（例如封包遺失、抖動過大），造成心跳逾時 [1][4]。\n2. **Control 設定指向的 IP 節點已離線或不存在**（例如之前有 commit 把 IpOffline 改指向家中驗證機，如果在公司環境就會連不上）[6]。\n\n---\n\n### 現場照做步驟（可由線上人員執行）\n\n**第一步：檢查 Control 指向哪個 IP**\n- 打開 Control 所在電腦的 `control/src/appsettings.json`，看 `IpOffline` 或 `ActiveIpNode` 的 IP 位址和埠號。\n- 如果是 `addis-b850m-ds3h.tailffdb68.ts.net:8200` 之類的 Tailscale 域名，代表是指到 Addis 家裡的機器——**在公司環境一定連不上**，要改回正確的 Spark IP。\n\n**第二步：測試通訊品質（如果 IP 是對的）**\n- 從 Control 電腦對 Spark 的 IP 執行 `ping -t`，看有無封包遺失、RTT 是否穩定。\n- 如果封包遺失 >1% 或 RTT 破數百毫秒，是網路問題（線、交換機、或臨時用手機熱點）[1][4]。\n\n**第三步：檢查心跳 log**\n- 看 Control 的 log 是否有反覆「連線中斷/已重新連線」——如果是，代表網路抖動但沒完全斷（新版需連續 2 次失敗才判定斷線，判定時間約 12.5 秒）[1][4]。\n- 如果 log 只有一條「IP 連線中斷」且沒自動恢復，是完全斷線。\n\n---\n\n### 怎麼確認修好\n\n1. **IP 燈轉綠**，且 log 不再洗「連線中斷/已重新連線」。\n2. Control 能對 Spark 送圖取回結果（`DefectCnt` 正常）[6]。\n3. 上位機重新送料後能正常收到結果回傳。",
+  "reasoning_chars": 0,
+  "sources": [
+   "cf-aoi-git-history.md",
+   "docs/verification/capacity_2spark_checklist.md",
+   "docs/verification/capacity_2spark_checklist.md",
+   "docs/STATUS.md",
+   "docs/STATUS.md",
+   "cf-aoi-git-history.md",
+   "docs/STATUS.md",
+   "docs/STATUS.md"
+  ],
+  "sec": 18.8
+ }
+}

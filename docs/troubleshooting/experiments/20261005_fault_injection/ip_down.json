@@ -1,0 +1,20 @@
+{
+ "scenario": "ip_down",
+ "symptom": "上位機送料後一直沒有結果回來，Control 的 IP 燈是紅的，Grab 燈是綠的。是不是 Grab 跟 Spark 中間的線壞了？",
+ "injected": {},
+ "fault": {
+  "exit": 2,
+  "sec": 110.1,
+  "report": "/home/user/cfaoi_logs/fault_exp/ip_down.md",
+  "problems": [
+   "FAIL [RDMA] 線和網路都正常，是 Spark 上的 IP 程式沒在跑（機器/程式問題，不是線）"
+  ]
+ },
+ "restored": true,
+ "after": {
+  "exit": 0,
+  "sec": 118.1,
+  "report": "/home/user/cfaoi_logs/fault_exp/ip_down.after.md",
+  "problems": []
+ }
+}

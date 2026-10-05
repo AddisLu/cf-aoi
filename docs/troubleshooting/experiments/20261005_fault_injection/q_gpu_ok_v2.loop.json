@@ -1,0 +1,34 @@
+{
+ "scenario": "q_gpu_ok",
+ "symptom": "今天缺陷數忽然變很多，是不是 Spark 的 GPU 壞了？要怎麼確認？",
+ "A": {
+  "answer": "我先幫你確認 GPU 狀態。根據知識庫，有幾個步驟可以檢查。\n\n## 結論\n\n**目前從知識庫中無法確定 GPU 是否真的壞了**，因為我無法直接遠端連線到那台機器執行指令。但可以透過以下流程幫你判斷：\n\n---\n\n### 可能原因（依可能性排序）\n\n1. **缺陷 merge 參數設錯** — 若 `merge_distance` 或 `pitch` 設錯，缺陷數量會被放大（例如 merge 量觸頂 10,000 顆），造成消費執行緒卡住、背壓全鏈 [5][7]\n2. **檢測閾值太鬆** — 造成大量誤報 [3]\n3. **GPU 異常** — 但通常伴隨延遲暴增（>50ms）、CUDA 錯誤、或 Xid 錯誤 [3][4]\n\n---\n\n### 現場照做步驟（線上人員可做）\n\n#### 步驟 1：檢查 GPU 基本狀態\n在 Spark（IP 運算端）主機上執行：\n```bash\nnvidia-smi\n```\n確認有顯示 GPU、溫度正常、記憶體沒滿載 [1][2]。\n\n#### 步驟 2：跑 preprocessing 深度診斷\n```bash\n./bin/tdd_runner --module preprocessing --deep\n```\n如果看到以下錯誤就表示 GPU 有問題 [8]：\n- `device not found` → 驅動沒抓到 GPU\n- `out of memory` → 記憶體不足\n- `invalid device function` → 需要重新編譯\n\n#### 步驟 3：檢查 GPU Xid 錯誤（過去 7 天）\n看系統記錄有沒有 GPU 硬體錯誤：\n```bash\njournalctl -k --since \"-7 days\" --no-pager -o short-iso | grep -i \"NVRM: Xid\"\n```\n有出現 Xid 錯誤（例如 Xid 48、Xid 64）代表 GPU 硬體層有問題 [4]。\n\n#### 步驟 4：檢查 IP 生產服務是否正常\n看 Control 系統狀態 → Spark →「IP 生產」是否 Active；若服務反覆重啟，GPU 也可能有問題 [4]。\n\n---\n\n### 怎麼確認修好\n\n- ✅ **GPU 正常**：`nvidia-smi` 看得到 GPU，溫度 <80°C、記憶體使用率 <90%\n- ✅ **無 Xid 錯誤**：`journalctl` 沒有 GPU 硬體錯誤記錄\n- ✅ **preprocessing 深度診斷全 PASS**\n- ✅ **缺陷數恢復正常數量**（個位數～數百顆）[5][7]\n\n若以上都正常，問題就不是 GPU，而是檢測參數（如 pitch、閾值）跑掉，需要找製程／設備工程調整。",
+  "reasoning_chars": 0,
+  "sources": [
+   "RAG_TRAINING.md",
+   "include/tdd/preprocessing_module.h",
+   "RAG_TRAINING.md",
+   "tools/triage/cfaoi_triage.py",
+   "ip/src/defect_rules.h",
+   "docs/CLAUDE.md",
+   "ip/src/defect_rules.h",
+   "RAG_TRAINING.md"
+  ],
+  "sec": 21.7
+ },
+ "B": {
+  "answer": "**結論：目前「一鍵健檢」全部正常（3 項 OK），GPU 沒有壞。** 缺陷數突然變多的原因，知識庫中沒有找到直接對應的說法。\n\n不過從健檢報告可以看到幾個有用資訊：\n\n1. **GPU 運作正常** — NVIDIA GB10, 記憶體 112 GB, 溫度/功耗正常\n2. **參考圖測圖結果正確** — 1 顆缺陷，類型與位置符合標準答案\n3. **IP 離線單元測試 5 組全過**\n4. **但最近 7 天有 105 筆 GPU 程式錯誤紀錄**（Xid 13、31、43），來自 `ccl_bench`、`dbg`\n\n---\n\n### 可能原因\n\n| 可能原因 | 說明 |\n|---|---|\n| **檢測參數/門檻被改動**（最常見） | 如果 `default_zone.ini` 或各 zone 的亮度、對比、濾波參數被調鬆，會讓原本不會報的輕微灰階差異變成缺陷 [2] |\n| **被測產品批次變更** | 板子表面顏色、鍍層、線寬有變化，同一套參數下缺陷數就會暴增 |\n| **光源或相機穩定性** | 亮度波動導致同一位置時好時壞，GPU 本身沒壞 |\n| **GPU 程式錯誤可能導致漏檢或誤報** | 105 筆 Xid 13/31/43 雖然目前沒造成當機，但若發生在檢測期間，可能造成 intermediate buffer 內容異常 [3] |\n\n---\n\n### 現場照做步驟（誰可以做）\n\n1. **換一張已知良品板子測試**（產線人員）\n   - 拿一片過去確認是 PASS 的板子，重新跑一次檢測\n   - 如果缺陷數回到正常 → 前一批板子有問題\n   - 如果還是很多 → 參數或機台問題\n\n2. **按「一鍵健檢」重新跑一次**（產線人員）\n   - 現在報告是 18:19 的，確認 GPU 參考圖測圖仍然正確\n   - 如果健檢出現 FAIL，照健檢報告的「請這樣做」處理\n\n3. **檢查 ip/config/default_zone.ini 是否有被修改**（軟體工程）\n   - 比對備份檔或 Git 記錄，看 Filter、Threshold 等參數是否被調過 [2]\n\n4. **重開 Spark 再測**（產線人員）\n   - 先關閉 AOI 軟體，重新啟動 Spark 服務，再跑一次檢測\n   - 如果恢復正常 → 暫存狀態異常\n\n---\n\n### 怎麼確認修好\n\n- **良品板連續 PASS 3 片**，缺陷數與歷史平均值 ±20% 以內\n- **一鍵健檢全部 OK**（GPU、取像、交換機、RDMA、相機）\n- **同一片板子兩次檢測結果一致**（缺陷位置、數量、類型相符）\n\n> 如果上述步驟都試過仍異常，請通知軟體工程調出 **IP04_Origin000027 的完整 DefectInfo JSON** [2][4] 比對演算法輸出，判斷是參數問題還是 GPU 計算錯誤。",
+  "reasoning_chars": 0,
+  "sources": [
+   "tools/triage/cfaoi_triage.py",
+   "tools/triage/cfaoi_triage.py",
+   "RAG_TRAINING.md",
+   "docs/verification/baseline_x86/clean_x86.json",
+   "docs/verification/baseline_x86/clean_x86.json",
+   "docs/verification/verification_report_arm_20260615.md",
+   "docs/verification/verification_report_arm_20260615.md",
+   "scripts/gpu_timing_analysis.sh"
+  ],
+  "sec": 27.0
+ }
+}

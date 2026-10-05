@@ -4,6 +4,16 @@
 > 原則：**先按「一鍵健檢」**（自動收證據、給結論），再照下面對應的段落處理。相機一律講 **CCD 編號**（線材上有 CCD 標示；交換機埠位會變，不必記埠位）。
 > 每一條處理方式都在實驗室實際製造過故障驗證（見文末「已驗證案例」與 `docs/troubleshooting/cases/`）。新的現場案例請照同一格式補進 cases。
 
+## ⛔ 不可以建議線上人員做的事（機況助手必守）
+
+- **不要刪 log**（`journalctl --vacuum`、刪 `/srv/cfaoi`、清 `_diag`）：log 是排障證據，刪了就查不到原因。
+- **不要在生產機上重置 GPU / 重灌驅動**（`nvidia-smi --gpu-reset` 等）：先跑 `cfaoi_triage.py --gpu` 判斷，硬體類才找工程。
+- **不要叫線上人員改設定檔**（`default_zone.ini`、`cam_config.json`、`appsettings.json`、配方 XML、交換機設定）：要改找工程。
+- **不要猜交換機埠號**：埠位會變，一律講 CCD 編號（線材有標示）。
+- **不要把無關的 Xid 牽扯進來**：健檢已分類「程式類 + 來自哪支程式」，不是 cfaoi_ip 的程式類 Xid 與生產問題無關。
+- 證據不足時說「先按一鍵健檢」，不要編造畫面、按鈕或指令（例：不存在的 `run_tests.sh`）。
+- 主機名稱：截取主機現在是 **Grab（user-IMB-M47，192.168.10.21）**；舊文件的 damac 是前一台機器。
+
 ## 0. 一鍵健檢
 
 - 在 Grab：`python3 ~/Addis/cf-aoi/tools/triage/cfaoi_triage.py`（約 1 分鐘；產線在取像時自動略過取像測試）
@@ -87,4 +97,15 @@
 
 ## 已驗證案例（實驗室故障注入，2026-10-05）
 
-詳細每個案例（症狀、注入方式、健檢原文、助手回答與評分）在 `docs/troubleshooting/cases/`。
+| 案例 | 線上人員說的 | 根因 |
+|---|---|---|
+| [20261005_camera_cam_missing](troubleshooting/cases/20261005_camera_cam_missing.md) | CCD05 一直沒有影像 | 交換機埠被關閉 → 線路沒訊號 |
+| [20261005_switch_packet_loss](troubleshooting/cases/20261005_switch_packet_loss.md) | CCD03 影像缺一截、黑色橫條 | 該埠最大框長 1536（jumbo 沒開）|
+| [20261005_camera_param_drift](troubleshooting/cases/20261005_camera_param_drift.md) | CCD02 比其他台暗、昨天有人調機 | 曝光被改 10µs（設定 70）|
+| [20261005_switch_uplink_down](troubleshooting/cases/20261005_switch_uplink_down.md) | 所有相機都沒影像、Grab 綠燈 | 交換機上行到 Grab 斷 |
+| [20261005_switch_switch_reset](troubleshooting/cases/20261005_switch_switch_reset.md) | 換交換機後 CCD05、06 連不上、換線也沒用 | 相機埠少 speed 1000（port-group）|
+| [20261005_rdma_ip_down](troubleshooting/cases/20261005_rdma_ip_down.md) | IP 燈紅、是不是線壞了 | 不是線：Spark IP 程式沒在跑 |
+| [20261005_rdma_rdma_cable](troubleshooting/cases/20261005_rdma_rdma_cable.md) | IP 燈紅、Spark 燈亮，線還是 Spark？ | Grab↔Spark 直連線沒 link |
+
+原始資料（健檢報告、注入紀錄、助手回答）：`docs/troubleshooting/experiments/20261005_fault_injection/`；
+評估報告：`docs/verification/machine_assistant_eval_20261005.md`。

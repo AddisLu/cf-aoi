@@ -37,6 +37,9 @@
 - [ ] 實測：Control「開啟機況助手」→ 兩台載入就緒 → 開啟畫面 → 「結束並回生產」→ CF_READY 回 OK、Spark 可用記憶體恢復
       （2026-10-05 已用代理實測雙機載入/推論 33 tok/s/釋放；剩 Windows 畫面按鈕）
 
+- [ ] 一鍵健檢基準：進場接好線、全部正常後在 Grab 跑 `tools/triage/cfaoi_triage.py --save-baseline`（存各 CCD 相機 MAC、交換機設定）
+- [ ] SN2201 到貨：補 `tools/triage` 交換機驅動並重跑故障注入實驗（目前只驗證借用的 HPE 5945）
+
 ## C. 時間同步（fab 內沒有 NTP 伺服器）
 
 - [x] **Grab 當校時主機**（chrony：有網路跟 pool、無網路用本地時鐘 stratum 10）— 2026-10-05 bootstrap 收編
