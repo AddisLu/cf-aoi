@@ -2,16 +2,117 @@
   "glass": "T550QVN10_TGT_G",
   "note": "人工確認（Addis）。座標 = 該張 slice 的本地座標（GlobalPosX/Y）。label: true = 真缺陷、false = 誤判（回歸時不得再報）",
   "defects": [
-    {"ccd": "IP04", "slice": 27, "x": 5894, "y": 725,  "label": true,  "src": "舊機台批次報告"},
-    {"ccd": "IP04", "slice": 28, "x": 1852, "y": 2372, "label": true,  "src": "2026-10-05 自動調參發現，Addis 確認"},
-    {"ccd": "IP02", "slice": 23, "x": 7284, "y": 511,  "label": true,  "src": "2026-10-06 Addis 確認"},
-    {"ccd": "IP03", "slice": 2,  "x": 4038, "y": 4741, "label": true,  "src": "2026-10-06 Addis 確認"},
-    {"ccd": "IP03", "slice": 20, "x": 6189, "y": 1496, "label": true,  "src": "2026-10-06 Addis 確認"},
-    {"ccd": "IP05", "slice": 29, "x": 4714, "y": 926,  "label": true,  "src": "2026-10-06 Addis 確認"},
-    {"ccd": "IP08", "slice": 25, "x": 3782, "y": 1469, "label": true,  "src": "2026-10-06 Addis 確認"},
-    {"ccd": "IP08", "slice": 27, "x": 6819, "y": 2465, "label": false, "src": "2026-10-06 Addis：誤判（IP08 偏暗區）"},
-    {"ccd": "IP08", "slice": 8,  "x": 5,    "y": 4934, "label": false, "src": "CCD 左緣全黑區（VLM 判否、人看同）"},
-    {"ccd": "IP08", "slice": 22, "x": 47,   "y": 3721, "label": false, "src": "CCD 左緣全黑區（VLM 判否、人看同）"},
-    {"ccd": "IP01", "slice": 29, "x": 3671, "y": 650,  "label": false, "src": "晶片邊第一欄（VLM 判否、人看同）"}
+    {
+      "ccd": "IP04",
+      "slice": 27,
+      "x": 5894,
+      "y": 725,
+      "label": true,
+      "src": "舊機台批次報告"
+    },
+    {
+      "ccd": "IP04",
+      "slice": 28,
+      "x": 1852,
+      "y": 2372,
+      "label": true,
+      "src": "2026-10-05 自動調參發現，Addis 確認"
+    },
+    {
+      "ccd": "IP02",
+      "slice": 23,
+      "x": 7284,
+      "y": 511,
+      "label": true,
+      "src": "2026-10-06 Addis 確認"
+    },
+    {
+      "ccd": "IP03",
+      "slice": 2,
+      "x": 4038,
+      "y": 4741,
+      "label": true,
+      "src": "2026-10-06 Addis 確認"
+    },
+    {
+      "ccd": "IP03",
+      "slice": 20,
+      "x": 6189,
+      "y": 1496,
+      "label": true,
+      "src": "2026-10-06 Addis 確認"
+    },
+    {
+      "ccd": "IP05",
+      "slice": 29,
+      "x": 4714,
+      "y": 926,
+      "label": true,
+      "src": "2026-10-06 Addis 確認"
+    },
+    {
+      "ccd": "IP08",
+      "slice": 25,
+      "x": 3782,
+      "y": 1469,
+      "label": true,
+      "src": "2026-10-06 Addis 確認"
+    },
+    {
+      "ccd": "IP08",
+      "slice": 27,
+      "x": 6819,
+      "y": 2465,
+      "label": false,
+      "src": "2026-10-06 Addis：誤判（IP08 偏暗區）"
+    },
+    {
+      "ccd": "IP08",
+      "slice": 8,
+      "x": 5,
+      "y": 4934,
+      "label": false,
+      "src": "CCD 左緣全黑區（VLM 判否、人看同）"
+    },
+    {
+      "ccd": "IP08",
+      "slice": 22,
+      "x": 47,
+      "y": 3721,
+      "label": false,
+      "src": "CCD 左緣全黑區（VLM 判否、人看同）"
+    },
+    {
+      "ccd": "IP01",
+      "slice": 29,
+      "x": 3671,
+      "y": 650,
+      "label": false,
+      "src": "晶片邊第一欄（VLM 判否、人看同）"
+    },
+    {
+      "ccd": "IP04",
+      "slice": 21,
+      "x": 4464,
+      "y": 1124,
+      "label": true,
+      "src": "2026-10-06 兩段式暗缺陷新抓到，Addis 確認"
+    },
+    {
+      "ccd": "IP04",
+      "slice": 24,
+      "x": 4549,
+      "y": 3001,
+      "label": true,
+      "src": "2026-10-06 兩段式暗缺陷新抓到，Addis 確認"
+    },
+    {
+      "ccd": "IP04",
+      "slice": 25,
+      "x": 6996,
+      "y": 4996,
+      "label": true,
+      "src": "2026-10-06 兩段式暗缺陷新抓到，Addis 確認"
+    }
   ]
 }

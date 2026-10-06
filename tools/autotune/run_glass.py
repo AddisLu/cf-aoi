@@ -139,8 +139,12 @@ def one_ccd(args):
         res['error'] = '找不到晶片（沒有 pattern？）'
         return res
     work = os.path.join(out, 'run')
-    cd = sweep(ip, r, pi, search, ccd_dir, work, extra, 'dark', round(base['floor_dark'], 2), 0.40, 0.01, p_dark)
-    cb = sweep(ip, r, pi, search, ccd_dir, work, extra, 'bright', round(base['floor_bright'], 2), 2.5, 0.01, p_bright)
+    # 兩段式（--cascade-*）時第二段投票門檻可以比 DIV 雜訊底線鬆很多（實測 IP04 暗 0.834、亮 1.174）→ 從更鬆的地方開始掃
+    casc = any(a.startswith('--cascade') for a in extra)
+    d0 = 0.95 if casc else round(base['floor_dark'], 2)
+    b0 = 1.05 if casc else round(base['floor_bright'], 2)
+    cd = sweep(ip, r, pi, search, ccd_dir, work, extra, 'dark', d0, 0.40, 0.01, p_dark)
+    cb = sweep(ip, r, pi, search, ccd_dir, work, extra, 'bright', b0, 2.5, 0.01, p_bright)
     # 每顆晶片各自的門檻：一塊區域出問題（外圍被當晶片、髒污、真缺陷群）不會把整片拖鬆
     ths, plats, flags = [], [], []
     for i in range(len(r['chips'])):
@@ -167,6 +171,18 @@ def one_ccd(args):
     return res
 
 
+def score_truth(res, truth):
+    """候選 vs 真值（±4 px）：抓到的真缺陷、漏掉的真缺陷、又報出的已知誤判、新出現（未標）的候選。"""
+    tr = [t for t in truth if t['ccd'] == res['ccd']]
+    near = lambda a, b: a['slice'] == b['slice'] and abs(a['x'] - b['x']) <= 4 and abs(a['y'] - b['y']) <= 4
+    c = res.get('candidates') or []
+    hit = [t for t in tr if t['label'] and any(near(t, d) for d in c)]
+    miss = [t for t in tr if t['label'] and not any(near(t, d) for d in c)]
+    fp = [d for d in c if any(near(t, d) for t in tr if not t['label'])]
+    new = [d for d in c if not any(near(t, d) for t in tr)]
+    return {'tp': len(hit), 'n_true': sum(t['label'] for t in tr), 'miss': miss, 'known_fp': fp, 'new': new}
+
+
 def fmt_th(th):
     return '、'.join(f'{t["dark"]:.3f}/{t["bright"]:.3f}' for t in (th if isinstance(th, list) else [th]))
 
@@ -182,6 +198,7 @@ def main():
     ap.add_argument('--plateau-bright', type=int, default=5)
     ap.add_argument('--safety', type=float, default=0.03)
     ap.add_argument('--jobs', type=int, default=3)
+    ap.add_argument('--truth', default='', help='真值檔（tools/autotune/truth/*.json）→ 每台 TP/漏/已知誤判/新候選')
     a = ap.parse_args()
     dirs = sorted(d for d in glob.glob(os.path.join(a.glass, 'IP*')) if os.path.isdir(d))
     if a.ccds:
@@ -204,6 +221,20 @@ def main():
               f'{fmt_th(r["th"])} '
               f'{len(r["candidates"]):4d} {r["inspected_of_glass"]:7.2%}  亮度 {r.get("glass_brightness")}  ({r["sec"]}s)'
               + (f'  ⚠ {r["warning"]}' if r.get('warning') else ''))
+    if a.truth:
+        truth = json.load(open(a.truth))['defects']
+        tot = {'tp': 0, 'n_true': 0, 'fp': 0, 'new': 0}
+        print('真值對照（±4 px）：')
+        for r in results:
+            if 'candidates' not in r:
+                continue
+            sc = score_truth(r, truth)
+            r['truth'] = sc
+            tot['tp'] += sc['tp']; tot['n_true'] += sc['n_true']; tot['fp'] += len(sc['known_fp']); tot['new'] += len(sc['new'])
+            print(f'  {r["ccd"]}: 真缺陷 {sc["tp"]}/{sc["n_true"]}  已知誤判又報 {len(sc["known_fp"])}  新候選 {len(sc["new"])}'
+                  + (f'  漏 {[(t["slice"], t["x"], t["y"]) for t in sc["miss"]]}' if sc['miss'] else '')
+                  + (f'  新 {[(d["slice"], d["x"], d["y"], d["type"][5:], d["size"]) for d in sc["new"]][:6]}' if sc['new'] else ''))
+        print(f'  合計：真缺陷 {tot["tp"]}/{tot["n_true"]}、已知誤判又報 {tot["fp"]}、新候選 {tot["new"]}')
     json.dump(results, open(os.path.join(a.out, 'glass_summary.json'), 'w'), ensure_ascii=False, indent=1)
 
 
