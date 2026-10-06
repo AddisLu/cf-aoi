@@ -92,6 +92,8 @@ static float g_cascade_t1 = 0.0f;        // --cascade-bright <t1>（0 = 關）
 static float g_cascade_t1d = 0.0f;       // --cascade-dark <t1>（0 = 關）：暗門檻放鬆到 t1 粗篩 → 投票確認（門檻 = 配方 DTH）
 static int   g_cascade_pt = 1;           // --cascade-pitch-time（投票每方向看幾個 pitch）
 static int   g_cascade_choose = 7;       // --cascade-choose（8×PitchTime 路中至少幾路超標）
+static int   g_row_norm = 0;             // --row-norm 1：逐列亮度正規化（線掃光源閃爍 / 換張曝光跳動）
+static int   g_edge_fill_guard = -1;     // --edge-fill-guard N：補過的邊最外 N 列/欄不報（覆寫 ini；-1 = 用 ini）
 
 struct Args {
     std::string mode = "offline-file";
@@ -169,6 +171,7 @@ void usage(const char* prog) {
     "  --verify-deterministic  offline-file：每張圖每個 zone 跑兩次比對 bit-exact，不一致則 fail\n"
     "  --edge-fill <0|1>     補邊：zone 四周補往內平移 3 pitch 的 pattern，消掉 kernel 邊緣死區（覆寫 ini edge_fill）\n"
     "  --cascade-bright <t1> 兩段式亮缺陷（DIV zone）：亮門檻放低到 t1 粗篩，候選點小塊跑 DIV 投票確認（門檻 = 配方 BTH）\n"
+    "  --row-norm <0|1>      逐列亮度正規化：每列平均 ÷ 同相位鄰列（±1..3 pitch，位移自動對齊）中位數 → 校正閃爍/曝光跳動列\n"
     "  --cascade-dark <t1>   兩段式暗缺陷：暗門檻放鬆到 t1 粗篩，候選小塊投票確認（門檻 = 配方 DTH）\n"
     "  --cascade-pitch-time <n> / --cascade-choose <n>  第二段投票參數（預設 1 / 7）\n"
     "  --mode bench           量純 GPU process_image 速度：一張圖重複跑，報 gpu_ms/wall_ms 統計\n"
@@ -202,6 +205,8 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--edge-fill") g_edge_fill_override = std::stoi(next("--edge-fill"));
         else if (k == "--cascade-bright") g_cascade_t1 = std::stof(next("--cascade-bright"));
         else if (k == "--cascade-dark") g_cascade_t1d = std::stof(next("--cascade-dark"));
+        else if (k == "--row-norm") g_row_norm = std::stoi(next("--row-norm"));
+        else if (k == "--edge-fill-guard") g_edge_fill_guard = std::stoi(next("--edge-fill-guard"));
         else if (k == "--cascade-pitch-time") g_cascade_pt = std::stoi(next("--cascade-pitch-time"));
         else if (k == "--cascade-choose") g_cascade_choose = std::stoi(next("--cascade-choose"));
         else if (k == "--input") a.input = next("--input");
@@ -518,6 +523,40 @@ void apply_edge_check_slice(const EdgeCheckConfig& cfg, const cv::Mat& gray,
     }
 }
 
+// 逐列亮度正規化（前處理）：線掃每一列是不同時間拍的，光源閃爍 / 換張曝光不穩會讓整列偏亮偏暗
+// （實測 T550 IP05 #4 底部幾列亮度 112，正常 pattern 最亮 ≈ 94 → 兩段式在旁邊報出成排假暗點）。
+// 每列平均 ÷ 同相位鄰列（±k·pitch_y，k=1..3）平均的中位數 = 該列增益；pitch_y 非整數（18.41）→ 每個 k 的位移
+// 在 k·pitch_y ±2 內找與整張列剖面最吻合的整數（同 best_shift 想法）。增益夾在 0.7–1.4（防 pattern 結構被誤校）。
+void row_normalize(cv::Mat& img, int pitch_y) {
+    const int H = img.rows;
+    std::vector<double> rm(H);
+    for (int r = 0; r < H; ++r) rm[r] = cv::mean(img.row(r))[0];
+    int sh[3];
+    for (int k = 1; k <= 3; ++k) {
+        int best = k * pitch_y; double bd = 1e18;
+        for (int s = k * pitch_y - 2; s <= k * pitch_y + 2; ++s) {
+            if (s <= 0 || s >= H) continue;
+            double d = 0; for (int r = 0; r + s < H; ++r) d += std::abs(rm[r] - rm[r + s]);
+            d /= (H - s);
+            if (d < bd) { bd = d; best = s; }
+        }
+        sh[k - 1] = best;
+    }
+    std::vector<double> nb;
+    for (int r = 0; r < H; ++r) {
+        nb.clear();
+        for (int k = 0; k < 3; ++k) {
+            if (r - sh[k] >= 0) nb.push_back(rm[r - sh[k]]);
+            if (r + sh[k] < H) nb.push_back(rm[r + sh[k]]);
+        }
+        if (nb.size() < 2 || rm[r] <= 1.0) continue;
+        std::nth_element(nb.begin(), nb.begin() + nb.size() / 2, nb.end());
+        const double g = std::clamp(rm[r] / std::max(1e-3, nb[nb.size() / 2]), 0.7, 1.4);
+        if (std::abs(g - 1.0) < 0.01) continue;                      // 1% 以內不動（省時間、保 bit 不變）
+        img.row(r).convertTo(img.row(r), CV_8U, 1.0 / g);
+    }
+}
+
 // 兩段式第二段：dr 內「要確認」的那一極（亮 and/or 暗）的缺陷 = 第一段 DIV 用放鬆門檻抓的候選
 // → 每顆切 (2·(mx+c)) × (2·(my+c)) 小塊拼成拼圖 → DIV 投票（mode 2）跑一次 → 拼圖裡核心 ±c 內有同極票的候選才留下。
 // 不確認的那一極原樣保留。小塊邊界 = 投票 kernel 死區（pitch×PitchTime + search + 1）+ 3×3 SAD 多 1。
@@ -592,7 +631,8 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         cv::Rect r = zone_rect(z, gray.cols, gray.rows, y_off);
         if (r.empty()) continue;                           // panel 座標：此 zone 不在本張
         cv::Mat sub = gray(r);
-        cv::Mat sub_cont = sub.isContinuous() ? sub : sub.clone();
+        cv::Mat sub_cont = (sub.isContinuous() && !g_row_norm) ? sub : sub.clone();   // 正規化要改像素 → 複製
+        if (g_row_norm) row_normalize(sub_cont, z.pitch_y);
 
         // 補邊：死區寬 = kernel margin（2×pitch + search），平移 3 pitch（見 periodic_pad）
         const int ef = g_edge_fill_override >= 0 ? g_edge_fill_override : z.edge_fill;
@@ -628,12 +668,12 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
         if (cascade) dr.process_time_ms += cascade_verify(pipe, dr, sub_cont, zc, vb, vd);
         const bool padded = pad.l || pad.r || pad.t || pad.b;
-        if (padded) unpad_result(dr, pad, z.edge_fill_guard, zw, zh);
+        if (padded) unpad_result(dr, pad, g_edge_fill_guard >= 0 ? g_edge_fill_guard : z.edge_fill_guard, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
             if (cascade) cascade_verify(pipe, dr2, sub_cont, zc, vb, vd);
-            if (padded) unpad_result(dr2, pad, z.edge_fill_guard, zw, zh);
+            if (padded) unpad_result(dr2, pad, g_edge_fill_guard >= 0 ? g_edge_fill_guard : z.edge_fill_guard, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {
                 verify_failed = true;
@@ -670,7 +710,7 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zr.zone = z;
         zr.zone.edge_fill = 0;   // DeathMargin 顯示：補過的邊 = 0、沒補的邊（晶片邊）照常
         zr.pad_l = pad.l ? 1 : 0; zr.pad_r = pad.r ? 1 : 0; zr.pad_t = pad.t ? 1 : 0; zr.pad_b = pad.b ? 1 : 0;
-        zr.pad_guard = z.edge_fill_guard;
+        zr.pad_guard = g_edge_fill_guard >= 0 ? g_edge_fill_guard : z.edge_fill_guard;
         zr.result = std::move(dr);
         agg.total_time_ms += zr.result.process_time_ms;
         agg.zones.push_back(std::move(zr));
