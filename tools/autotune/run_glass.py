@@ -52,6 +52,13 @@ def per_chip(defs, chips, h):
     return n
 
 
+def budgets(chips, p):
+    """雜訊配額：整台 CCD 共 p 顆，依面積分給各段（舊版每段 p 顆 → 分段後一台最多 10×p 顆雜訊）。"""
+    a = [(c['x1'] - c['x0']) * (c['y1'] - c['y0']) for c in chips]
+    tot = float(sum(a)) or 1.0
+    return [max(1, int(round(p * x / tot))) for x in a]
+
+
 def sweep(ip, r, pi, search, strip, out, extra, polarity, start, stop, step, p):
     """每顆晶片各自的檢出數曲線：[(門檻, [n_chip...])]；所有晶片都 ≤ p 或到底就停。
     暗：亮門檻關（9.0）、亮：暗門檻關（0.01）。"""
@@ -62,7 +69,7 @@ def sweep(ip, r, pi, search, strip, out, extra, polarity, start, stop, step, p):
         d, _ = count(ip, r, pi, search, th, strip, out, extra)
         n = per_chip(d, r['chips'], h)
         curve.append((round(t, 4), n))
-        if all(v <= p for v in n):
+        if all(v <= q for v, q in zip(n, budgets(r['chips'], p))):
             break
         t = t - step if polarity == 'dark' else t + step
     return curve
@@ -147,8 +154,9 @@ def one_ccd(args):
     cb = sweep(ip, r, pi, search, ccd_dir, work, extra, 'bright', b0, 2.5, 0.01, p_bright)
     # 每顆晶片各自的門檻：一塊區域出問題（外圍被當晶片、髒污、真缺陷群）不會把整片拖鬆
     ths, plats, flags = [], [], []
+    bd, bb = budgets(r['chips'], p_dark), budgets(r['chips'], p_bright)
     for i in range(len(r['chips'])):
-        (td, okd), (tb, okb) = plateau(cd, i, p_dark), plateau(cb, i, p_bright)
+        (td, okd), (tb, okb) = plateau(cd, i, bd[i]), plateau(cb, i, bb[i])
         plats.append([td, tb])
         ths.append({'dark': round(td * (1 - safety), 3), 'bright': round(tb * (1 + safety), 3)})
         flags.append([] if okd and okb else ['雜訊壓不住'])
