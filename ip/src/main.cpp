@@ -93,6 +93,7 @@ static float g_cascade_t1d = 0.0f;       // --cascade-dark <t1>（0 = 關）：�
 static int   g_cascade_pt = 1;           // --cascade-pitch-time（投票每方向看幾個 pitch）
 static int   g_cascade_choose = 7;       // --cascade-choose（8×PitchTime 路中至少幾路超標）
 static int   g_row_norm = 0;             // --row-norm 1：逐列亮度正規化（線掃光源閃爍 / 換張曝光跳動）
+static int   g_edge_fill_guard = -1;     // --edge-fill-guard N：補過的邊最外 N 列/欄不報（覆寫 ini；-1 = 用 ini）
 
 struct Args {
     std::string mode = "offline-file";
@@ -205,6 +206,7 @@ bool parse_args(int argc, char** argv, Args& a) {
         else if (k == "--cascade-bright") g_cascade_t1 = std::stof(next("--cascade-bright"));
         else if (k == "--cascade-dark") g_cascade_t1d = std::stof(next("--cascade-dark"));
         else if (k == "--row-norm") g_row_norm = std::stoi(next("--row-norm"));
+        else if (k == "--edge-fill-guard") g_edge_fill_guard = std::stoi(next("--edge-fill-guard"));
         else if (k == "--cascade-pitch-time") g_cascade_pt = std::stoi(next("--cascade-pitch-time"));
         else if (k == "--cascade-choose") g_cascade_choose = std::stoi(next("--cascade-choose"));
         else if (k == "--input") a.input = next("--input");
@@ -666,12 +668,12 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         DetectionResult dr = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
         if (cascade) dr.process_time_ms += cascade_verify(pipe, dr, sub_cont, zc, vb, vd);
         const bool padded = pad.l || pad.r || pad.t || pad.b;
-        if (padded) unpad_result(dr, pad, z.edge_fill_guard, zw, zh);
+        if (padded) unpad_result(dr, pad, g_edge_fill_guard >= 0 ? g_edge_fill_guard : z.edge_fill_guard, zw, zh);
 
         if (verify) {
             DetectionResult dr2 = pipe.process_frame(sub_cont.data, sub_cont.cols, sub_cont.rows, zc);
             if (cascade) cascade_verify(pipe, dr2, sub_cont, zc, vb, vd);
-            if (padded) unpad_result(dr2, pad, z.edge_fill_guard, zw, zh);
+            if (padded) unpad_result(dr2, pad, g_edge_fill_guard >= 0 ? g_edge_fill_guard : z.edge_fill_guard, zw, zh);
             std::string diff = first_determinism_diff(dr, dr2);
             if (!diff.empty()) {
                 verify_failed = true;
@@ -708,7 +710,7 @@ InspectionResult process_image(GpuPipeline& pipe, const std::vector<ZoneConfig>&
         zr.zone = z;
         zr.zone.edge_fill = 0;   // DeathMargin 顯示：補過的邊 = 0、沒補的邊（晶片邊）照常
         zr.pad_l = pad.l ? 1 : 0; zr.pad_r = pad.r ? 1 : 0; zr.pad_t = pad.t ? 1 : 0; zr.pad_b = pad.b ? 1 : 0;
-        zr.pad_guard = z.edge_fill_guard;
+        zr.pad_guard = g_edge_fill_guard >= 0 ? g_edge_fill_guard : z.edge_fill_guard;
         zr.result = std::move(dr);
         agg.total_time_ms += zr.result.process_time_ms;
         agg.zones.push_back(std::move(zr));

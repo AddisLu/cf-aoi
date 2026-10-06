@@ -59,27 +59,35 @@ def budgets(chips, p):
     return [max(1, int(round(p * x / tot))) for x in a]
 
 
+FLAT_MAX = 8        # 檢出數 ≤ 此值且連續 3 個門檻不變 = 平台（剩下的是真缺陷，不再往鬆壓）
+
+
 def sweep(ip, r, pi, search, strip, out, extra, polarity, start, stop, step, p):
-    """每顆晶片各自的檢出數曲線：[(門檻, [n_chip...])]；所有晶片都 ≤ p 或到底就停。
+    """每段的檢出數曲線：[(門檻, [n...])]。所有段都「≤ 配額」或「≤ FLAT_MAX 且已連續 3 點不變」就停。
     暗：亮門檻關（9.0）、亮：暗門檻關（0.01）。"""
     curve, h = [], r['slice_h']
+    bud = budgets(r['chips'], p)
     t = start
     while (t >= stop) if polarity == 'dark' else (t <= stop):
         th = {'dark': round(t, 4), 'bright': 9.0} if polarity == 'dark' else {'dark': 0.01, 'bright': round(t, 4)}
         d, _ = count(ip, r, pi, search, th, strip, out, extra)
-        n = per_chip(d, r['chips'], h)
-        curve.append((round(t, 4), n))
-        if all(v <= q for v, q in zip(n, budgets(r['chips'], p))):
+        curve.append((round(t, 4), per_chip(d, r['chips'], h)))
+        if all(plateau(curve, i, bud[i], final=False)[1] for i in range(len(r['chips']))):
             break
         t = t - step if polarity == 'dark' else t + step
     return curve
 
 
-def plateau(curve, i, p):
-    """第 i 顆晶片：第一個檢出數 ≤ p 的門檻（由敏感往鬆走）；到底都沒壓住 → (最後門檻, False)。"""
-    for t, n in curve:
-        if n[i] <= p:
-            return t, True
+def plateau(curve, i, p, final=True):
+    """第 i 段的門檻（由敏感往鬆）：第一個「檢出 ≤ p」或「檢出 ≤ FLAT_MAX 且和後兩個門檻一樣」的點。
+    舊版只看 ≤ p：真缺陷也佔名額 → 配額小的段門檻被推鬆到連真缺陷都消失（實測 8 台真缺陷 9/10 → 4/10）。
+    回傳 (門檻, 是否壓住)；final=False 時只回報「現在能不能停」。"""
+    n = [c[1][i] for c in curve]
+    for k, v in enumerate(n):
+        if v <= p:
+            return curve[k][0], True
+        if v <= FLAT_MAX and k + 2 < len(n) and n[k + 1] == v and n[k + 2] == v:
+            return curve[k][0], True
     return curve[-1][0], False
 
 
