@@ -16,5 +16,6 @@
 
 - 為什麼：影片編碼（VP9/H.264），~100 ms 延遲下比 VNC 順；開源免費、不需帳號。NoMachine 10 Personal Edition 要訂閱 → 已移除。
 - 設定：IP 直連（direct-server，port 21118，不經 RustDesk 公用伺服器 → fab 無外網可用）、固定密碼、輸入密碼即可（不需有人在螢幕前按接受）。
+- ⚠️ 「No Displays」：NVIDIA 輸出全 disconnected → RandR 0 台螢幕 → `scripts/deploy/setup_virtual_monitor.sh`（登入時宣告虛擬螢幕，有實體螢幕就不加）。
 - ⚠️ 不能直接改 `RustDesk2.toml`（服務會寫回蓋掉）→ 用 `sudo rustdesk --option <key> <value>`。
 - 腳本：`scripts/deploy/setup_rustdesk.sh`（安裝檔放 /tmp/rustdesk.deb：github.com/rustdesk/rustdesk releases，aarch64.deb，核對 SHA-256）。
