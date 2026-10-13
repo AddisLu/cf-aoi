@@ -4,7 +4,7 @@
 |---|---|---|---|
 | **本機螢幕上那個桌面，隔著網路也順（建議）**| **RustDesk** 客戶端（Mac：`brew install --cask rustdesk`）→ ID 欄直接輸入 IP | spark-02：`100.104.224.17`（fab：`192.168.3.1`）；spark-03：`100.96.175.96` | RustDesk 連線密碼（安裝時自訂）|
 | **本機螢幕上那個桌面**（與本機同步，本機開的軟體都看得到）| Mac：Finder ⌘K / 螢幕共享 → `vnc://<主機>`；Windows App / mstsc：連 RDP → Session 選 **Local Desktop (same as monitor)** | spark-02：`spark-3961.tailffdb68.ts.net`（fab：`192.168.3.1`）；spark-03：`spark-010f.tailffdb68.ts.net` | VNC 密碼（各台設定時自訂）|
-| 另開一個獨立遠端桌面（XFCE，斷線後保留）| Windows App / mstsc → Session 選 **Xorg**；或 `spark-02.rdp` / `spark-03.rdp` | 同上，port 3389 | 系統帳號 spark-02 / spark-03 |
+| ~~另開一個獨立遠端桌面（xrdp XFCE）~~ | **2026-10-13 已停用**（`systemctl disable --now xrdp xrdp-sesman`）：xrdp 的登入紀錄帶顯示編號、GNOME 自動登入的沒有 → RustDesk 會優先接到 xrdp 的 XFCE（「老鼠」桌面）| — | — |
 
 - 本機桌面：spark-02 = 接著的螢幕（GNOME，X11 `:1`）；spark-03 沒接螢幕 → GDM 自動登入 + 虛擬 1920×1080（`:0`）。
   GNOME 閒置會鎖定 → 用系統密碼解鎖。
@@ -19,3 +19,10 @@
 - ⚠️ 「No Displays」：NVIDIA 輸出全 disconnected → RandR 0 台螢幕 → `scripts/deploy/setup_virtual_monitor.sh`（登入時宣告虛擬螢幕，有實體螢幕就不加）。
 - ⚠️ 不能直接改 `RustDesk2.toml`（服務會寫回蓋掉）→ 用 `sudo rustdesk --option <key> <value>`。
 - 腳本：`scripts/deploy/setup_rustdesk.sh`（安裝檔放 /tmp/rustdesk.deb：github.com/rustdesk/rustdesk releases，aarch64.deb，核對 SHA-256）。
+
+## 2026-10-13 最終狀態（spark-02 / spark-03 相同）
+
+- RustDesk（主要）：IP 直連 21118、固定密碼、免按接受；分享本機 GNOME 桌面（`:0`）。
+- 本機桌面：GDM 自動登入 + NVIDIA 虛擬螢幕（`setup_nvidia_virtual_display.sh`，EDID 預設 1440×900，可切 1280×800 / 1680×1050 / 1920×1080）、
+  不閒置鎖定、文字 1.25×。
+- 備用：x11vnc 5900（本機桌面）。xrdp 已停用。
