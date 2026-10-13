@@ -1,0 +1,25 @@
+#!/bin/bash
+# cfaoi-remote — 從 Grab 一鍵開 Spark 的遠端桌面（RustDesk IP 直連 21118）
+# 用法：cfaoi-remote spark-02 | spark-03
+# 位址依序試（fab 內網優先、實驗室 Tailscale 次之），第一個連得到的就用；改位址只改 /etc/cfaoi/remote_hosts.conf
+# 設定檔格式：<名稱> <位址1> [位址2 ...]
+NAME="${1:?用法：cfaoi-remote spark-02|spark-03}"
+CONF=/etc/cfaoi/remote_hosts.conf
+[ -r "$CONF" ] || CONF="$HOME/.config/cfaoi/remote_hosts.conf"
+if [ -r "$CONF" ]; then
+  ADDRS=$(awk -v n="$NAME" '$1 == n { for (i = 2; i <= NF; i++) print $i }' "$CONF")
+fi
+if [ -z "$ADDRS" ]; then
+  case "$NAME" in
+    spark-02) ADDRS="192.168.3.1 100.104.224.17" ;;                 # 上排 IP：Grab RDMA 直連、Tailscale
+    spark-03) ADDRS="192.168.10.12 192.168.177.13 100.96.175.96" ;; # 下排 IP：控制網（規劃）、經 spark-02、Tailscale
+  esac
+fi
+for a in $ADDRS; do
+  if timeout 1 bash -c "</dev/tcp/$a/21118" 2>/dev/null; then
+    exec rustdesk --connect "$a"
+  fi
+done
+MSG="連不到 $NAME 的遠端桌面（試過：$(echo $ADDRS)）。\n請確認 $NAME 已開機、網路線有接好；仍不行請通知工程。"
+if command -v zenity >/dev/null; then zenity --error --title="遠端桌面" --text="$MSG" --width=420; else notify-send "遠端桌面" "$MSG"; fi
+exit 1
