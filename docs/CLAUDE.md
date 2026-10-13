@@ -59,7 +59,8 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 | | 板載 `enp4s0`/`enp5s0` | 未用 | — | — |
 | **Spark 上排**（spark-02，`spark-3961`）| port0 `enp1s0f0np0`（`cf-rdma`）| 192.168.3.1/24 + 回程路由 192.168.10.0/24 via 192.168.3.2 | Grab f0 | **固定** |
 | | port1 `enp1s0f1np1` / `enP2p1s0f1np1` | 177.x / 178.x | spark-03（Spark↔Spark，Loop 雙機）| **固定** |
-| **Spark 下排**（spark-03，`spark-010f`）| port0 | 下排 RDMA（待定，建議 .12 控制網，見下方陣列）| 下排 Grab | **固定** |
+| **Spark 下排**（spark-03，`spark-010f`）| RJ45 `enP7s7`（NM `cf-ctrl`）| **192.168.10.12/24**，不設閘道（2026-10-13 已設定；**fab 接線：經控制網交換器**接 Control/Grab，目前未接）| 控制網交換器 | 交換器任一埠 |
+| | port0 | 下排 RDMA（待定）| 下排 Grab | **固定** |
 | | port1 | 177.x / 178.x | spark-02 | **固定** |
 | **相機** CCD01–CCD37（raL8192）| — | 192.168.5.**nn**（nn = CCD 編號，存在相機內）| 交換機任一 1G 埠 | **不固定**（身分存在相機本身）|
 | 交換機 console | USB `/dev/ttyUSB0` | 9600 8N1 | 5945 aux | — |

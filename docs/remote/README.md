@@ -26,3 +26,13 @@
 - 本機桌面：GDM 自動登入 + NVIDIA 虛擬螢幕（`setup_nvidia_virtual_display.sh`，EDID 預設 1440×900，可切 1280×800 / 1680×1050 / 1920×1080）、
   不閒置鎖定、文字 1.25×。
 - 備用：x11vnc 5900（本機桌面）。xrdp 已停用。
+
+## Grab 桌面一鍵連線（2026-10-13）
+
+- Grab 已裝 RustDesk 1.5.0（僅客戶端，服務停用）；桌面圖示「spark-02 / spark-03 遠端桌面」→ `tools/remote/cfaoi-remote`，
+  依序試位址、第一個通的就連（`/etc/cfaoi/remote_hosts.conf` 可覆寫）：
+  - spark-02：`192.168.3.1`（Grab 直連，fab 可用）→ `100.104.224.17`（Tailscale）
+  - spark-03：`192.168.10.12`（控制網，**需 fab 接線：控制網交換器**）→ `192.168.177.13` → `100.96.175.96`（Tailscale）
+- 第一次連線輸入 RustDesk 密碼並勾「記住密碼」，之後人員雙擊直接連。
+- spark-03 控制網：`scripts/deploy/setup_ctrl_net.sh 192.168.10.12/24 enP7s7`（已設定）；兩台的預設「有線連線 N」DHCP 已關自動連線
+  （原本在沒 DHCP 的網口反覆失敗 → 一直跳「啟動網路連線失敗」）。
