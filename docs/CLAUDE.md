@@ -41,7 +41,11 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
     → RDMA libibverbs →
 ```
 
-### 實機網路與 IP 配置（2026-10-05 定案，上方陣列；fab 內無網路）
+### 實機網路與 IP 配置（2026-10-05 定案、**2026-10-13 換 Spark**；fab 內無網路）
+
+> **2026-10-13 Addis**：機台用 **spark-02（Tailscale `spark-3961`）= 上排 37 CCD 的 IP**、**spark-03（`spark-010f`）= 下排 18 CCD 的 IP**，
+> 兩台以 port1 互連（Loop 雙機大模型）。**spark-c16f 移往公司內網，不再是機台一部分**（舊驗證/模型都在它上面，部署到 spark-02/03 前勿刪）。
+> ⚠️ spark-02 與 spark-03 的 SSH 主機金鑰相同（同一映像複製）→ 進 fab 前各自重新產生。
 
 > **Tailscale 只是開發期遠端用**（`*.tailffdb68.ts.net`），fab 內不存在 → 產線設定一律用下表的 IP。
 > 細節與實測：STATUS「截取中心移機 + 6 相機全鏈」、[grab_machine_migration.md](grab_machine_migration.md)。
@@ -53,8 +57,10 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 | | ConnectX-5 f0 `enp1s0f0np0`（MAC …:CC:18）| 192.168.3.2/24，MTU 9000 | Spark port0 DAC 直連（RDMA）| **固定**（bootstrap 以 MAC 認卡）|
 | | ConnectX-5 f1 `enp1s0f1np1`（MAC …:CC:19）| 192.168.5.200/24、169.254.0.200/16、192.168.4.2/24，MTU 9000 | 交換機 100G 埠（現 5945 `HGE1/0/25`）| 交換機端任一 100G 埠皆可 |
 | | 板載 `enp4s0`/`enp5s0` | 未用 | — | — |
-| **Spark**（`spark-c16f`，上方 IP）| port0 `enp1s0f0np0`（`cf-rdma`）| 192.168.3.1/24 + 回程路由 192.168.10.0/24 via 192.168.3.2 | Grab f0 | **固定** |
-| | port1 `enp1s0f1np1` / `enP2p1s0f1np1` | 192.168.177.11 / 178.11 | spark-3961（Spark↔Spark）| **固定** |
+| **Spark 上排**（spark-02，`spark-3961`）| port0 `enp1s0f0np0`（`cf-rdma`）| 192.168.3.1/24 + 回程路由 192.168.10.0/24 via 192.168.3.2 | Grab f0 | **固定** |
+| | port1 `enp1s0f1np1` / `enP2p1s0f1np1` | 177.x / 178.x | spark-03（Spark↔Spark，Loop 雙機）| **固定** |
+| **Spark 下排**（spark-03，`spark-010f`）| port0 | 下排 RDMA（待定，建議 .12 控制網，見下方陣列）| 下排 Grab | **固定** |
+| | port1 | 177.x / 178.x | spark-02 | **固定** |
 | **相機** CCD01–CCD37（raL8192）| — | 192.168.5.**nn**（nn = CCD 編號，存在相機內）| 交換機任一 1G 埠 | **不固定**（身分存在相機本身）|
 | 交換機 console | USB `/dev/ttyUSB0` | 9600 8N1 | 5945 aux | — |
 
@@ -435,7 +441,9 @@ static_assert(sizeof(FrameHeader)==256,"");
 | 機器 | 角色 | SSH host（Tailscale）| repo 路徑 |
 |------|------|----------------------|-----------|
 | **MacBook Air** | 唯一作者（edit/commit/push）| —（本機）| `/Users/yourulyu/coding/cf-aoi` |
-| **Spark**（DGX Spark GB10）| IP 生產 / GPU 驗證 | `spark-c16f.tailffdb68.ts.net` | `/home/auo001/Addis/cf-aoi` |
+| **Spark 上排**（spark-02，DGX Spark GB10）| 上排 37 CCD IP 生產 / Loop | `spark-3961.tailffdb68.ts.net`；Grab 直連 `192.168.3.1` | 待部署（2026-10-13）|
+| **Spark 下排**（spark-03，DGX Spark GB10）| 下排 18 CCD IP 生產 / Loop 第二台 | `spark-010f.tailffdb68.ts.net` | 待部署 |
+| ~~spark-c16f~~ | 2026-10-13 起移往公司內網（不再是機台）；舊驗證/模型來源 | `spark-c16f.tailffdb68.ts.net` | `/home/auo001/Addis/cf-aoi` |
 | **damac**（截取中心 Ryzen+ConnectX-5）| Grab 取像 / 相機 | `damac.tailffdb68.ts.net` | `/home/damac/Addis/cf-aoi` |
 | **RTX2080**（家中開發機 · RTX 2080 SUPER · x86）| IP off-line 演算法驗證（無相機/RDMA/陣列）| `addis-b850m-ds3h.tailffdb68.ts.net`（user `addis`）| `/home/addis/cf-aoi` |
 
