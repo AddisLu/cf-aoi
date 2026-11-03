@@ -70,4 +70,48 @@ make -j4
 
 ---
 
+## upstream_tester（上位機對測）
+
+**用途**：在 Grab 桌面扮演**上位機 Controller（client）**，連 Control 的 `UpstreamServer`（8787）送 `CF_` 命令，
+跟 Control 對測交握。依據 `L8A CF IP Control Handshake Spec_20240704.xlsx` 與 `20250217_CF_AOI_IP_說明.pptx`
+（CF Command Flow）。只用 Python 標準函式庫，Grab 不需另裝套件；介面是本機網頁（同 cam_align）。
+
+### 安裝桌面圖示（Grab，免 sudo）
+
+```bash
+bash tools/upstream_tester/install_desktop_icon.sh
+```
+
+雙擊「上位機對測（CF_ 協議）」→ 瀏覽器開 `http://127.0.0.1:8790/`。預設目標 `192.168.10.1:8787`（控制網 Control），畫面上可改。
+
+### 功能
+
+- **一鍵流程**：`CF_LOAD_RECIPE → CF_GRAB_START → CF_CHECK_ALIGN → CF_SET_ALIGN → CF_GET_RESULT`，
+  `SET_ALIGN` 自動帶入 `CHECK_ALIGN` 回的 Shift；可設步驟間隔、遇錯即停。
+- **單一命令**：各命令參數可填（Recipe / PanelID / Time / DetectMode…），另有 `CF_READY`、`CF_STOP`（Control 擴充）與自訂原始字串。
+- **規格檢查**：每筆回應檢查欄位數（Result + Param1..9）、OK/Error、失敗時 Param9 Error Msg、
+  CHECK_ALIGN Shift 位置、GET_RESULT 檔案數與 DefectCnt 數是否一致；不符標 ⚠（不擋送出）。
+- **紀錄檔**：`~/cfaoi_upstream_tester/logs/YYYYMMDD.log`（含每條延遲 ms，可附給對方）。
+
+### Headless / SSH
+
+```bash
+python3 tools/upstream_tester/upstream_tester.py --host 192.168.10.1 --flow --recipe R1 --panel P001
+python3 tools/upstream_tester/upstream_tester.py --send "CF_READY"
+python3 tools/upstream_tester/test_upstream_tester.py      # 工具自測（假 Control，不需網路）
+```
+
+### ⚠ 規格 20240704 與 Control 現行實作的差異（對測時會看到 ⚠）
+
+| 項目 | 規格表 | Control `UpstreamServer.cs` |
+|------|--------|-----------------------------|
+| CF_CHECK_ALIGN 回應 | Param1=ShiftX、Param2=ShiftY | Param1=`Cs_AlignSet`、Param2=ShiftX、Param3=ShiftY |
+| CF_SET_ALIGN 請求 | Param1=ShiftX、Param2=ShiftY | 讀 Param2/Param3（Param1 當 result） |
+| 失敗 Result 字串 | `OK/Error` | `ERR` |
+| CF_GRAB_START | 無參數 | 可帶 Param1=timeoutMs（空=40000） |
+
+SET_ALIGN 在畫面上可切「規格」/「Control 現行」兩種格式送。差異要以真上位機為準，再決定改哪一邊。
+
+---
+
 *未來其他小工具也記在這裡。*
