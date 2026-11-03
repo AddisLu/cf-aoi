@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上位機對測（CF_ 協議）</title>
+<style>
+:root{--bg:#f3f4f6;--card:#fff;--fg:#1d2330;--mut:#667085;--line:#d8dce3;--ok:#12803c;--err:#c0261a;--warn:#a15c00;--acc:#1f5fbf;--acc2:#e8f0fc}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 "Noto Sans CJK TC","Noto Sans TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--fg)}
+header{background:#1d2330;color:#fff;padding:8px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+header h1{font-size:16px;margin:0}
+.seg{display:inline-flex;border:1px solid #4a5468;border-radius:6px;overflow:hidden}
+.seg button{background:transparent;border:0;color:#cfd6e4;padding:5px 10px;border-radius:0}
+.seg button.on{background:#3b6fd8;color:#fff}
+#conn{display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex:1;min-width:280px}
+#dot{width:16px;height:16px;border-radius:50%;background:#888;box-shadow:0 0 0 3px rgba(255,255,255,.12);flex:none}
+#dot.green{background:#2ecc71}#dot.red{background:#ff4d4f}#dot.gray{background:#8a93a3}
+#dot.yellow{background:#f5b700;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.35}}
+#ctext{font-weight:bold;font-size:15px}
+#cdetail{color:#b9c2d3;font-size:12px}
+main{display:grid;grid-template-columns:470px minmax(0,1fr);gap:10px;padding:10px;height:calc(100vh - 50px)}
+@media(max-width:1000px){main{grid-template-columns:1fr;height:auto}}
+#left{display:flex;flex-direction:column;min-height:0}
+.tabs{display:flex;gap:2px}
+.tabs button{flex:1;border:1px solid var(--line);border-bottom:0;background:#e6e9ef;color:var(--fg);border-radius:6px 6px 0 0;padding:7px 4px}
+.tabs button.on{background:var(--card);font-weight:bold;color:var(--acc)}
+.pane{background:var(--card);border:1px solid var(--line);border-radius:0 0 8px 8px;padding:10px;overflow:auto;flex:1;min-height:0}
+#right{display:flex;flex-direction:column;gap:10px;min-height:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.card h2{font-size:14px;margin:0}
+.bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.bar .grow{flex:1}
+.row{display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap}
+label.l{color:var(--mut);font-size:12px;width:96px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+input,select,textarea{font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:4px;min-width:0;background:#fff;color:var(--fg)}
+input.g{flex:1}input.mono,.mono{font-family:"DejaVu Sans Mono",Consolas,monospace}
+button{font:inherit;padding:4px 10px;border-radius:4px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer;white-space:nowrap}
+button.s{background:#fff;color:var(--acc)}button.d{background:#fff;color:var(--err);border-color:var(--err)}
+button:disabled{opacity:.4;cursor:default}
+.cmd{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:8px}
+.cmd .hd{display:flex;gap:6px;align-items:center}
+.cmd .nm{font-family:monospace;font-weight:bold;flex:1}
+.badge{font-size:11px;padding:1px 6px;border-radius:8px;background:var(--acc2);color:var(--acc)}
+.badge.x{background:#fff2e0;color:var(--warn)}
+.note{color:var(--mut);font-size:12px}
+.preview{font:12px monospace;color:#344;background:#f6f8fa;border-radius:4px;padding:3px 6px;margin-top:4px;word-break:break-all}
+.link{color:var(--acc);cursor:pointer;font-size:12px;text-decoration:underline}
+.steps{list-style:none;padding:0;margin:6px 0}
+.steps li{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:4px;padding:3px 6px;margin:3px 0;font-family:monospace}
+.steps li.cur{background:#fff7d6;border-color:#f5b700}
+.steps li span{flex:1}
+.steps button{padding:0 7px}
+/* 參數監控 */
+#moncard{flex:0 0 auto;max-height:46%;display:flex;flex-direction:column;min-height:120px}
+#monwrap{overflow:auto;min-height:0}
+table.mon{border-collapse:collapse;width:100%;font-size:12px}
+table.mon th{position:sticky;top:0;background:#eef1f6;font-weight:600;text-align:left;padding:3px 5px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.mon td{padding:3px 5px;border-bottom:1px solid #eceff3;vertical-align:top;font-family:monospace;max-width:220px;word-break:break-all}
+table.mon td small{display:block;color:var(--mut);font-family:sans-serif;font-size:10px}
+table.mon tr.req td{background:#f7faff}
+table.mon td.cmdc{font-weight:bold;background:#fff!important;border-right:1px solid var(--line)}
+td.okc{color:var(--ok);font-weight:bold}td.badc{color:var(--err);font-weight:bold}
+td.chg{animation:chg 3s ease-out}
+@keyframes chg{0%{background:#ffe066}100%{background:transparent}}
+td .w{color:var(--warn)}
+/* Log */
+#logcard{flex:1;display:flex;flex-direction:column;min-height:220px}
+#log{flex:1;overflow:auto;background:#0f1420;color:#d6dbe6;border-radius:6px;padding:6px 8px;font:12.5px/1.5 "DejaVu Sans Mono",Consolas,monospace;min-height:160px}
+.e{white-space:pre-wrap;word-break:break-all}
+.tx{color:#7fb2ff}.rx{color:#7ee2a0}.rx.bad{color:#ff8a80}.info{color:#9aa4b5}.error{color:#ff8a80}.warn{color:#ffcc66}
+.chk{padding-left:2.5em}.chk.ok{color:#7ee2a0}.chk.warn{color:#ffcc66}
+.fl{padding-left:2.5em;color:#8f99ab}
+.cnt{font-size:12px;color:var(--mut)}
+#toast{position:fixed;right:16px;bottom:16px;max-width:460px;padding:10px 14px;border-radius:6px;background:#1d2330;color:#fff;display:none;z-index:9;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+#toast.bad{background:var(--err)}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1>上位機對測（CF_ 協議）</h1>
+  <div class="seg" title="切換模式">
+    <button id="m_client" onclick="setMode('client')">Client：扮演上位機 → Control</button>
+    <button id="m_server" onclick="setMode('server')">Server：扮演 AOI 端 ← 上位機</button>
+  </div>
+  <div id="conn"><span id="dot"></span><span id="ctext">—</span><span id="cdetail"></span></div>
+</header>
+<main>
+<section id="left">
+  <div class="tabs">
+    <button data-tab="ops" class="on">操作</button>
+    <button data-tab="flow">流程</button>
+    <button data-tab="cmds">指令管理</button>
+    <button data-tab="conn">連線設定</button>
+  </div>
+  <div class="pane" id="tab_ops"></div>
+  <div class="pane hide" id="tab_flow"></div>
+  <div class="pane hide" id="tab_cmds"></div>
+  <div class="pane hide" id="tab_conn"></div>
+</section>
+<section id="right">
+  <div class="card" id="moncard">
+    <div class="bar"><h2>參數監控</h2><span class="note" id="monnote"></span><span class="grow"></span>
+      <button class="s" onclick="post('monitor/clear')">清除監控</button></div>
+    <div id="monwrap"><table class="mon" id="mon"></table></div>
+  </div>
+  <div class="card" id="logcard">
+    <div class="bar"><h2>Log 監控</h2>
+      <label><input type="checkbox" class="lf" value="tx" checked>送出/回覆</label>
+      <label><input type="checkbox" class="lf" value="rx" checked>收到</label>
+      <label><input type="checkbox" class="lf" value="info" checked>資訊</label>
+      <label><input type="checkbox" class="lf" value="warn" checked>警告</label>
+      <label><input type="checkbox" class="lf" value="error" checked>錯誤</label>
+      <label><input type="checkbox" id="lf_hb">顯示心跳</label>
+      <input id="lsearch" placeholder="搜尋…" size="10">
+    </div>
+    <div class="bar"><span class="cnt" id="lcnt"></span><span class="grow"></span>
+      <button class="s" id="pausebtn" onclick="togglePause()">⏸ 暫停捲動</button>
+      <button class="s" onclick="clearLog()">清畫面</button>
+      <button class="s" onclick="location.href='/api/logfile'">⬇ 下載今日紀錄</button>
+      <button class="s" onclick="post('openlogdir')">📂 紀錄資料夾</button></div>
+    <div id="log"></div>
+    <div class="note" id="logpath"></div>
+  </div>
+</section>
+</main>
+<div id="toast"></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let cfg=null,cfgVer=-1,localIps=[],cfgPath='',mode='client',seq=0,monVer=-1,paused=false,dirty=false;
+let st={conn:{},flow:{},vars:{},monitor:{}};
+const logs=[],prevMon={},showAll={};
+let selCmd=null;
+
+/* ── 共用 ── */
+function toast(msg,bad){const t=$('toast');t.textContent=msg;t.className=bad?'bad':'';t.style.display='block';
+  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',bad?6000:2500)}
+async function post(p,body){
+  try{const r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+    const j=await r.json();if(j.ok===false&&j.error)toast(j.error,true);return j}
+  catch(e){toast('工具後端沒有回應（程式已關閉？）',true);return {ok:false}}}
+async function loadCfg(){const j=await (await fetch('/api/config')).json();
+  cfg=j.cfg;cfgVer=j.cfgVer;localIps=j.localIps||[];cfgPath=j.cfgPath;renderAll()}
+function editing(){const a=document.activeElement;return a&&$('left').contains(a)&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)}
+function renderAll(){if(editing()){dirty=true;return}dirty=false;renderOps();renderFlow();renderCmds();renderConn();renderMon(true)}
+document.addEventListener('focusout',()=>setTimeout(()=>{if(dirty&&!editing())renderAll()},50));
+const cmdOf=n=>cfg.commands.find(c=>c.name===n);
+const deb={};function debounce(k,fn,ms){clearTimeout(deb[k]);deb[k]=setTimeout(fn,ms||500)}
+function fmtDur(s){if(s==null)return '';const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+':':'')+String(m).padStart(2,'0')+':'+String(x).padStart(2,'0')}
+
+/* ── Tabs ── */
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['ops','flow','cmds','conn'].forEach(t=>$('tab_'+t).classList.toggle('hide',t!==b.dataset.tab))});
+
+/* ── 模式 / 連線指示 ── */
+async function setMode(m){if(m===mode)return;
+  if(st.flow.running&&!confirm('流程執行中，切換模式會停止流程並斷線，確定？'))return;
+  await post('mode',{mode:m});await loadCfg()}
+function renderHeader(){
+  $('m_client').classList.toggle('on',mode==='client');$('m_server').classList.toggle('on',mode==='server');
+  const c=st.conn||{},s=c.state;
+  $('dot').className={connected:'green',connecting:'yellow',reconnecting:'yellow',listening:'yellow',error:'red'}[s]||'gray';
+  let t=c.text||'';if(c.peer)t+='　'+c.peer;$('ctext').textContent=t;
+  const d=[];
+  if(s==='connected'&&c.uptime!=null)d.push('連線 '+fmtDur(c.uptime));
+  if(s==='listening'&&c.listen)d.push('上位機請連：'+c.listen);
+  if(c.lastTx)d.push((mode==='client'?'最後送出 ':'最後回覆 ')+c.lastTx);
+  if(c.lastRx)d.push('最後收到 '+c.lastRx);
+  if(mode==='client'&&c.hb)d.push('心跳 '+(c.hb.ok?'OK':'失敗')+' '+c.hb.t);
+  if(c.lastErr&&s!=='connected')d.push('原因：'+c.lastErr);
+  $('cdetail').textContent=d.join('　|　')}
+
+/* ── 操作 ── */
+function previewLine(c){const v=st.vars||{};
+  const p=c.params.map(x=>String(x).replace(/\{now\}/g,'(送出當下時間)').replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m));
+  return [c.name,...p].join('|')}
+function paramRows(c,kind){
+  const vals=kind==='reply'?c.reply.params:c.params, labs=kind==='reply'?c.replyLabels:c.labels;
+  let h='';
+  for(let i=0;i<9;i++){
+    if(!(showAll[c.name]||labs[i]&&!(kind==='reply'&&i===8&&c.reply.result==='OK')||vals[i]))continue;
+    h+=`<div class="row"><label class="l" title="${esc(labs[i])}">P${i+1} ${esc(labs[i])}</label>
+      <input class="g mono" data-cmd="${esc(c.name)}" data-kind="${kind}" data-i="${i}" value="${esc(vals[i])}"></div>`}
+  return h}
+function renderOps(){
+  const cl=mode==='client',v=st.vars||{};
+  let h=cl?`<div class="note">在這裡改參數會自動儲存；變數：<span class="mono">{now}</span> 送出當下時間、
+    <span class="mono">{shiftX}</span>=${esc(v.shiftX)}、<span class="mono">{shiftY}</span>=${esc(v.shiftY)}（上次 CHECK_ALIGN 回傳）、
+    <span class="mono">{round}</span> 流程輪次</div>`
+   :`<div class="note">Server 模式：上位機送來命令時，依下列設定自動回覆（改了自動儲存）。
+    變數：<span class="mono">{p1}</span>…<span class="mono">{p9}</span> 帶回收到的參數、<span class="mono">{now}</span> 當下時間。未定義的命令回 Error。</div>`;
+  for(const c of cfg.commands){
+    h+=`<div class="cmd"><div class="hd"><span class="nm">${esc(c.name)}</span>
+      <span class="badge ${c.spec?'':'x'}">${c.spec?'規格':'擴充/自訂'}</span>
+      ${cl?`<button onclick="sendCmd('${esc(c.name)}')" ${st.flow.running?'disabled':''}>送出</button>`:''}</div>
+      <div class="note">${esc(c.desc)}</div>`;
+    if(cl){h+=paramRows(c,'params')+`<div class="preview" id="pv_${esc(c.name)}">${esc(previewLine(c))}</div>`}
+    else{h+=`<div class="row"><label class="l">Result</label>
+      <select data-cmd="${esc(c.name)}" data-kind="result"><option ${c.reply.result==='OK'?'selected':''}>OK</option><option ${c.reply.result!=='OK'?'selected':''}>Error</option></select>
+      <label class="l" style="width:auto">延遲 ms</label><input size="6" data-cmd="${esc(c.name)}" data-kind="delay" value="${esc(c.reply.delayMs)}"></div>`+paramRows(c,'reply')}
+    h+=`<span class="link" onclick="showAll['${esc(c.name)}']=!showAll['${esc(c.name)}'];renderOps()">${showAll[c.name]?'只顯示有用的參數':'顯示全部 P1–P9'}</span></div>`}
+  if(cl)h+=`<div class="cmd"><div class="hd"><span class="nm">自訂原始字串</span></div>
+    <div class="row"><input id="raw" class="g mono" placeholder="CF_LOAD_RECIPE|R1|P1|2026-11-04-10-00-00||||||0">
+    <button onclick="sendRaw()">送出</button></div></div>`;
+  $('tab_ops').innerHTML=h;
+  $('tab_ops').querySelectorAll('[data-cmd]').forEach(el=>el.addEventListener('input',onParam));
+  const r=$('raw');if(r)r.addEventListener('keydown',e=>{if(e.key==='Enter')sendRaw()})}
+function onParam(e){
+  const el=e.target,c=cmdOf(el.dataset.cmd),k=el.dataset.kind;if(!c)return;
+  if(k==='params')c.params[+el.dataset.i]=el.value;
+  else if(k==='reply')c.reply.params[+el.dataset.i]=el.value;
+  else if(k==='result')c.reply.result=el.value;
+  else if(k==='delay')c.reply.delayMs=parseInt(el.value)||0;
+  const pv=$('pv_'+c.name);if(pv)pv.textContent=previewLine(c);
+  debounce('p_'+c.name,()=>post('command/save',{original:c.name,cmd:{name:c.name,params:c.params,reply:c.reply}}))}
+async function sendCmd(n){const c=cmdOf(n);clearTimeout(deb['p_'+n]);
+  await post('command/save',{original:n,cmd:{name:n,params:c.params,reply:c.reply}});
+  const r=await post('send',{name:n});if(r.extra&&r.extra.shiftX!==undefined)toast(`ShiftX=${r.extra.shiftX}  ShiftY=${r.extra.shiftY}（已更新 {shiftX}/{shiftY}）`)}
+function sendRaw(){const v=$('raw').value.trim();if(v)post('raw',{line:v})}
+
+/* ── 流程 ── */
+function renderFlow(){
+  const f=cfg.flow,fl=st.flow||{},cl=mode==='client';
+  let h=cl?'':'<div class="note" style="color:var(--warn)">流程只在 Client 模式使用（Server 模式由上位機主導）。</div>';
+  h+=`<div class="note">依 pptx「CF Command Flow (Alignment)」：LOAD_RECIPE → GRAB_START → CHECK_ALIGN → SET_ALIGN → GET_RESULT。可增刪、調順序。</div><ul class="steps">`;
+  f.steps.forEach((s,i)=>{h+=`<li class="${fl.running&&fl.step===s?'cur':''}"><b>${i+1}</b><span>${esc(s)}</span>
+    <button class="s" onclick="mvStep(${i},-1)" ${i?'':'disabled'}>↑</button><button class="s" onclick="mvStep(${i},1)" ${i<f.steps.length-1?'':'disabled'}>↓</button>
+    <button class="d" onclick="rmStep(${i})">✕</button></li>`});
+  h+=`</ul><div class="row"><select id="addstep" class="g">${cfg.commands.map(c=>`<option>${esc(c.name)}</option>`).join('')}</select>
+    <button class="s" onclick="addStep()">＋ 加入步驟</button><button class="s" onclick="resetSteps()">還原規格順序</button></div>
+    <div class="row"><label class="l">輪數</label><input id="f_rounds" size="5" value="${f.rounds}"><span class="note">0 = 連續跑到按停止</span></div>
+    <div class="row"><label class="l">步驟間隔 ms</label><input id="f_delay" size="7" value="${f.delayMs}"></div>
+    <div class="row"><label class="l">遇錯即停</label><input type="checkbox" id="f_stop" ${f.stopOnError?'checked':''}></div>
+    <div class="row"><button onclick="startFlow()" ${!cl||fl.running?'disabled':''}>▶ 開始流程</button>
+      <button class="d" onclick="post('flow/stop')" ${fl.running?'':'disabled'}>■ 停止</button></div>
+    <div class="note" id="flowst">${flowText()}</div>`;
+  $('tab_flow').innerHTML=h;
+  ['f_rounds','f_delay','f_stop'].forEach(id=>$(id).addEventListener('change',saveFlowOpts))}
+function flowText(){const fl=st.flow||{};
+  return (fl.running?`執行中：第 ${fl.round} 輪 · ${esc(fl.step)}`:'待命')+`　PASS ${fl.pass||0} / FAIL ${fl.fail||0}`}
+function saveFlow(){return post('settings',{flow:{steps:cfg.flow.steps}}).then(loadCfg)}
+function mvStep(i,d){const s=cfg.flow.steps;[s[i],s[i+d]]=[s[i+d],s[i]];saveFlow()}
+function rmStep(i){cfg.flow.steps.splice(i,1);saveFlow()}
+function addStep(){cfg.flow.steps.push($('addstep').value);saveFlow()}
+function resetSteps(){cfg.flow.steps=['CF_LOAD_RECIPE','CF_GRAB_START','CF_CHECK_ALIGN','CF_SET_ALIGN','CF_GET_RESULT'];saveFlow()}
+function saveFlowOpts(){return post('settings',{flow:{rounds:parseInt($('f_rounds').value)||0,delayMs:parseInt($('f_delay').value)||0,stopOnError:$('f_stop').checked}})}
+async function startFlow(){await saveFlowOpts();post('flow/start')}
+
+/* ── 指令管理 ── */
+function renderCmds(){
+  if(!selCmd||!cmdOf(selCmd))selCmd=cfg.commands[0]&&cfg.commands[0].name;
+  const c=cmdOf(selCmd);
+  let h=`<div class="row"><select id="c_list" size="8" class="g mono">${cfg.commands.map(x=>`<option ${x.name===selCmd?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+    <div class="row"><button class="s" onclick="newCmd()">＋ 新增指令</button>
+    <button class="d" onclick="delCmd()" ${c&&!c.builtin?'':'disabled'}>刪除</button><span style="flex:1"></span>
+    <button class="d" onclick="resetCmds()">還原預設指令</button></div>`;
+  if(c){
+    h+=`<hr><div class="row"><label class="l">指令名稱</label><input id="c_name" class="g mono" value="${esc(c.name)}" ${c.builtin?'readonly title="規格內建指令不能改名"':''}></div>
+      <div class="row"><label class="l">說明</label><input id="c_desc" class="g" value="${esc(c.desc)}"></div>
+      <div class="note" style="margin-top:6px"><b>Request 參數名稱</b>（上位機 → AOI，Param1..9）</div>`;
+    for(let i=0;i<9;i++)h+=`<div class="row"><label class="l">P${i+1}</label><input class="g c_lab" value="${esc(c.labels[i])}" placeholder="（未使用）"></div>`;
+    h+=`<div class="note" style="margin-top:6px"><b>Response 參數名稱</b>（AOI → 上位機，Param9 = Error Msg）</div>`;
+    for(let i=0;i<9;i++)h+=`<div class="row"><label class="l">P${i+1}</label><input class="g c_rlab" value="${esc(c.replyLabels[i])}" placeholder="（未使用）"></div>`;
+    h+=`<div class="row"><button onclick="saveCmd()">💾 儲存指令</button></div>
+      <div class="note">參數值在「操作」頁填寫；新指令會出現在操作頁、流程可加入、Server 模式也會依此回覆。</div>`}
+  $('tab_cmds').innerHTML=h;
+  $('c_list').onchange=e=>{selCmd=e.target.value;renderCmds()}}
+async function newCmd(){let n=prompt('新指令名稱（大寫英數與底線，例：CF_MY_CMD）','CF_');if(!n)return;n=n.trim().toUpperCase();
+  const r=await post('command/save',{cmd:{name:n,desc:'自訂指令'}});if(r.ok){selCmd=n;await loadCfg();toast('已新增 '+n)}}
+async function saveCmd(){const c=cmdOf(selCmd),n=$('c_name').value.trim().toUpperCase();
+  const r=await post('command/save',{original:c.name,cmd:{name:n,desc:$('c_desc').value,
+    labels:[...document.querySelectorAll('.c_lab')].map(x=>x.value),replyLabels:[...document.querySelectorAll('.c_rlab')].map(x=>x.value)}});
+  if(r.ok){selCmd=n;$('c_name').blur();await loadCfg();toast('已儲存 '+n)}}
+async function delCmd(){if(!confirm('刪除指令 '+selCmd+'？（流程中的此步驟也會移除）'))return;
+  const r=await post('command/delete',{name:selCmd});if(r.ok){selCmd=null;loadCfg()}}
+async function resetCmds(){if(!confirm('所有指令（含參數值、回覆設定、自訂指令）還原為預設？'))return;await post('command/reset');selCmd=null;loadCfg()}
+
+/* ── 連線設定 ── */
+function renderConn(){
+  const c=cfg.client,s=cfg.server,cs=st.conn.state;let h='';
+  if(mode==='client'){
+    h=`<div class="note">Client：本工具扮演<b>上位機</b>，連到 Control 的 UpstreamServer（預設 8787）。</div>
+    <div class="row"><label class="l">常用位址</label><select id="k_preset" class="g"><option value="">（選擇…）</option>
+      ${cfg.presets.map((p,i)=>`<option value="${i}">${esc(p.name)} — ${esc(p.host)}:${p.port}</option>`).join('')}</select></div>
+    <div class="row"><label class="l">Control IP</label><input id="k_host" class="g mono" value="${esc(c.host)}"></div>
+    <div class="row"><label class="l">Port</label><input id="k_port" size="7" class="mono" value="${c.port}"></div>
+    <div class="row"><button onclick="doConnect()">${cs==='connected'?'重新連線':'連線'}</button>
+      <button class="s" onclick="post('disconnect')">斷線</button>
+      <button class="s" onclick="addPreset()">存為常用</button><button class="d" onclick="delPreset()">刪除常用</button></div>
+    <hr>
+    <div class="row"><label class="l">回應逾時 秒</label><input id="k_to" size="6" value="${c.timeoutSec}"></div>
+    <div class="row"><label class="l">斷線自動重連</label><input type="checkbox" id="k_ar" ${c.autoReconnect?'checked':''}><span class="note">每 3 秒重試</span></div>
+    <div class="row"><label class="l">開啟時自動連線</label><input type="checkbox" id="k_ac" ${c.autoConnect?'checked':''}></div>
+    <div class="row"><label class="l">心跳間隔 秒</label><input id="k_hb" size="6" value="${c.heartbeatSec}"><span class="note">0 = 關閉；閒置滿 N 秒送一次</span></div>
+    <div class="row"><label class="l">心跳指令</label><select id="k_hbc" class="g">${cfg.commands.map(x=>`<option ${x.name===c.heartbeatCmd?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+    <div class="row"><button onclick="saveClient()">💾 套用設定</button></div>
+    <div class="note">連線燈：綠＝已連線、黃閃＝連線中/重連中、紅＝失敗/斷線、灰＝未連線。背景每 0.5 秒偵測對方是否關閉連線。</div>`}
+  else{
+    h=`<div class="note">Server：本工具扮演 <b>AOI 端</b>，讓真上位機（Controller）連進來，收到命令依「操作」頁設定回覆。
+      <br>⚠ 同一台若有 Control 也在聽 8787，請改用別的 port 或先關 Control。</div>
+    <div class="row"><label class="l">監聽位址</label><select id="k_bind" class="g mono">
+      ${['0.0.0.0',...localIps].map(ip=>`<option ${ip===s.bind?'selected':''}>${ip}</option>`).join('')}
+      ${['0.0.0.0',...localIps].includes(s.bind)?'':`<option selected>${esc(s.bind)}</option>`}</select></div>
+    <div class="row"><label class="l">Port</label><input id="k_sport" size="7" class="mono" value="${s.port}"></div>
+    <div class="row"><label class="l">開啟時自動監聽</label><input type="checkbox" id="k_as" ${s.autoStart?'checked':''}></div>
+    <div class="row"><button onclick="startServer()">${['listening','connected'].includes(cs)?'重新監聽':'開始監聽'}</button>
+      <button class="s" onclick="post('server/stop')">停止</button></div>
+    <div class="note">本機 IP：${localIps.map(esc).join('、')||'（查不到）'}　→ 上位機設定連 <span class="mono">&lt;本機 IP&gt;:${s.port}</span></div>`}
+  h+=`<hr><div class="note">設定檔：<span class="mono">${esc(cfgPath)}</span></div>`;
+  $('tab_conn').innerHTML=h;
+  const ps=$('k_preset');if(ps)ps.onchange=()=>{const p=cfg.presets[ps.value];if(p){$('k_host').value=p.host;$('k_port').value=p.port}}}
+function doConnect(){post('connect',{host:$('k_host').value.trim(),port:$('k_port').value.trim()}).then(loadCfg)}
+async function saveClient(){const r=await post('settings',{client:{host:$('k_host').value.trim(),port:$('k_port').value.trim(),
+  timeoutSec:$('k_to').value,autoReconnect:$('k_ar').checked,autoConnect:$('k_ac').checked,heartbeatSec:$('k_hb').value,heartbeatCmd:$('k_hbc').value}});
+  if(r.ok){toast('已套用');loadCfg()}}
+async function addPreset(){const host=$('k_host').value.trim(),port=$('k_port').value.trim();
+  const name=prompt('常用位址名稱',host);if(!name)return;
+  const r=await post('settings',{presets:[...cfg.presets,{name,host,port}]});if(r.ok)loadCfg()}
+async function delPreset(){const i=$('k_preset').value;if(i===''){toast('先在「常用位址」選一個',true);return}
+  const ps=cfg.presets.filter((_,j)=>j!=i);const r=await post('settings',{presets:ps});if(r.ok)loadCfg()}
+async function startServer(){await post('settings',{server:{autoStart:$('k_as').checked}});
+  post('server/start',{bind:$('k_bind').value,port:$('k_sport').value.trim()}).then(loadCfg)}
+
+/* ── 參數監控 ── */
+function renderMon(force){
+  if(!cfg)return;if(!force&&st.monVer===monVer)return;monVer=st.monVer;
+  const M=st.monitor||{},cl=mode==='client';
+  const order=[...cfg.commands.map(c=>c.name),...Object.keys(M).filter(k=>!cmdOf(k))].filter(k=>M[k]);
+  $('monnote').textContent=cl?'送出（Request）→ 收到（Response）':'收到（Request）→ 回覆（Response）';
+  let h=`<tr><th>指令</th><th>方向</th><th>時間</th><th>Cmd/Result</th>${[1,2,3,4,5,6,7,8,9].map(i=>`<th>P${i}</th>`).join('')}<th>ms</th></tr>`;
+  if(!order.length)h+=`<tr><td colspan="14" class="note" style="font-family:sans-serif">尚無收發。${cl?'在「操作」頁送出命令或跑流程':'等上位機連入送命令'}後，這裡會即時顯示每個指令最近一次的參數（有變動會亮黃）。</td></tr>`;
+  for(const k of order){
+    const m=M[k],c=cmdOf(k);
+    for(const part of ['req','resp']){
+      const r=m[part],labs=c?(part==='req'?c.labels:c.replyLabels):[];
+      h+=`<tr class="${part}">${part==='req'?`<td class="cmdc" rowspan="2">${esc(k)}<small>${m.n} 次</small></td>`:''}`;
+      if(!r){h+=`<td>${part==='req'?'送出':(cl?'收到':'回覆')}</td><td colspan="12" class="note">—</td></tr>`;continue}
+      const warn=(r.checks||[]).filter(x=>x[0]==='warn');
+      h+=`<td>${esc(r.dir)}${warn.length?` <span class="w" title="${esc(warn.map(x=>x[1]).join('\n'))}">⚠${warn.length}</span>`:''}</td><td>${esc(r.t)}</td>`;
+      for(let i=0;i<10;i++){
+        const v=r.fields[i]??'',key=k+'.'+part+'.'+i,chg=key in prevMon&&prevMon[key]!==v;prevMon[key]=v;
+        let cls=chg?'chg':'';
+        if(i===0&&part==='resp')cls+=v==='OK'?' okc':' badc';
+        const lab=i>0?(labs[i-1]||''):'';
+        h+=`<td class="${cls}" title="${esc(lab)}">${lab?`<small>${esc(lab)}</small>`:''}${esc(v)}</td>`}
+      h+=`<td>${r.ms??''}</td></tr>`}}
+  $('mon').innerHTML=h}
+
+/* ── Log ── */
+function passes(e){
+  const kinds=[...document.querySelectorAll('.lf')].filter(x=>x.checked).map(x=>x.value);
+  if(!kinds.includes(e.kind))return false;
+  if(e.hb&&!$('lf_hb').checked)return false;
+  const q=$('lsearch').value.trim().toLowerCase();
+  if(q&&!(e.text.toLowerCase().includes(q)||(e.cmd||'').toLowerCase().includes(q)))return false;
+  return true}
+function logEl(e){
+  const d=document.createElement('div');d.className='e';
+  const lab=e.label?`[${e.label}] `:'';
+  if(e.kind==='tx')d.innerHTML=`<span class="tx">${e.t} → ${lab}${esc(e.text)}${e.ms!=null?`  (${e.ms} ms)`:''}</span>`;
+  else if(e.kind==='rx'){const f=e.text.split('|');
+    d.innerHTML=`<span class="rx ${e.ok===false?'bad':''}">${e.t} ← ${lab}${esc(e.text)}${e.ms!=null?`  (${e.ms} ms)`:''}</span>`+
+    `<div class="fl">${f.map((x,i)=>x?`${i?'P'+i:(mode==='client'?'Result':'Cmd')}=${esc(x)}`:'').filter(Boolean).join('  ')}</div>`}
+  else d.innerHTML=`<span class="${e.kind}">${e.t} ${esc(e.text)}</span>`;
+  if(e.checks)d.innerHTML+=e.checks.map(c=>`<div class="chk ${c[0]}">${c[0]==='ok'?'✓':'⚠'} ${esc(c[1])}</div>`).join('');
+  return d}
+function addLogs(arr){
+  const L=$('log');let added=false;
+  for(const e of arr){logs.push(e);if(passes(e)){L.appendChild(logEl(e));added=true}}
+  if(logs.length>5000){logs.splice(0,logs.length-5000)}
+  while(L.childNodes.length>3000)L.removeChild(L.firstChild);
+  if(added&&!paused)L.scrollTop=L.scrollHeight;
+  updCnt()}
+function rerenderLog(){const L=$('log');L.innerHTML='';const f=document.createDocumentFragment();
+  logs.filter(passes).slice(-3000).forEach(e=>f.appendChild(logEl(e)));L.appendChild(f);if(!paused)L.scrollTop=L.scrollHeight}
+function updCnt(){const n=k=>logs.filter(e=>e.kind===k).length;
+  $('lcnt').textContent=`共 ${logs.length} 筆　送出/回覆 ${n('tx')}　收到 ${n('rx')}　警告 ${n('warn')+logs.filter(e=>(e.checks||[]).some(c=>c[0]==='warn')).length}　錯誤 ${n('error')}`}
+function togglePause(){paused=!paused;$('pausebtn').textContent=paused?'▶ 恢復捲動':'⏸ 暫停捲動';if(!paused)$('log').scrollTop=$('log').scrollHeight}
+function clearLog(){logs.length=0;$('log').innerHTML='';updCnt()}
+document.querySelectorAll('.lf').forEach(x=>x.onchange=rerenderLog);$('lf_hb').onchange=rerenderLog;
+$('lsearch').addEventListener('input',()=>debounce('ls',rerenderLog,250));
+
+/* ── 輪詢 ── */
+async function poll(){
+  try{
+    st=await (await fetch('/api/state?since='+seq)).json();
+    const modeChanged=st.mode!==mode;mode=st.mode;
+    if(st.log.length){addLogs(st.log);seq=st.log[st.log.length-1].seq+1}
+    if(st.cfgVer!==cfgVer||modeChanged)await loadCfg();
+    renderHeader();renderMon(false);
+    const fs=$('flowst');if(fs)fs.innerHTML=flowText();
+    if(st.flow.running!==poll._run||st.flow.step!==poll._step){poll._run=st.flow.running;poll._step=st.flow.step;if(!editing()){renderFlow();renderOps()}}
+    $('logpath').textContent='紀錄檔：'+st.logdir+'/YYYYMMDD.log';
+  }catch(e){$('dot').className='red';$('ctext').textContent='工具後端已關閉';$('cdetail').textContent='請重新從桌面圖示開啟'}
+  setTimeout(poll,400)}
+loadCfg().then(poll);
+</script>
+</body>
+</html>
