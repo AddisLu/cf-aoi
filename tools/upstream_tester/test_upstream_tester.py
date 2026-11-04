@@ -2,6 +2,7 @@
 """upstream_tester 自測（不需網路、不需真 Control）：
    python3 tools/upstream_tester/test_upstream_tester.py
 Client 模式對「模仿 Control UpstreamServer 回應格式的假 server」；Server 模式由測試扮演上位機連進來。"""
+import errno
 import os
 import socket
 import sys
@@ -269,6 +270,41 @@ def test_server_mode():
     e.stop_server()
     assert e.conn["state"] == "stopped"
     assert e.send("CF_READY")["ok"] is False                       # Server 模式不主動送
+
+
+def test_accept_survives_transient_error():
+    """accept() 丟暫時性 errno（上位機連進來又馬上斷）時，監聽必須活著繼續等下一台。
+    舊版 `except OSError: break` → accept 執行緒默默結束、listen socket 卻還開著：
+    上位機 TCP 連得上（核心自己完成握手、排進 accept queue），UI 永遠停在「等待上位機連入」
+    且 log 一行都沒有（2026-11-04 現場實際踩到，ss 看到 LISTEN Recv-Q 6 / Send-Q 5）。"""
+    e = engine("srv_transient")
+    e.set_mode("server")
+    port = free_port()
+    base = ut.socket.socket
+    fired = []
+
+    class Flaky(base):
+        def accept(self):
+            if not fired:
+                fired.append(1)
+                raise OSError(errno.ECONNABORTED, "Software caused connection abort")
+            return super().accept()
+
+    ut.socket.socket = Flaky
+    try:
+        assert e.start_server("127.0.0.1", port)[0]
+    finally:
+        ut.socket.socket = base
+    assert wait(lambda: bool(fired))                                # 確定真的踩到那個錯誤
+    s = socket.create_connection(("127.0.0.1", port), timeout=3)
+    f = s.makefile("rb")
+    assert wait(lambda: e.conn["state"] == "connected")             # 舊版會卡在 listening
+    s.sendall(b"CF_READY|||||||||\r\n")
+    assert f.readline().decode().rstrip("\r\n") == "OK|||||||||"
+    assert any("暫時性錯誤" in x["text"] for x in e.log.since(0))
+    f.close()
+    s.close()
+    e.stop_server()
 
 
 if __name__ == "__main__":

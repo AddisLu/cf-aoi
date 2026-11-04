@@ -25,6 +25,7 @@
 import argparse
 import copy
 import datetime as dt
+import errno
 import ipaddress
 import json
 import os
@@ -698,12 +699,26 @@ class Engine:
             self.log.add("info", "Server 停止監聽")
 
     def _accept_loop(self, ls, gen):
+        # 單一條連線出事（上位機連進來又馬上斷等）accept 會丟這些 errno：監聽本身還在，
+        # 只能略過重試。舊版一律 break → 執行緒默默結束，listen socket 卻還開著：
+        # 上位機 TCP 連得上（核心自己完成三次握手、排進 accept queue），UI 卻永遠停在
+        # 「等待上位機連入」，且沒有任何 log。2026-11-04 實際踩到。
+        transient = {errno.ECONNABORTED, errno.EINTR, errno.EAGAIN, errno.EWOULDBLOCK,
+                     errno.EPROTO, errno.ENOTCONN, errno.ETIMEDOUT, errno.ECONNRESET}
         while gen == self.srv_gen:
             try:
                 c, addr = ls.accept()
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as e:
+                if gen != self.srv_gen:
+                    break                                    # 停止監聽／換 port：正常收工
+                if getattr(e, "errno", None) in transient:
+                    self.log.add("warn", f"accept 暫時性錯誤，繼續等待：{e}")
+                    continue
+                err = f"accept 失敗，已停止接受連線：{e}"
+                self._set_conn("error", "監聽中斷", lastErr=err)
+                self.log.add("error", err + "（請按「重新監聽」）")
                 break
             if self.csock:
                 self.log.add("warn", f"新上位機 {addr[0]}:{addr[1]} 連入，關閉前一條連線（一次只服務一台）")
