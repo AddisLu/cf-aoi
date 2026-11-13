@@ -29,6 +29,19 @@ CAM_MAC='98:03:9B:06:CC:19'
 # 介面名而非 MAC：板載網口隨主機板固定（新機 = Intel I226 2.5G ×3，enp3s0 是其中一個）。
 CTRL_IF='enp3s0'
 CTRL_ADDRS='192.168.10.21/24'
+#
+# ── 下排 Grab 要改成這些（2026-11-13 定案；docs/lower_grab_setup.md）────────
+#   CAM_ADDRS='192.168.4.2/24,169.254.0.200/16'   18× L803K 經 iPORT（CCD38–CCD55 = .38–.55）
+#   RDMA_ADDRS='192.168.6.2/24'                   對端 spark-03 = 192.168.6.1（刻意與上排 3.x 分開）
+#   CTRL_ADDRS='192.168.10.22/24'                 控制網（spark-03 自己是 .12）
+#   RDMA_MAC / CAM_MAC                            下排是另一張 ConnectX-5，MAC 不同，務必改
+# 下排另需：/etc/default/cfaoi-grab 的 RDMA_DEST=192.168.6.1:18515、GRAB_EXTRA='--camera ebus'。
+# 下排的 spark-03 有自己的控制網 RJ45（.12），不必設「控制網經 Grab 轉送」的回程路由。
+#
+# ⚠️ 上排 Grab 的 cfaoi-rdma 另有一條手動加的路由（2026-11-13）：
+#    192.168.177.0/24 via 192.168.3.1 —— 遠端桌面經 spark-02 連 spark-03 的纜線路徑。
+#    bootstrap 只改 addresses/mtu/interface-name，不會動它；但連線若被整個刪掉重建就會遺失，
+#    屆時補：sudo nmcli con mod cfaoi-rdma +ipv4.routes "192.168.177.0/24 192.168.3.1"
 # ────────────────────────────────────────────────────────────────────────────
 
 DEB_DIRS=("$HOME/下載" "$HOME/下載/pylon" "$HOME/Downloads" "$HOME/Downloads/pylon")

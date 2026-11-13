@@ -60,7 +60,7 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 | **Spark 上排**（spark-02，`spark-3961`）| port0 `enp1s0f0np0`（`cf-rdma`）| 192.168.3.1/24 + 回程路由 192.168.10.0/24 via 192.168.3.2 | Grab f0 | **固定** |
 | | port1 `enp1s0f1np1` / `enP2p1s0f1np1` | 177.x / 178.x | spark-03（Spark↔Spark，Loop 雙機）| **固定** |
 | **Spark 下排**（spark-03，`spark-010f`）| RJ45 `enP7s7`（NM `cf-ctrl`）| **192.168.10.12/24**，不設閘道（2026-10-13 已設定；**fab 接線：經控制網交換器**接 Control/Grab，目前未接）| 控制網交換器 | 交換器任一埠 |
-| | port0 | 下排 RDMA（待定）| 下排 Grab | **固定** |
+| | port0 | **192.168.6.1/24**，MTU 9000（下排 RDMA，2026-11-13 定案；刻意與上排 192.168.3.x 分開，避免日後兩組經 177 網段互通時撞段）| 下排 Grab `192.168.6.2` | **固定** |
 | | port1 | 177.x / 178.x | spark-02 | **固定** |
 | **相機** CCD01–CCD37（raL8192）| — | 192.168.5.**nn**（nn = CCD 編號，存在相機內）| 交換機任一 1G 埠 | **不固定**（身分存在相機本身）|
 | 交換機 console | USB `/dev/ttyUSB0` | 9600 8N1 | 5945 aux | — |
@@ -73,7 +73,10 @@ GRAB（Linux x86）         IP（Linux RTX2080 開發 / DGX Spark 生產）
 - **進 fab 前準備**：[fab_move_checklist.md](fab_move_checklist.md)；**商業化（線上人員只碰 Control）**：[commercial_deploy_plan.md](commercial_deploy_plan.md)。
 - **下方陣列（18 × L803K 經 Pleora iPORT，另一組 交換機/Grab/Spark）**：CCD38–CCD55，iPORT persistent IP
   **192.168.4.nn**（尾碼 = 編號；`grab/build/iport_provision set <SN> CCDnn` 寫入），Grab 相機網卡需有 192.168.4.x
-  （現行 192.168.4.2）；Grab 以 `GRAB_EXTRA=--camera ebus` 啟動。控制網建議 .12（Spark）/.22（Grab）。
+  （現行 192.168.4.2）；Grab 以 `GRAB_EXTRA=--camera ebus` 啟動。控制網 .12（Spark）/.22（Grab）。
+  **RDMA 直連 `192.168.6.0/24`**（Grab `.2` ↔ spark-03 `.1`，MTU 9000，2026-11-13 定案）→
+  下排 `/etc/default/cfaoi-grab` 的 `RDMA_DEST=192.168.6.1:18515`。spark-03 自己有控制網 RJ45（`.12`），
+  **不需要**像上排那樣設「控制網經 Grab 轉送」的回程路由。架設步驟見 [lower_grab_setup.md](lower_grab_setup.md)。
 - **機台資料夾 `/srv/cfaoi`（Grab，2026-10-05）**：相關軟體、機台 log、參考資料、測試說明、defect 小圖、原始圖、
   參數快照、每日摘要的**唯一固定位置**；`cfaoi-archive.timer` 每 10 分鐘從本機與 Spark（經 192.168.3.1）歸檔。
   夾別與命名規則：[tools/archive/README_CFAOI_HOME.md](../tools/archive/README_CFAOI_HOME.md)（安裝後即 `/srv/cfaoi/README.md`）。
