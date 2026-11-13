@@ -105,22 +105,64 @@ CTRL_ADDRS='192.168.10.21/24'   # ← 下 Grab 規劃是 .22
 
 ---
 
-## 6. ⚠️ 複製前先處理：repo 有未提交的變更
+## 6. ✅ 複製前要先 push（2026-11-13 已處理）
+
+下 Grab 是用 `git clone` 取得程式碼，**上 Grab 本機沒 push 的東西它一律拿不到**。
+
+2026-11-13 清掉的那一批（原本 `origin/main` 落後 5 筆，其中 11/4 那三筆讓
+`tools/upstream_tester/` **整個目錄**在遠端不存在）：
 
 ```
- M tools/upstream_tester/README.md
- M tools/upstream_tester/test_upstream_tester.py
- M tools/upstream_tester/upstream_tester.py
-?? docs/troubleshooting/cases/20261104_other_upstream_xml_frame.md
-?? docs/troubleshooting/cases/20261104_smb_hosts_allow_blocks_windows.md
-?? tools/share/
+785e6f1  docs: 下 Grab 架設清單 + 上 Grab 現況快照
+11e10f5  tools/share: Samba 共用資料夾一鍵建置
+efe3ea5  tools/upstream_tester: Server 模式自動判斷 XML 框格式
+8dce1af  tools/upstream_tester: 修 accept 執行緒被殺掉
+4a65b15  tools/upstream_tester: 上位機對測工具完整版 + 一鍵安裝
+1f7faa5  tools/upstream_tester: Grab 桌面上位機對測工具
 ```
 
-**下 Grab `git clone` 不會拿到這些。** 先 commit + push，否則上位機對測工具會是舊版。
+> 之後每次要從上 Grab 複製到別台前，先 `git status` + `git log origin/main..HEAD` 確認兩者都是空的。
+> （`docs/CLAUDE.md` §10：在 remote 改了 code 就立刻 commit+push，否則視為拋棄。）
 
 ---
 
-## 7. 建議順序
+## 7. IP 位址總表（對應 KVM 接線架構圖的預留欄位）
+
+> 圖：`LCDG85_CF_AOI_KVM_editable.pptx`「LCD G8.5 CF AOI | KVM 接線架構」。
+> ✅ = 實機確認或已定案；⚠️ = 待定。
+
+| 架構圖位置 | 位址 | 狀態 |
+|---|---|---|
+| **Control**（Windows，= 上位機同機）| `192.168.10.1/24`＋持久路由 `route -p add 192.168.3.0 mask 255.255.255.0 192.168.10.21`（不設預設閘道）| ✅ |
+| **Grab(上)** 控制網 `enp3s0` | `192.168.10.21/24` | ✅ |
+| **Grab(上)** → IP(上)，100G `enp1s0f0np0` | `192.168.3.2/24`，MTU 9000 | ✅ |
+| **Grab(上)** → Switch(上)，100G `enp1s0f1np1` | `192.168.5.200/24` + `169.254.0.200/16` + `192.168.4.2/24`，MTU 9000 | ✅ |
+| **Switch(上)** | HPE 5945，Grab 接 `HGE1/0/25`；48 個 25G 埠已全部預設 1G；console `/dev/ttyUSB0` 9600 8N1 | ✅ |
+| **IP(上)** = spark-02（`spark-3961`）port0 | `192.168.3.1/24`＋回程路由 `192.168.10.0/24 via 192.168.3.2` | ✅ |
+| **IP(上)** ↔ **IP(下)** port1 | `192.168.177.12` / `192.168.178.12`，MTU 9000 | ✅ |
+| **Camera 01–37**（Basler raL8192）| **CCD01–CCD37** → `192.168.5.nn`（nn = 編號，存在相機 flash）| ✅ |
+| **Grab(下)** 控制網 | `192.168.10.22/24` | ✅ |
+| **Grab(下)** → IP(下)，100G | **⚠️ 待定** — 建議不要也用 `192.168.3.x`（見 §3） | ⚠️ |
+| **Grab(下)** → Switch(下)，100G | iPORT 網段，本機位址比照上排用 `.2`（例：`192.168.4.2/24`）| ✅ |
+| **IP(下)** = spark-03（`spark-010f`）控制網 `enP7s7` | `192.168.10.12/24`，不設閘道 | ✅ |
+| **IP(下)** port0 | **⚠️ 待定**（同 Grab(下) 的 RDMA 網段，對端）| ⚠️ |
+| **IP(下)** ↔ **IP(上)** port1 | `192.168.177.13` / `192.168.178.13`，MTU 9000 | ✅ |
+| **Camera 01–18**（L803K 經 iPORT）| **CCD38–CCD55** → `192.168.4.38`–`192.168.4.55` | ✅ 2026-11-13 定案 |
+
+**服務埠**：上位機→Control `8787`；Control→Grab `8100`、→IP `8200`；Grab→IP RDMA `18515`；節點代理 `8300`。
+
+> ⚠️ **架構圖的下側相機標示要改**：圖上寫 `Camera 01–18`，實際編號是 **CCD38–CCD55**（接在上排 37 顆之後連號）。
+> 這不只是標示問題——iPORT 的 persistent IP 是 `192.168.4.nn`、**nn = 編號**，照圖上的 01–18 會寫成
+> `192.168.4.1–18`，和定案的 `.38–.55` 差一整段，而且 `iport_provision set <SN> CCDnn` 寫進硬體後不好改。
+> 程式端已經是這個規則：`provision.default_ip('iport', 38) == '192.168.4.38'`（`tools/cam_align/test_offline.py`）。
+
+> ⚠️ **佈建 CCD53 / CCD54 時注意**：現在台架上那兩顆測試用 iPORT 位址是 `192.168.4.53` / `.54`
+> （`tools/cam_align/l800_serial.py`、`bisect_serial.py` 的範例位址）。正式佈建到這兩號時，
+> 要先把舊的那顆重新佈建或斷電，否則會短暫撞 IP。`provision.check_conflicts()` 會擋下撞名/撞號。
+
+---
+
+## 8. 建議順序
 
 1. 上 Grab：commit + push（第 6 節）
 2. 下 Grab：複製安裝檔（第 1 節）＋ SSH key
