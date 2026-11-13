@@ -411,6 +411,7 @@ static_assert(sizeof(FrameHeader)==256,"");
 | 質疑或更新某個 L3/L4 結論 | `docs/verification/*.md` 實機數據報告 |
 | 實際編輯 code | 對應的 `ip/grab/control/tools/src` 真實源碼 |
 | 6 相機到貨架設 / 到貨日檢查單 | `docs/6cam_setup_runbook.md`（實機踩坑固化）|
+| **架設下 Grab（複製上 Grab）** | `docs/lower_grab_setup.md`（安裝檔 / 本地檔 / bootstrap 要改的 MAC 與 IP）+ `docs/verification/machine_state_upper_grab_20261113.txt`（上 Grab 快照）|
 | SUB/融合管線背景與驗收 | `docs/SUB_pipeline_port_plan.md` + `docs/SUB_pipeline_verification_20260623.html` |
 | 架構層審計 / 產能決策 | `docs/architecture_audit_20260712.md` + `docs/verification/capacity_2spark_checklist.md` |
 | **想知道「現在做到哪、下一步做什麼」** | **`docs/DASHBOARD.md`**（`scripts/gen_dashboard.py` 生成的一頁表：未修缺陷數／P0 清單／最近變動／規模。**不要手改，重跑腳本**）|
