@@ -37,8 +37,10 @@ import sys
 import threading
 import time
 import webbrowser
+import xml.etree.ElementTree as ET
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from xml.sax.saxutils import escape as xml_escape
 from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -117,6 +119,33 @@ def build_line(head, params):
     p = [str(x) for x in params][:9]
     p += [""] * (9 - len(p))
     return "|".join([head] + p)
+
+
+# ── XML 框格式（AUO SubSystemControl.dll，2012）──────────────────────────────
+# 真上位機走的是 XML，不是規格書上的 `CF_X|p1|…|p9\r\n`：
+#   <Request><Command>CF_LOAD_RECIPE</Command><Param1>…</Param1>…<Param9>…</Param9></Request>
+# **沒有任何結尾字元**（不送 \r\n、不送 \0），收端要自己找 </Request> 當邊界。
+# 元素名取自 SubSystemControl.dll 的字串表：Request/Command/Param1..9/Response/Result。
+XML_REQ_END = b"</Request>"
+
+
+def parse_xml_request(frame):
+    """一個完整的 <Request>…</Request> → (cmd, [p1..p9])；看不懂回 None。"""
+    try:
+        root = ET.fromstring(frame)
+    except ET.ParseError:
+        return None
+    if root.tag != "Request":
+        return None
+    cmd = (root.findtext("Command") or "").strip()
+    return cmd, [(root.findtext(f"Param{i}") or "") for i in range(1, 10)]
+
+
+def build_xml_response(result, params):
+    """<Response><Result>OK</Result><Param1>…</Param1>…<Param9>…</Param9></Response>（同樣不加結尾字元）。"""
+    p = ([str(x) for x in params] + E9)[:9]
+    body = "".join(f"<Param{i + 1}>{xml_escape(v)}</Param{i + 1}>" for i, v in enumerate(p))
+    return f"<Response><Result>{xml_escape(str(result))}</Result>{body}</Response>"
 
 
 def pad10(fields):
@@ -254,6 +283,11 @@ class Log:
 
     def since(self, n):
         with self.lock:
+            if n > self.next:
+                # 用戶端游標比我們還前面 = 程式重啟過（seq 從 0 重來）。
+                # 舊版在這裡回空陣列 → 沒重新整理的分頁 Log 監控永遠停在「共 0 筆」，
+                # 但頂端連線狀態與參數監控照常更新，看起來像「連上了卻沒有 log」。
+                return list(self.items)
             return [e for e in self.items if e["seq"] >= n]
 
 
@@ -664,18 +698,33 @@ class Engine:
         with self.mu:
             self.cfg["server"]["bind"], self.cfg["server"]["port"] = bind, int(port)
         self.save_cfg()
-        try:
-            ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            ls.bind((bind, int(port)))
-            ls.listen(5)
-            ls.settimeout(0.5)
-        except OSError as e:
-            err = f"無法監聽 {bind}:{port}：{e}" + ("（port 被占用？同機的 Control 是否也在聽 8787？）"
-                                                   if getattr(e, "errno", 0) == 98 else "")
-            self._set_conn("error", "監聽失敗", lastErr=err)
-            self.log.add("error", err)
-            return False, err
+        # 上面剛 stop_server() 關掉舊的 listen socket，但 accept 執行緒可能還卡在 accept() 裡，
+        # 核心要等它返回才真正釋放 port → 立刻重 bind 會拿到 EADDRINUSE。
+        # 舊版在這裡直接失敗，於是「重新監聽」按一下就變成完全沒在監聽（2026-11-04 踩到）。
+        ls = None
+        for attempt in range(6):
+            try:
+                ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                ls.bind((bind, int(port)))
+                ls.listen(5)
+                ls.settimeout(0.5)
+                break
+            except OSError as e:
+                if ls is not None:
+                    try:
+                        ls.close()
+                    except OSError:
+                        pass
+                    ls = None
+                if getattr(e, "errno", 0) == errno.EADDRINUSE and attempt < 5:
+                    time.sleep(0.2)                      # 等舊的 socket 真的放掉
+                    continue
+                err = f"無法監聽 {bind}:{port}：{e}" + ("（port 被占用？同機的 Control 是否也在聽 8787？）"
+                                                       if getattr(e, "errno", 0) == errno.EADDRINUSE else "")
+                self._set_conn("error", "監聽失敗", lastErr=err)
+                self.log.add("error", err)
+                return False, err
         self.lsock = ls
         self.srv_gen += 1
         ips = ", ".join(f"{ip}:{port}" for ip in local_ips()) or f"{bind}:{port}"
@@ -735,21 +784,47 @@ class Engine:
     def _serve_client(self, c, addr, gen):
         buf = b""
         reason = "上位機關閉連線"
+        c.settimeout(1.0)
+        pending, warned = None, False          # 收到半截的時間 / 是否已提醒過
+        xmlmode = None                         # None=還沒看出來，True=XML 框，False=文字行
         try:
             while gen == self.srv_gen:
                 try:
                     d = c.recv(4096)
+                except socket.timeout:
+                    if buf and not warned and time.monotonic() - pending > 2:
+                        want = "完整的 </Request>" if xmlmode else "換行結尾（CF_ 命令要以 \\r\\n 收尾）"
+                        self.log.add("warn", f"收到 {len(buf)} bytes 但一直沒有{want}：{buf[:400]!r}")
+                        warned = True
+                    continue
                 except OSError as e:
                     reason = str(e)
                     break
                 if not d:
                     break
                 buf += d
-                while b"\n" in buf:
-                    raw, buf = buf.split(b"\n", 1)
-                    line = raw.decode("utf-8", "replace").rstrip("\r")
-                    if line.strip():
-                        self._handle_request(c, line)
+                if xmlmode is None and buf.lstrip():
+                    xmlmode = buf.lstrip().startswith(b"<")
+                    if xmlmode:
+                        self.log.add("info", "對方走 XML 框格式（<Request>…</Request>，無結尾字元）→ 自動切換")
+                if xmlmode:
+                    while True:
+                        i = buf.find(XML_REQ_END)
+                        if i < 0:
+                            break
+                        frame, buf = buf[:i + len(XML_REQ_END)].strip(), buf[i + len(XML_REQ_END):]
+                        self._handle_xml_request(c, frame)
+                else:
+                    while b"\n" in buf:
+                        raw, buf = buf.split(b"\n", 1)
+                        line = raw.decode("utf-8", "replace").rstrip("\r")
+                        if line.strip():
+                            self._handle_request(c, line)
+                if buf.strip():
+                    if pending is None:
+                        pending = time.monotonic()
+                else:
+                    pending, warned = None, False
         finally:
             if self.csock is c:
                 self.csock = None
@@ -761,14 +836,24 @@ class Engine:
                     self._set_conn("listening", "等待上位機連入", peer="", since=None)
                     self.log.add("warn", f"上位機 {addr[0]}:{addr[1]} 斷線：{reason}")
 
-    def _handle_request(self, c, line):
+    def _handle_xml_request(self, c, frame):
+        """真上位機（SubSystemControl.dll）送來的 <Request>…</Request>。"""
+        got = parse_xml_request(frame)
+        if got is None:
+            self.log.add("error", f"XML 解析失敗（不是看得懂的 <Request>）：{frame[:400]!r}")
+            return
+        cmd, params = got
+        self._handle_request(c, build_line(cmd, params), xml=True,
+                             raw=frame.decode("utf-8", "replace"))
+
+    def _handle_request(self, c, line, xml=False, raw=None):
         t0 = time.monotonic()
         f = line.split("|")
         cmd = f[0].strip().upper()
         known = [x["name"] for x in self.cfg["commands"]]
         checks = check_request(cmd, line, known)
         self._set_conn(self.conn["state"], self.conn["text"], lastRx=ts())
-        self.log.add("rx", line, cmd=cmd, checks=checks, label="收到")
+        self.log.add("rx", raw or line, cmd=cmd, checks=checks, label="收到")
         self._mon(cmd, "req", f, dir="收到", checks=checks)
         d = self.find_cmd(cmd)
         if d is None:
@@ -783,16 +868,17 @@ class Engine:
             delay = int(rp.get("delayMs") or 0)
         if delay > 0:
             time.sleep(delay / 1000)
-        resp = build_line(result, params)
+        resp = build_xml_response(result, params) if xml else build_line(result, params)
         try:
-            c.sendall((resp + "\r\n").encode("utf-8"))
+            c.sendall(resp.encode("utf-8") if xml else (resp + "\r\n").encode("utf-8"))
         except OSError as e:
             self.log.add("error", f"回覆 {cmd} 失敗：{e}")
             return
         ms = int((time.monotonic() - t0) * 1000)
         self._set_conn(self.conn["state"], self.conn["text"], lastTx=ts())
         self.log.add("tx", resp, cmd=cmd, ms=ms, ok=result == "OK", label="回覆")
-        self._mon(cmd, "resp", resp.split("|"), dir="回覆", ms=ms, ok=result == "OK")
+        self._mon(cmd, "resp", ([result] + params) if xml else resp.split("|"),
+                  dir="回覆", ms=ms, ok=result == "OK")
 
     # ── 指令管理 ──
     def save_command(self, data, original=None):

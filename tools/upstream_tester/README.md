@@ -111,6 +111,23 @@ python3 tools/upstream_tester/test_upstream_tester.py                         # 
 
 ---
 
+## 兩種線上框格式（Server 模式自動判斷）
+
+| 來源 | 框格式 | 結尾 |
+|---|---|---|
+| 規格書 / 我們的 Control `UpstreamServer.cs` | `CF_LOAD_RECIPE\|p1\|…\|p9` | `\r\n` |
+| **真上位機（AUO `SubSystemControl.dll`, 2012）** | `<Request><Command>CF_LOAD_RECIPE</Command><Param1>…</Param1>…<Param9>…</Param9></Request>` | **沒有任何結尾字元** |
+
+真上位機走的是 XML，**不是**規格書上的 `\|` 分隔文字（2026-11-04 實測，見
+[案例](../../docs/troubleshooting/cases/20261104_other_upstream_xml_frame.md)）。
+工具在 Server 模式會看第一個位元組自動判斷：`<` 開頭就走 XML（以 `</Request>` 當邊界），
+回覆用 `<Response><Result>OK</Result><Param1>…</Param1>…</Response>`，同樣不加結尾字元。
+log 會先印一行「對方走 XML 框格式 → 自動切換」，收發都顯示原始內容。
+
+> Client 模式仍送 `\|` 分隔文字，因為它的對象是我們自己的 Control。
+
+---
+
 ## 卡住時怎麼查
 
 **症狀：上位機那端顯示「已連線」，但工具頂端一直是黃色「等待上位機連入」。**

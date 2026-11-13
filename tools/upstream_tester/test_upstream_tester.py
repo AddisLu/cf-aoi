@@ -307,6 +307,108 @@ def test_accept_survives_transient_error():
     e.stop_server()
 
 
+def test_log_resync_after_restart():
+    """程式重啟後 log 的 seq 從 0 重來，但沒重新整理的分頁游標還停在舊的高位。
+    since() 必須察覺「游標比我們前面」並整份重送，否則 Log 監控永遠「共 0 筆」，
+    而頂端連線狀態與參數監控照常更新 → 看起來像「連上了卻沒有 log」（2026-11-04 現場）。"""
+    e = engine("log_resync")
+    e.log.add("info", "A")
+    e.log.add("info", "B")
+    assert len(e.log.since(0)) == 2
+    assert len(e.log.since(1)) == 1
+    assert e.log.since(2) == []                       # 已追上 → 沒有新的
+    assert len(e.log.since(99)) == 2                  # 游標比我們前面 = 重啟過 → 整份重送
+
+
+def test_partial_line_warns():
+    """上位機送了東西卻沒有 \r\n 收尾時，要在 log 講出來並把原始位元組秀出來，
+    否則對測時只會看到「我送了但對方沒反應」，查不出是框格式問題。"""
+    e = engine("partial")
+    e.set_mode("server")
+    port = free_port()
+    assert e.start_server("127.0.0.1", port)[0]
+    s = socket.create_connection(("127.0.0.1", port), timeout=3)
+    assert wait(lambda: e.conn["state"] == "connected")
+    s.sendall(b"CF_READY|||||||||")                   # 故意不送 \r\n
+    assert wait(lambda: any("沒有換行結尾" in x["text"] for x in e.log.since(0)), sec=8)
+    assert not any(x["kind"] == "rx" for x in e.log.since(0))   # 沒收尾就不該當成一條命令
+    s.close()
+    e.stop_server()
+
+
+
+def test_relisten_in_a_row():
+    """連著按「重新監聽」：stop_server 剛關掉舊 listen socket，accept 執行緒可能還卡在 accept() 裡，
+    核心要等它返回才釋放 port → 立刻重 bind 會 EADDRINUSE。舊版直接失敗 = 變成完全沒在監聽
+    （2026-11-04 重啟工具時實際踩到：log 先「Server 監聽」、10 秒後「Address already in use」）。"""
+    e = engine("relisten")
+    e.set_mode("server")
+    port = free_port()
+    for i in range(5):
+        ok, msg = e.start_server("127.0.0.1", port)
+        assert ok, f"第 {i + 1} 次重新監聽失敗：{msg}"
+        assert e.conn["state"] == "listening"
+    s = socket.create_connection(("127.0.0.1", port), timeout=3)
+    assert wait(lambda: e.conn["state"] == "connected")      # 最後一次監聽必須真的能服務
+    s.close()
+    e.stop_server()
+
+
+
+# 2026-11-04 現場從真上位機（192.168.1.135）收到的原始位元組，原封保留當測資。
+REAL_XML_REQ = (b"<Request><Command>CF_LOAD_RECIPE</Command><Param1>T546HW02</Param1>"
+                b"<Param2>Z55H187C6</Param2><Param3>2026-10-16-15-04-00</Param3>"
+                b"<Param4></Param4><Param5></Param5><Param6></Param6><Param7></Param7>"
+                b"<Param8></Param8><Param9></Param9></Request>")
+EXPECT_XML_RESP = ("<Response><Result>OK</Result>"
+                   + "".join(f"<Param{i}></Param{i}>" for i in range(1, 10))
+                   + "</Response>")
+
+
+def test_xml_frame_from_real_upstream():
+    """真上位機（AUO SubSystemControl.dll 2012）走 XML 框，而且**不送任何結尾字元** —
+    不是規格書寫的 `CF_X|p1|…|p9\r\n`。收端要自己找 </Request> 當邊界，
+    否則命令永遠湊不成一行、工具不回應，上位機等到逾時就 reset（現場症狀）。"""
+    assert len(REAL_XML_REQ) == 241                      # 與現場 log 的「收到 241 bytes」一致
+    e = engine("xml_srv")
+    e.set_mode("server")
+    port = free_port()
+    assert e.start_server("127.0.0.1", port)[0]
+    s = socket.create_connection(("127.0.0.1", port), timeout=3)
+    assert wait(lambda: e.conn["state"] == "connected")
+    s.settimeout(5)
+    s.sendall(REAL_XML_REQ)
+    assert s.recv(4096).decode() == EXPECT_XML_RESP
+    m = e.monitor["CF_LOAD_RECIPE"]                      # 參數要真的解析出來（監控表看得到）
+    assert m["req"]["fields"][1] == "T546HW02"
+    assert m["req"]["fields"][3] == "2026-10-16-15-04-00"
+    assert any(x["kind"] == "rx" and x["text"].startswith("<Request>") for x in e.log.since(0))
+
+    s.sendall(REAL_XML_REQ + REAL_XML_REQ)               # 兩個 frame 黏在同一段 TCP 也要拆得開
+    got = b""
+    end = time.time() + 5
+    while len(got) < len(EXPECT_XML_RESP) * 2 and time.time() < end:
+        got += s.recv(4096)
+    assert got.decode() == EXPECT_XML_RESP * 2
+    s.close()
+    e.stop_server()
+
+
+def test_xml_bad_frame_is_reported():
+    """看不懂的 XML 要講出來並印原始位元組，不能默默吞掉。"""
+    e = engine("xml_bad")
+    e.set_mode("server")
+    port = free_port()
+    assert e.start_server("127.0.0.1", port)[0]
+    s = socket.create_connection(("127.0.0.1", port), timeout=3)
+    assert wait(lambda: e.conn["state"] == "connected")
+    s.sendall(b"<Request><Command>CF_READY</Command></Reques</Request>")
+    assert wait(lambda: any("XML 解析失敗" in x["text"] for x in e.log.since(0)))
+    s.close()
+    e.stop_server()
+
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
